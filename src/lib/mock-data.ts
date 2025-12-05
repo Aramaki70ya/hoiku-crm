@@ -587,36 +587,54 @@ export const kpiAssumptions = {
   revenuePerClosed: 600000, // 成約者一人当たりの単価 60万円
 }
 
-// 日次進捗推移データ（ダッシュボード用）
-export interface DailyProgress {
-  date: string
-  sales: number // 累計売上
-  yomiA: number // Aヨミ累計
-  yomiB: number // Bヨミ累計
-  target: number // 目標ライン
+// 優先度ラベル
+export const priorityLabels: Record<string, string> = {
+  S: '最優先',
+  A: '高',
+  B: '中',
+  C: '低',
 }
 
-// 11月の日次進捗データ（モック）
-export const mockDailyProgress: DailyProgress[] = [
-  { date: '2025-11-01', sales: 0, yomiA: 0, yomiB: 0, target: 967000 },
-  { date: '2025-11-04', sales: 0, yomiA: 200000, yomiB: 100000, target: 3867000 },
-  { date: '2025-11-05', sales: 0, yomiA: 400000, yomiB: 200000, target: 4833000 },
-  { date: '2025-11-06', sales: 0, yomiA: 500000, yomiB: 300000, target: 5800000 },
-  { date: '2025-11-07', sales: 0, yomiA: 600000, yomiB: 400000, target: 6767000 },
-  { date: '2025-11-08', sales: 550000, yomiA: 600000, yomiB: 400000, target: 7733000 },
-  { date: '2025-11-11', sales: 550000, yomiA: 700000, yomiB: 500000, target: 10633000 },
-  { date: '2025-11-12', sales: 550000, yomiA: 800000, yomiB: 600000, target: 11600000 },
-  { date: '2025-11-13', sales: 550000, yomiA: 900000, yomiB: 700000, target: 12567000 },
-  { date: '2025-11-14', sales: 550000, yomiA: 1000000, yomiB: 800000, target: 13533000 },
-  { date: '2025-11-15', sales: 1150000, yomiA: 1000000, yomiB: 800000, target: 14500000 },
-  { date: '2025-11-18', sales: 1150000, yomiA: 1000000, yomiB: 900000, target: 17400000 },
-  { date: '2025-11-19', sales: 1150000, yomiA: 1100000, yomiB: 900000, target: 18367000 },
-  { date: '2025-11-20', sales: 1800000, yomiA: 1100000, yomiB: 900000, target: 19333000 },
-  { date: '2025-11-21', sales: 1800000, yomiA: 1100000, yomiB: 1000000, target: 20300000 },
-  { date: '2025-11-22', sales: 1800000, yomiA: 1100000, yomiB: 1100000, target: 21267000 },
-  { date: '2025-11-25', sales: 2800000, yomiA: 1100000, yomiB: 1100000, target: 24167000 },
-  { date: '2025-11-26', sales: 2800000, yomiA: 1100000, yomiB: 1100000, target: 25133000 },
-  { date: '2025-11-27', sales: 2800000, yomiA: 1100000, yomiB: 1100000, target: 26100000 },
-  { date: '2025-11-28', sales: 2800000, yomiA: 1100000, yomiB: 1100000, target: 27067000 },
-  { date: '2025-11-29', sales: 2800000, yomiA: 1100000, yomiB: 1100000, target: 29000000 },
+export const priorityColors: Record<string, string> = {
+  S: 'bg-rose-100 text-rose-700 border-rose-200',
+  A: 'bg-orange-100 text-orange-700 border-orange-200',
+  B: 'bg-blue-100 text-blue-700 border-blue-200',
+  C: 'bg-slate-100 text-slate-700 border-slate-200',
+}
+
+// 登録経路による優先度自動判定ルール
+export const sourcePriorityRules: Record<string, string> = {
+  '1': 'S', // LINE → S
+  '2': 'A', // バイトル → A
+  '3': 'A', // 求人版 → A
+  '4': 'B', // スタンバイ → B
+  '5': 'B', // グーグル → B
+  '6': 'A', // ジョブカン → A
+  '7': 'B', // Q-mate → B
+  '8': 'S', // 個人掘起こし → S
+}
+
+// 求職者優先度・コメント情報
+export interface CandidatePriority {
+  candidateId: string
+  priority: 'S' | 'A' | 'B' | 'C'
+  taskComment: string | null
+  lastUpdated: string
+}
+
+export const mockCandidatePriorities: CandidatePriority[] = [
+  { candidateId: '20206444', priority: 'S', taskComment: '本日面接確認の電話必須', lastUpdated: '2025-11-28' },
+  { candidateId: '20206517', priority: 'S', taskComment: '12/2面接前の最終確認', lastUpdated: '2025-11-28' },
+  { candidateId: '20206512', priority: 'S', taskComment: '本日面接！事前連絡済み', lastUpdated: '2025-11-28' },
+  { candidateId: '20206510', priority: 'A', taskComment: '求人提案中、返答待ち', lastUpdated: '2025-11-27' },
+  { candidateId: '20206520', priority: 'A', taskComment: '希望条件ヒアリング済み、案件探し中', lastUpdated: '2025-11-26' },
+  { candidateId: '20206533', priority: 'A', taskComment: '初回ヒアリング完了、提案準備', lastUpdated: '2025-11-27' },
+  { candidateId: '20206401', priority: 'S', taskComment: '新規登録！本日中に初回連絡', lastUpdated: '2025-11-28' },
+  { candidateId: '20206402', priority: 'B', taskComment: '電話つながらず、明日再連絡', lastUpdated: '2025-11-26' },
+  { candidateId: '20206403', priority: 'A', taskComment: '提案中、園見学の日程調整', lastUpdated: '2025-11-25' },
+  { candidateId: '20206404', priority: 'S', taskComment: '内定！入社意思確認急ぎ', lastUpdated: '2025-11-24' },
+  { candidateId: '20206405', priority: 'C', taskComment: '他社決定、フォロー終了', lastUpdated: '2025-11-20' },
+  { candidateId: '20206406', priority: 'C', taskComment: '来年4月希望、定期フォロー', lastUpdated: '2025-11-15' },
+  { candidateId: '20206295', priority: 'C', taskComment: '成約済み、入社フォロー', lastUpdated: '2025-11-20' },
+  { candidateId: '20206257', priority: 'C', taskComment: '成約済み、入社フォロー', lastUpdated: '2025-11-10' },
 ]

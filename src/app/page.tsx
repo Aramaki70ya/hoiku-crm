@@ -1,20 +1,12 @@
 'use client'
 
-import { useState, useMemo } from 'react'
-import Link from 'next/link'
+import { useState } from 'react'
 import { AppLayout } from '@/components/layout/app-layout'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover'
 import {
   Table,
   TableBody,
@@ -23,6 +15,12 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import { Input } from '@/components/ui/input'
 import {
   Calendar,
   TrendingUp,
@@ -37,7 +35,7 @@ import {
   UserCheck,
   PhoneCall,
   CalendarDays,
-  Filter,
+  ChevronDown,
 } from 'lucide-react'
 import {
   mockCandidates,
@@ -45,7 +43,6 @@ import {
   mockInterviews,
   mockUsers,
   mockMemberStats,
-  mockDailyProgress,
   team1Members,
   team2Members,
   totalBudget,
@@ -55,14 +52,31 @@ import {
   kpiAssumptions,
 } from '@/lib/mock-data'
 
-export default function DashboardPage() {
-  // 期間指定の状態
-  const [dateRange, setDateRange] = useState({
-    start: '2025-11-01',
-    end: '2025-11-30',
-  })
-  const [isCustomRange, setIsCustomRange] = useState(false)
+type PeriodType = 'current_month' | 'previous_month' | 'custom'
 
+export default function DashboardPage() {
+  const [periodType, setPeriodType] = useState<PeriodType>('current_month')
+  const [customStartDate, setCustomStartDate] = useState('')
+  const [customEndDate, setCustomEndDate] = useState('')
+
+  // 期間表示用テキスト
+  const getPeriodLabel = () => {
+    const now = new Date()
+    switch (periodType) {
+      case 'current_month':
+        return `${now.getFullYear()}年${now.getMonth() + 1}月（当月）`
+      case 'previous_month':
+        const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+        return `${prev.getFullYear()}年${prev.getMonth() + 1}月（前月）`
+      case 'custom':
+        if (customStartDate && customEndDate) {
+          return `${customStartDate} 〜 ${customEndDate}`
+        }
+        return '期間を選択'
+      default:
+        return '当月'
+    }
+  }
   // 残り営業日（仮）
   const remainingDays = 2
 
@@ -114,122 +128,115 @@ export default function DashboardPage() {
     .filter((i) => i.status === 'scheduled')
     .sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime())
 
-  // 期間内のデータをフィルタリング
-  const filteredProgress = useMemo(() => {
-    return mockDailyProgress.filter(d => {
-      const date = new Date(d.date)
-      return date >= new Date(dateRange.start) && date <= new Date(dateRange.end)
-    })
-  }, [dateRange])
-
-  // グラフ用の最大値計算
-  const maxValue = useMemo(() => {
-    const maxSales = Math.max(...filteredProgress.map(d => d.sales + d.yomiA + d.yomiB))
-    const maxTarget = Math.max(...filteredProgress.map(d => d.target))
-    return Math.max(maxSales, maxTarget)
-  }, [filteredProgress])
-
   return (
     <AppLayout title="ダッシュボード" description="保育事業部 採用管理">
-      {/* 期間指定 */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-4">
+      {/* 期間選択 */}
+      <div className="flex items-center gap-4 mb-6 p-4 bg-white rounded-xl border border-slate-200 shadow-sm">
+        <div className="flex items-center gap-2 text-slate-600">
+          <CalendarDays className="w-5 h-5 text-violet-500" />
+          <span className="font-medium">集計期間:</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant={periodType === 'current_month' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setPeriodType('current_month')}
+            className={periodType === 'current_month' 
+              ? 'bg-gradient-to-r from-violet-500 to-indigo-600 text-white' 
+              : 'border-slate-200 text-slate-600 hover:bg-slate-50'}
+          >
+            当月
+          </Button>
+          <Button
+            variant={periodType === 'previous_month' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setPeriodType('previous_month')}
+            className={periodType === 'previous_month' 
+              ? 'bg-gradient-to-r from-violet-500 to-indigo-600 text-white' 
+              : 'border-slate-200 text-slate-600 hover:bg-slate-50'}
+          >
+            前月
+          </Button>
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="outline" className="bg-white border-slate-200 shadow-sm gap-2">
-                <CalendarDays className="w-4 h-4 text-violet-500" />
-                {isCustomRange 
-                  ? `${dateRange.start} 〜 ${dateRange.end}`
-                  : '当月（11月）'
-                }
-                <Filter className="w-4 h-4 text-slate-400" />
+              <Button
+                variant={periodType === 'custom' ? 'default' : 'outline'}
+                size="sm"
+                className={periodType === 'custom' 
+                  ? 'bg-gradient-to-r from-violet-500 to-indigo-600 text-white' 
+                  : 'border-slate-200 text-slate-600 hover:bg-slate-50'}
+              >
+                指定期間
+                <ChevronDown className="w-4 h-4 ml-1" />
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-80 bg-white" align="start">
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium text-slate-700">期間を指定</Label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <Label className="text-xs text-slate-500">開始日</Label>
-                      <Input
-                        type="date"
-                        value={dateRange.start}
-                        onChange={(e) => {
-                          setDateRange(prev => ({ ...prev, start: e.target.value }))
-                          setIsCustomRange(true)
-                        }}
-                        className="text-sm"
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-xs text-slate-500">終了日</Label>
-                      <Input
-                        type="date"
-                        value={dateRange.end}
-                        onChange={(e) => {
-                          setDateRange(prev => ({ ...prev, end: e.target.value }))
-                          setIsCustomRange(true)
-                        }}
-                        className="text-sm"
-                      />
-                    </div>
-                  </div>
+            <PopoverContent className="w-72 p-4" align="start">
+              <div className="space-y-3">
+                <div>
+                  <label className="text-sm font-medium text-slate-700">開始日</label>
+                  <Input
+                    type="date"
+                    value={customStartDate}
+                    onChange={(e) => {
+                      setCustomStartDate(e.target.value)
+                      setPeriodType('custom')
+                    }}
+                    className="mt-1"
+                  />
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setDateRange({ start: '2025-11-01', end: '2025-11-30' })
-                      setIsCustomRange(false)
+                <div>
+                  <label className="text-sm font-medium text-slate-700">終了日</label>
+                  <Input
+                    type="date"
+                    value={customEndDate}
+                    onChange={(e) => {
+                      setCustomEndDate(e.target.value)
+                      setPeriodType('custom')
                     }}
-                    className="text-xs"
-                  >
-                    今月
-                  </Button>
-                  <Button
+                    className="mt-1"
+                  />
+                </div>
+                <div className="flex gap-2 pt-2">
+                  <Button 
+                    size="sm" 
                     variant="outline"
-                    size="sm"
+                    className="flex-1"
                     onClick={() => {
-                      setDateRange({ start: '2025-11-13', end: '2025-11-26' })
-                      setIsCustomRange(true)
+                      // 今週
+                      const now = new Date()
+                      const weekStart = new Date(now)
+                      weekStart.setDate(now.getDate() - now.getDay())
+                      setCustomStartDate(weekStart.toISOString().split('T')[0])
+                      setCustomEndDate(now.toISOString().split('T')[0])
+                      setPeriodType('custom')
                     }}
-                    className="text-xs"
-                  >
-                    11/13〜11/26
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setDateRange({ start: '2025-11-18', end: '2025-11-24' })
-                      setIsCustomRange(true)
-                    }}
-                    className="text-xs"
-                  >
-                    先週
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setDateRange({ start: '2025-11-25', end: '2025-11-30' })
-                      setIsCustomRange(true)
-                    }}
-                    className="text-xs"
                   >
                     今週
+                  </Button>
+                  <Button 
+                    size="sm" 
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => {
+                      // 月初〜今日
+                      const now = new Date()
+                      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+                      setCustomStartDate(monthStart.toISOString().split('T')[0])
+                      setCustomEndDate(now.toISOString().split('T')[0])
+                      setPeriodType('custom')
+                    }}
+                  >
+                    月初〜今日
                   </Button>
                 </div>
               </div>
             </PopoverContent>
           </Popover>
-          {isCustomRange && (
-            <Badge className="bg-violet-100 text-violet-700">
-              カスタム期間
-            </Badge>
-          )}
+        </div>
+        <div className="ml-auto">
+          <Badge className="bg-violet-100 text-violet-700 px-3 py-1 text-sm">
+            {getPeriodLabel()}
+          </Badge>
         </div>
       </div>
 
@@ -293,115 +300,6 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* 目標に対する進捗推移グラフ */}
-      <Card className="bg-white border-slate-200 shadow-sm mb-6">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-lg text-slate-800 flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-violet-500" />
-            目標に対する進捗推移
-            {isCustomRange && (
-              <Badge className="ml-2 bg-violet-100 text-violet-700 text-xs">
-                {dateRange.start} 〜 {dateRange.end}
-              </Badge>
-            )}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {/* シンプルなSVGグラフ */}
-          <div className="relative h-64 mt-4">
-            {/* Y軸ラベル */}
-            <div className="absolute left-0 top-0 bottom-8 w-16 flex flex-col justify-between text-xs text-slate-500">
-              <span>¥{(maxValue / 10000).toFixed(0)}万</span>
-              <span>¥{(maxValue / 2 / 10000).toFixed(0)}万</span>
-              <span>¥0</span>
-            </div>
-            {/* グラフエリア */}
-            <div className="ml-16 h-full relative">
-              <svg className="w-full h-56" viewBox="0 0 100 100" preserveAspectRatio="none">
-                {/* グリッド線 */}
-                <line x1="0" y1="0" x2="100" y2="0" stroke="#e2e8f0" strokeWidth="0.5" />
-                <line x1="0" y1="50" x2="100" y2="50" stroke="#e2e8f0" strokeWidth="0.5" />
-                <line x1="0" y1="100" x2="100" y2="100" stroke="#e2e8f0" strokeWidth="0.5" />
-                
-                {/* 目標ライン */}
-                <polyline
-                  fill="none"
-                  stroke="#94a3b8"
-                  strokeWidth="1"
-                  strokeDasharray="4,2"
-                  points={filteredProgress.map((d, i) => {
-                    const x = (i / (filteredProgress.length - 1)) * 100
-                    const y = 100 - (d.target / maxValue) * 100
-                    return `${x},${y}`
-                  }).join(' ')}
-                />
-                
-                {/* 売上+Aヨミ+Bヨミ（積み上げ） */}
-                <polyline
-                  fill="none"
-                  stroke="#f97316"
-                  strokeWidth="1.5"
-                  points={filteredProgress.map((d, i) => {
-                    const x = (i / (filteredProgress.length - 1)) * 100
-                    const y = 100 - ((d.sales + d.yomiA + d.yomiB) / maxValue) * 100
-                    return `${x},${y}`
-                  }).join(' ')}
-                />
-                
-                {/* 売上+Aヨミ */}
-                <polyline
-                  fill="none"
-                  stroke="#ef4444"
-                  strokeWidth="1.5"
-                  points={filteredProgress.map((d, i) => {
-                    const x = (i / (filteredProgress.length - 1)) * 100
-                    const y = 100 - ((d.sales + d.yomiA) / maxValue) * 100
-                    return `${x},${y}`
-                  }).join(' ')}
-                />
-                
-                {/* 売上実績 */}
-                <polyline
-                  fill="none"
-                  stroke="#10b981"
-                  strokeWidth="2"
-                  points={filteredProgress.map((d, i) => {
-                    const x = (i / (filteredProgress.length - 1)) * 100
-                    const y = 100 - (d.sales / maxValue) * 100
-                    return `${x},${y}`
-                  }).join(' ')}
-                />
-              </svg>
-              {/* X軸ラベル */}
-              <div className="flex justify-between text-xs text-slate-500 mt-1">
-                {filteredProgress.filter((_, i) => i % Math.ceil(filteredProgress.length / 5) === 0 || i === filteredProgress.length - 1).map((d, i) => (
-                  <span key={i}>{new Date(d.date).getDate()}日</span>
-                ))}
-              </div>
-            </div>
-          </div>
-          {/* 凡例 */}
-          <div className="flex items-center justify-center gap-6 mt-4">
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-0.5 bg-slate-400" style={{ borderStyle: 'dashed' }} />
-              <span className="text-xs text-slate-600">目標ライン</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-0.5 bg-emerald-500" />
-              <span className="text-xs text-slate-600">売上実績</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-0.5 bg-red-500" />
-              <span className="text-xs text-slate-600">売上+Aヨミ</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-0.5 bg-orange-500" />
-              <span className="text-xs text-slate-600">売上+A+Bヨミ</span>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
       {/* 目標数値の前提条件 */}
       <Card className="bg-white border-slate-200 shadow-sm mb-6">
         <CardHeader className="pb-2">
@@ -412,23 +310,23 @@ export default function DashboardPage() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-4 gap-4">
-            {/* 面接→成約率 */}
-            <div className="p-4 rounded-xl bg-gradient-to-br from-emerald-50 to-green-50 border border-emerald-100">
+            {/* 登録→初回率 */}
+            <div className="p-4 rounded-xl bg-gradient-to-br from-purple-50 to-violet-50 border border-purple-100">
               <div className="flex items-center gap-2 mb-2">
-                <UserCheck className="w-5 h-5 text-emerald-600" />
-                <p className="text-sm font-medium text-emerald-700">面接→成約率</p>
+                <PhoneCall className="w-5 h-5 text-purple-600" />
+                <p className="text-sm font-medium text-purple-700">登録→初回率</p>
               </div>
               <div className="flex items-end gap-2">
-                <p className="text-3xl font-bold text-emerald-600">{(kpiAssumptions.interviewToClosedRate * 100).toFixed(0)}%</p>
+                <p className="text-3xl font-bold text-purple-600">{(kpiAssumptions.registrationToFirstContactRate * 100).toFixed(0)}%</p>
                 <p className="text-sm text-slate-500 mb-1">目標</p>
               </div>
-              <div className="mt-2 pt-2 border-t border-emerald-200">
+              <div className="mt-2 pt-2 border-t border-purple-200">
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-slate-500">実績</span>
-                  <Badge className={actualClosedRate >= kpiAssumptions.interviewToClosedRate * 100 
+                  <Badge className={actualFirstContactRate >= kpiAssumptions.registrationToFirstContactRate * 100 
                     ? 'bg-emerald-100 text-emerald-700' 
                     : 'bg-amber-100 text-amber-700'}>
-                    {actualClosedRate.toFixed(1)}%
+                    {actualFirstContactRate.toFixed(1)}%
                   </Badge>
                 </div>
               </div>
@@ -456,23 +354,23 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* 登録→初回率 */}
-            <div className="p-4 rounded-xl bg-gradient-to-br from-purple-50 to-violet-50 border border-purple-100">
+            {/* 面接→成約率 */}
+            <div className="p-4 rounded-xl bg-gradient-to-br from-emerald-50 to-green-50 border border-emerald-100">
               <div className="flex items-center gap-2 mb-2">
-                <PhoneCall className="w-5 h-5 text-purple-600" />
-                <p className="text-sm font-medium text-purple-700">登録→初回率</p>
+                <UserCheck className="w-5 h-5 text-emerald-600" />
+                <p className="text-sm font-medium text-emerald-700">面接→成約率</p>
               </div>
               <div className="flex items-end gap-2">
-                <p className="text-3xl font-bold text-purple-600">{(kpiAssumptions.registrationToFirstContactRate * 100).toFixed(0)}%</p>
+                <p className="text-3xl font-bold text-emerald-600">{(kpiAssumptions.interviewToClosedRate * 100).toFixed(0)}%</p>
                 <p className="text-sm text-slate-500 mb-1">目標</p>
               </div>
-              <div className="mt-2 pt-2 border-t border-purple-200">
+              <div className="mt-2 pt-2 border-t border-emerald-200">
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-slate-500">実績</span>
-                  <Badge className={actualFirstContactRate >= kpiAssumptions.registrationToFirstContactRate * 100 
+                  <Badge className={actualClosedRate >= kpiAssumptions.interviewToClosedRate * 100 
                     ? 'bg-emerald-100 text-emerald-700' 
                     : 'bg-amber-100 text-amber-700'}>
-                    {actualFirstContactRate.toFixed(1)}%
+                    {actualClosedRate.toFixed(1)}%
                   </Badge>
                 </div>
               </div>
@@ -607,7 +505,7 @@ export default function DashboardPage() {
                 </div>
               )
             })}
-          </div>
+        </div>
         </CardContent>
       </Card>
 
@@ -677,12 +575,9 @@ export default function DashboardPage() {
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
-                        <Link 
-                          href={`/candidates/${candidate?.id}`}
-                          className="font-medium text-slate-800 hover:text-violet-600 hover:underline transition-colors"
-                        >
+                        <span className="font-medium text-slate-800">
                           {candidate?.name}
-                        </Link>
+                        </span>
                         <ArrowUpRight className="w-4 h-4 text-slate-400" />
                         <span className="text-slate-600">{project?.client_name}</span>
                       </div>
@@ -858,7 +753,7 @@ function TeamDetailSection({ teamMembers, teamName }: { teamMembers: string[], t
             </Table>
           </CardContent>
         </Card>
-      </div>
+        </div>
 
       {/* ステータス概況 */}
       <Card className="bg-white border-slate-200 shadow-sm">

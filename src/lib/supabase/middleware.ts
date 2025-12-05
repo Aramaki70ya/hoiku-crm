@@ -2,21 +2,13 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function updateSession(request: NextRequest) {
-  // 環境変数が設定されていない場合は認証チェックをスキップ（開発モード）
-  if (
-    !process.env.NEXT_PUBLIC_SUPABASE_URL ||
-    !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  ) {
-    return NextResponse.next()
-  }
-
   let supabaseResponse = NextResponse.next({
     request,
   })
 
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
         getAll() {
@@ -35,26 +27,20 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  try {
-    // セッションの更新（重要：getUser()を呼ぶことでセッションがリフレッシュされる）
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+  // セッションの更新（重要：getUser()を呼ぶことでセッションがリフレッシュされる）
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
 
-    // 未認証ユーザーを/loginにリダイレクト（ただし/loginと/auth系は除外）
-    if (
-      !user &&
-      !request.nextUrl.pathname.startsWith('/login') &&
-      !request.nextUrl.pathname.startsWith('/auth')
-    ) {
-      const url = request.nextUrl.clone()
-      url.pathname = '/login'
-      return NextResponse.redirect(url)
-    }
-  } catch (error) {
-    // エラーが発生した場合は認証チェックをスキップ（開発モード）
-    console.warn('Supabase auth error in middleware:', error)
-    return NextResponse.next()
+  // 未認証ユーザーを/loginにリダイレクト（ただし/loginと/auth系は除外）
+  if (
+    !user &&
+    !request.nextUrl.pathname.startsWith('/login') &&
+    !request.nextUrl.pathname.startsWith('/auth')
+  ) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/login'
+    return NextResponse.redirect(url)
   }
 
   return supabaseResponse

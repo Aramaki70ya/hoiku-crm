@@ -10,6 +10,7 @@ import {
   Calendar,
   Settings,
   LogOut,
+  ClipboardList,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -18,6 +19,7 @@ import { Separator } from '@/components/ui/separator'
 
 const navigation = [
   { name: 'ダッシュボード', href: '/', icon: LayoutDashboard },
+  { name: '今日のタスク', href: '/tasks', icon: ClipboardList },
   { name: '求職者管理', href: '/candidates', icon: Users },
   { name: 'メンバー', href: '/members', icon: UserCheck },
   { name: '面接一覧', href: '/interviews', icon: Calendar },

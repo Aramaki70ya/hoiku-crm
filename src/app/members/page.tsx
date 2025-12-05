@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import Link from 'next/link'
 import { AppLayout } from '@/components/layout/app-layout'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -141,204 +140,206 @@ export default function MembersPage() {
               </CardContent>
             </Card>
           ) : memberData && (
-            <div className="space-y-6">
-              {/* 売上・KPI */}
-              <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-12 gap-4">
+              {/* メインエリア: 担当求職者（左側・広め） */}
+              <div className="col-span-9 space-y-4">
+                {/* 売上・KPI（コンパクト） */}
+                <div className="grid grid-cols-4 gap-3">
+                  <Card className="bg-white border-slate-200 shadow-sm">
+                    <CardContent className="py-3 px-4">
+                      <p className="text-xs text-slate-500">売上予算</p>
+                      <p className="text-xl font-bold text-slate-800">
+                        ¥{((memberData.stats?.budget || 0) / 10000).toFixed(0)}万
+                      </p>
+                    </CardContent>
+                  </Card>
+                  <Card className="bg-white border-slate-200 shadow-sm">
+                    <CardContent className="py-3 px-4">
+                      <p className="text-xs text-slate-500">成約額</p>
+                      <p className="text-xl font-bold text-emerald-600">
+                        ¥{((memberData.stats?.sales || 0) / 10000).toFixed(0)}万
+                        <span className="text-xs font-normal text-slate-500 ml-1">
+                          ({memberData.stats ? ((memberData.stats.sales / memberData.stats.budget) * 100).toFixed(0) : 0}%)
+                        </span>
+                      </p>
+                    </CardContent>
+                  </Card>
+                  <Card className="bg-white border-slate-200 shadow-sm">
+                    <CardContent className="py-3 px-4">
+                      <p className="text-xs text-slate-500">面談設定</p>
+                      <p className="text-xl font-bold text-slate-800">
+                        {memberData.stats?.meetingCount || 0} / {memberData.stats?.meetingTarget || 0}
+                      </p>
+                    </CardContent>
+                  </Card>
+                  <Card className="bg-white border-slate-200 shadow-sm">
+                    <CardContent className="py-3 px-4">
+                      <p className="text-xs text-slate-500">担当件数</p>
+                      <p className="text-xl font-bold text-violet-600">
+                        {memberData.candidates.length}件
+                      </p>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* 担当求職者一覧（メイン） */}
                 <Card className="bg-white border-slate-200 shadow-sm">
-                  <CardContent className="pt-4">
-                    <p className="text-xs text-slate-500">売上予算</p>
-                    <p className="text-2xl font-bold text-slate-800">
-                      ¥{((memberData.stats?.budget || 0) / 10000).toFixed(0)}万
-                    </p>
-                  </CardContent>
-                </Card>
-                <Card className="bg-white border-slate-200 shadow-sm">
-                  <CardContent className="pt-4">
-                    <p className="text-xs text-slate-500">成約額</p>
-                    <p className="text-2xl font-bold text-emerald-600">
-                      ¥{((memberData.stats?.sales || 0) / 10000).toFixed(0)}万
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      達成率 {memberData.stats ? ((memberData.stats.sales / memberData.stats.budget) * 100).toFixed(1) : 0}%
-                    </p>
-                  </CardContent>
-                </Card>
-                <Card className="bg-white border-slate-200 shadow-sm">
-                  <CardContent className="pt-4">
-                    <p className="text-xs text-slate-500">面談設定</p>
-                    <p className="text-2xl font-bold text-slate-800">
-                      {memberData.stats?.meetingCount || 0} / {memberData.stats?.meetingTarget || 0}
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      達成率 {memberData.stats ? ((memberData.stats.meetingCount / memberData.stats.meetingTarget) * 100).toFixed(1) : 0}%
-                    </p>
-                  </CardContent>
-                </Card>
-                <Card className="bg-white border-slate-200 shadow-sm">
-                  <CardContent className="pt-4">
-                    <p className="text-xs text-slate-500">担当求職者</p>
-                    <p className="text-2xl font-bold text-violet-600">
-                      {memberData.candidates.length}件
-                    </p>
+                  <CardHeader className="pb-3 bg-gradient-to-r from-violet-500 to-indigo-600 text-white rounded-t-lg">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Users className="w-4 h-4" />
+                      担当求職者一覧
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="pt-3">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="border-slate-100 bg-slate-50">
+                          <TableHead className="text-slate-600">氏名</TableHead>
+                          <TableHead className="text-slate-600">ステータス</TableHead>
+                          <TableHead className="text-slate-600">案件</TableHead>
+                          <TableHead className="text-slate-600">ヨミ</TableHead>
+                          <TableHead className="text-slate-600">メモ</TableHead>
+                          <TableHead className="w-16"></TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {memberData.candidates.map(candidate => {
+                          const project = mockProjects.find(p => p.candidate_id === candidate.id)
+                          return (
+                            <TableRow key={candidate.id} className="border-slate-100 hover:bg-violet-50/30">
+                              <TableCell>
+                                <a 
+                                  href={`/candidates/${candidate.id}`}
+                                  className="block hover:text-violet-600"
+                                >
+                                  <p className="font-medium text-slate-800 hover:underline">{candidate.name}</p>
+                                  <p className="text-xs text-slate-500">{candidate.id}</p>
+                                </a>
+                              </TableCell>
+                              <TableCell>
+                                <Select defaultValue={candidate.status}>
+                                  <SelectTrigger className="w-24 h-7 text-xs">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {Object.entries(statusLabels).map(([value, label]) => (
+                                      <SelectItem key={value} value={value} className="text-xs">
+                                        {label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </TableCell>
+                              <TableCell className="text-slate-700 text-sm">
+                                {project?.client_name || '-'}
+                              </TableCell>
+                              <TableCell>
+                                {project && (
+                                  <Select defaultValue={project.probability || undefined}>
+                                    <SelectTrigger className="w-14 h-7 text-xs">
+                                      <SelectValue placeholder="-" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="A" className="text-xs">A</SelectItem>
+                                      <SelectItem value="B" className="text-xs">B</SelectItem>
+                                      <SelectItem value="C" className="text-xs">C</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-slate-500 text-xs max-w-[180px] truncate">
+                                {candidate.memo || '-'}
+                              </TableCell>
+                              <TableCell>
+                                <Dialog>
+                                  <DialogTrigger asChild>
+                                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-slate-400 hover:text-violet-600">
+                                      <MessageSquare className="w-3.5 h-3.5" />
+                                    </Button>
+                                  </DialogTrigger>
+                                  <DialogContent className="bg-white">
+                                    <DialogHeader>
+                                      <DialogTitle>{candidate.name} - メモ編集</DialogTitle>
+                                    </DialogHeader>
+                                    <Textarea 
+                                      defaultValue={candidate.memo || ''} 
+                                      placeholder="ヒアリング内容やメモを入力..."
+                                      className="min-h-[200px]"
+                                    />
+                                    <div className="flex justify-end gap-2 mt-4">
+                                      <Button variant="outline">キャンセル</Button>
+                                      <Button className="bg-gradient-to-r from-violet-500 to-indigo-600">保存</Button>
+                                    </div>
+                                  </DialogContent>
+                                </Dialog>
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
                   </CardContent>
                 </Card>
               </div>
 
-              {/* ヨミ情報 */}
-              <Card className="bg-white border-slate-200 shadow-sm">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-lg text-slate-800 flex items-center gap-2">
-                    <TrendingUp className="w-5 h-5 text-violet-500" />
-                    ヨミ数字
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 gap-6">
-                    {/* 当月 */}
-                    <div>
-                      <p className="text-sm font-medium text-slate-600 mb-3">当月</p>
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between p-2 bg-red-50 rounded-lg">
-                          <span className="text-sm text-red-700 font-medium">Aヨミ (80%)</span>
-                          <span className="font-bold text-red-700">¥{((memberData.stats?.yomiA || 0) / 10000).toFixed(0)}万</span>
-                        </div>
-                        <div className="flex items-center justify-between p-2 bg-orange-50 rounded-lg">
-                          <span className="text-sm text-orange-700 font-medium">Bヨミ (50%)</span>
-                          <span className="font-bold text-orange-700">¥{((memberData.stats?.yomiB || 0) / 10000).toFixed(0)}万</span>
-                        </div>
-                        <div className="flex items-center justify-between p-2 bg-yellow-50 rounded-lg">
-                          <span className="text-sm text-yellow-700 font-medium">Cヨミ (30%)</span>
-                          <span className="font-bold text-yellow-700">¥{((memberData.stats?.yomiC || 0) / 10000).toFixed(0)}万</span>
-                        </div>
-                        <div className="flex items-center justify-between p-2 bg-slate-50 rounded-lg">
-                          <span className="text-sm text-slate-600 font-medium">Dヨミ (10%)</span>
-                          <span className="font-bold text-slate-600">¥{((memberData.stats?.yomiD || 0) / 10000).toFixed(0)}万</span>
-                        </div>
-                      </div>
+              {/* サイドエリア: ヨミ数字（右側・コンパクト） */}
+              <div className="col-span-3 space-y-3">
+                {/* 当月ヨミ */}
+                <Card className="bg-white border-slate-200 shadow-sm">
+                  <CardHeader className="py-2 px-3">
+                    <CardTitle className="text-sm text-slate-700 flex items-center gap-1.5">
+                      <TrendingUp className="w-4 h-4 text-violet-500" />
+                      当月ヨミ
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="py-2 px-3 space-y-1.5">
+                    <div className="flex items-center justify-between py-1.5 px-2 bg-red-50 rounded text-sm">
+                      <span className="text-red-700 font-medium">A (80%)</span>
+                      <span className="font-bold text-red-700">¥{((memberData.stats?.yomiA || 0) / 10000).toFixed(0)}万</span>
                     </div>
-                    {/* 翌月 */}
-                    <div>
-                      <p className="text-sm font-medium text-slate-600 mb-3">翌月</p>
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between p-2 bg-red-50/50 rounded-lg">
-                          <span className="text-sm text-red-600 font-medium">Aヨミ (80%)</span>
-                          <span className="font-bold text-red-600">¥{((memberData.stats?.yomiANext || 0) / 10000).toFixed(0)}万</span>
-                        </div>
-                        <div className="flex items-center justify-between p-2 bg-orange-50/50 rounded-lg">
-                          <span className="text-sm text-orange-600 font-medium">Bヨミ (50%)</span>
-                          <span className="font-bold text-orange-600">¥{((memberData.stats?.yomiBNext || 0) / 10000).toFixed(0)}万</span>
-                        </div>
-                        <div className="flex items-center justify-between p-2 bg-yellow-50/50 rounded-lg">
-                          <span className="text-sm text-yellow-600 font-medium">Cヨミ (30%)</span>
-                          <span className="font-bold text-yellow-600">¥{((memberData.stats?.yomiCNext || 0) / 10000).toFixed(0)}万</span>
-                        </div>
-                        <div className="flex items-center justify-between p-2 bg-slate-50/50 rounded-lg">
-                          <span className="text-sm text-slate-500 font-medium">Dヨミ (10%)</span>
-                          <span className="font-bold text-slate-500">¥{((memberData.stats?.yomiDNext || 0) / 10000).toFixed(0)}万</span>
-                        </div>
-                      </div>
+                    <div className="flex items-center justify-between py-1.5 px-2 bg-orange-50 rounded text-sm">
+                      <span className="text-orange-700 font-medium">B (50%)</span>
+                      <span className="font-bold text-orange-700">¥{((memberData.stats?.yomiB || 0) / 10000).toFixed(0)}万</span>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
+                    <div className="flex items-center justify-between py-1.5 px-2 bg-yellow-50 rounded text-sm">
+                      <span className="text-yellow-700 font-medium">C (30%)</span>
+                      <span className="font-bold text-yellow-700">¥{((memberData.stats?.yomiC || 0) / 10000).toFixed(0)}万</span>
+                    </div>
+                    <div className="flex items-center justify-between py-1.5 px-2 bg-slate-50 rounded text-sm">
+                      <span className="text-slate-600 font-medium">D (10%)</span>
+                      <span className="font-bold text-slate-600">¥{((memberData.stats?.yomiD || 0) / 10000).toFixed(0)}万</span>
+                    </div>
+                  </CardContent>
+                </Card>
 
-              {/* 担当求職者一覧 */}
-              <Card className="bg-white border-slate-200 shadow-sm">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-lg text-slate-800">担当求職者</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="border-slate-100 bg-slate-50">
-                        <TableHead className="text-slate-600">氏名</TableHead>
-                        <TableHead className="text-slate-600">ステータス</TableHead>
-                        <TableHead className="text-slate-600">案件</TableHead>
-                        <TableHead className="text-slate-600">ヨミ</TableHead>
-                        <TableHead className="text-slate-600">メモ</TableHead>
-                        <TableHead className="w-20"></TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {memberData.candidates.map(candidate => {
-                        const project = mockProjects.find(p => p.candidate_id === candidate.id)
-                        return (
-                          <TableRow key={candidate.id} className="border-slate-100">
-                            <TableCell>
-                              <div>
-                                <Link 
-                                  href={`/candidates/${candidate.id}`}
-                                  className="font-medium text-slate-800 hover:text-violet-600 hover:underline transition-colors"
-                                >
-                                  {candidate.name}
-                                </Link>
-                                <p className="text-xs text-slate-500">{candidate.id}</p>
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <Select defaultValue={candidate.status}>
-                                <SelectTrigger className="w-28 h-8 text-xs">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {Object.entries(statusLabels).map(([value, label]) => (
-                                    <SelectItem key={value} value={value} className="text-xs">
-                                      {label}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </TableCell>
-                            <TableCell className="text-slate-700">
-                              {project?.client_name || '-'}
-                            </TableCell>
-                            <TableCell>
-                              {project && (
-                                <Select defaultValue={project.probability || undefined}>
-                                  <SelectTrigger className="w-16 h-8 text-xs">
-                                    <SelectValue placeholder="-" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="A" className="text-xs">A</SelectItem>
-                                    <SelectItem value="B" className="text-xs">B</SelectItem>
-                                    <SelectItem value="C" className="text-xs">C</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              )}
-                            </TableCell>
-                            <TableCell className="text-slate-500 text-sm max-w-[200px] truncate">
-                              {candidate.memo || '-'}
-                            </TableCell>
-                            <TableCell>
-                              <Dialog>
-                                <DialogTrigger asChild>
-                                  <Button variant="ghost" size="sm" className="text-slate-400 hover:text-violet-600">
-                                    <MessageSquare className="w-4 h-4" />
-                                  </Button>
-                                </DialogTrigger>
-                                <DialogContent className="bg-white">
-                                  <DialogHeader>
-                                    <DialogTitle>{candidate.name} - メモ編集</DialogTitle>
-                                  </DialogHeader>
-                                  <Textarea 
-                                    defaultValue={candidate.memo || ''} 
-                                    placeholder="ヒアリング内容やメモを入力..."
-                                    className="min-h-[200px]"
-                                  />
-                                  <div className="flex justify-end gap-2 mt-4">
-                                    <Button variant="outline">キャンセル</Button>
-                                    <Button className="bg-gradient-to-r from-violet-500 to-indigo-600">保存</Button>
-                                  </div>
-                                </DialogContent>
-                              </Dialog>
-                            </TableCell>
-                          </TableRow>
-                        )
-                      })}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
+                {/* 翌月ヨミ */}
+                <Card className="bg-white border-slate-200 shadow-sm">
+                  <CardHeader className="py-2 px-3">
+                    <CardTitle className="text-sm text-slate-700 flex items-center gap-1.5">
+                      <TrendingUp className="w-4 h-4 text-indigo-500" />
+                      翌月ヨミ
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="py-2 px-3 space-y-1.5">
+                    <div className="flex items-center justify-between py-1.5 px-2 bg-red-50/60 rounded text-sm">
+                      <span className="text-red-600 font-medium">A (80%)</span>
+                      <span className="font-bold text-red-600">¥{((memberData.stats?.yomiANext || 0) / 10000).toFixed(0)}万</span>
+                    </div>
+                    <div className="flex items-center justify-between py-1.5 px-2 bg-orange-50/60 rounded text-sm">
+                      <span className="text-orange-600 font-medium">B (50%)</span>
+                      <span className="font-bold text-orange-600">¥{((memberData.stats?.yomiBNext || 0) / 10000).toFixed(0)}万</span>
+                    </div>
+                    <div className="flex items-center justify-between py-1.5 px-2 bg-yellow-50/60 rounded text-sm">
+                      <span className="text-yellow-600 font-medium">C (30%)</span>
+                      <span className="font-bold text-yellow-600">¥{((memberData.stats?.yomiCNext || 0) / 10000).toFixed(0)}万</span>
+                    </div>
+                    <div className="flex items-center justify-between py-1.5 px-2 bg-slate-50/60 rounded text-sm">
+                      <span className="text-slate-500 font-medium">D (10%)</span>
+                      <span className="font-bold text-slate-500">¥{((memberData.stats?.yomiDNext || 0) / 10000).toFixed(0)}万</span>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
             </div>
           )}
         </div>

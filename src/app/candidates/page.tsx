@@ -22,8 +22,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Plus, Search, Phone, Mail, ChevronRight, Users, UserCheck } from 'lucide-react'
-import { mockCandidates, mockUsers, statusLabels, statusColors } from '@/lib/mock-data'
+import { Plus, Search, Phone, Mail, ChevronRight, Users, UserCheck, Star } from 'lucide-react'
+import { mockCandidates, mockUsers, statusLabels, statusColors, mockCandidatePriorities, priorityLabels, priorityColors, sourcePriorityRules } from '@/lib/mock-data'
+
+// 優先度を取得する関数
+const getPriority = (candidateId: string, sourceId: string | null) => {
+  const priorityData = mockCandidatePriorities.find(p => p.candidateId === candidateId)
+  if (priorityData) return priorityData.priority
+  // 登録経路による自動判定
+  if (sourceId && sourcePriorityRules[sourceId]) {
+    return sourcePriorityRules[sourceId]
+  }
+  return 'B' // デフォルト
+}
 
 // アクティブなステータス（進行中の案件）
 const activeStatuses = ['new', 'contacting', 'first_contact_done', 'proposing', 'interviewing', 'offer']
@@ -141,6 +152,7 @@ export default function CandidatesPage() {
         <Table>
           <TableHeader>
             <TableRow className="border-slate-100 bg-slate-50 hover:bg-slate-50">
+              <TableHead className="text-slate-600 font-semibold w-16">優先度</TableHead>
               <TableHead className="text-slate-600 font-semibold">ID</TableHead>
               <TableHead className="text-slate-600 font-semibold">氏名</TableHead>
               <TableHead className="text-slate-600 font-semibold">連絡先</TableHead>
@@ -154,11 +166,21 @@ export default function CandidatesPage() {
           <TableBody>
             {filteredCandidates.map((candidate) => {
               const consultant = mockUsers.find((u) => u.id === candidate.consultant_id)
+              const priority = getPriority(candidate.id, candidate.source_id)
               return (
                 <TableRow
                   key={candidate.id}
                   className="border-slate-100 hover:bg-violet-50/50 cursor-pointer transition-colors"
                 >
+                  <TableCell>
+                    <Badge
+                      variant="outline"
+                      className={`${priorityColors[priority]} font-bold`}
+                    >
+                      {priority === 'S' && <Star className="w-3 h-3 mr-1 fill-current" />}
+                      {priority}
+                    </Badge>
+                  </TableCell>
                   <TableCell className="font-mono text-sm text-slate-500">
                     {candidate.id}
                   </TableCell>

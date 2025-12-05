@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import Link from 'next/link'
 import { AppLayout } from '@/components/layout/app-layout'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -272,12 +271,7 @@ function InterviewTable({ interviews }: { interviews: EnrichedInterview[] }) {
                 </TableCell>
                 <TableCell>
                   <div>
-                    <Link 
-                      href={`/candidates/${interview.candidate?.id}`}
-                      className="font-medium text-slate-800 hover:text-violet-600 hover:underline transition-colors"
-                    >
-                      {interview.candidate?.name || '-'}
-                    </Link>
+                    <p className="font-medium text-slate-800">{interview.candidate?.name || '-'}</p>
                     <p className="text-xs text-slate-500">{interview.candidate?.id}</p>
                   </div>
                 </TableCell>
