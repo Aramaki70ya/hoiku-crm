@@ -118,6 +118,7 @@ export default function DashboardPage() {
   const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1)
   const currentMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0)
   const thisMonthCandidates = mockCandidates.filter(c => {
+    if (!c.registered_at) return false
     const registeredDate = new Date(c.registered_at)
     return registeredDate >= currentMonthStart && registeredDate <= currentMonthEnd
   })
@@ -131,9 +132,11 @@ export default function DashboardPage() {
         sourceStats[sourceName] = { count: 0, thisMonthCount: 0 }
       }
       sourceStats[sourceName].count++
-      const registeredDate = new Date(c.registered_at)
-      if (registeredDate >= currentMonthStart && registeredDate <= currentMonthEnd) {
-        sourceStats[sourceName].thisMonthCount++
+      if (c.registered_at) {
+        const registeredDate = new Date(c.registered_at)
+        if (registeredDate >= currentMonthStart && registeredDate <= currentMonthEnd) {
+          sourceStats[sourceName].thisMonthCount++
+        }
       }
     }
   })
