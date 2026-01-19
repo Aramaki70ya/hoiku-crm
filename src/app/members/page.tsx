@@ -1,6 +1,8 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, Suspense } from 'react'
+import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { AppLayout } from '@/components/layout/app-layout'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -29,35 +31,54 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { Plus, Edit2, MessageSquare, TrendingUp, Users } from 'lucide-react'
+import { Plus, Edit2, MessageSquare, TrendingUp, Users, ChevronLeft, ChevronRight, Menu } from 'lucide-react'
+import { Label } from '@/components/ui/label'
 import {
   mockUsers,
   mockCandidates,
   mockProjects,
   mockMemberStats,
-  team1Members,
-  team2Members,
   statusLabels,
   statusColors,
 } from '@/lib/mock-data'
 
-export default function MembersPage() {
+function MembersPageContent() {
+  const searchParams = useSearchParams()
   const [selectedMember, setSelectedMember] = useState<string | null>(null)
-  const [selectedTeam, setSelectedTeam] = useState<'1' | '2'>('1')
+  const [isMemberCardVisible, setIsMemberCardVisible] = useState(true)
+  const [candidateStatuses, setCandidateStatuses] = useState<Record<string, string>>({})
+  const [candidateMemos, setCandidateMemos] = useState<Record<string, string>>({})
+  const [editingCandidateId, setEditingCandidateId] = useState<string | null>(null)
+  const [editStatus, setEditStatus] = useState<string>('')
+  const [editMemo, setEditMemo] = useState<string>('')
+  
+  // URLパラメータから選択状態を復元
+  useEffect(() => {
+    const selectedFromUrl = searchParams.get('selected')
+    if (selectedFromUrl) {
+      setSelectedMember(selectedFromUrl)
+      setIsMemberCardVisible(false) // メンバーが選択されている場合はカードを非表示
+    }
+  }, [searchParams])
 
-  const teamMembers = selectedTeam === '1' ? team1Members : team2Members
+  // 全メンバーを表示（課別なし）
+  const allMembers = mockUsers.filter(u => u.role !== 'admin').map(u => u.id)
 
   // 選択中メンバーのデータ
   const memberData = useMemo(() => {
     if (!selectedMember) return null
     const user = mockUsers.find(u => u.id === selectedMember)
     const stats = mockMemberStats.find(s => s.userId === selectedMember)
-    const candidates = mockCandidates.filter(c => c.consultant_id === selectedMember)
+    const candidates = mockCandidates.filter(c => c.consultant_id === selectedMember).map(candidate => ({
+      ...candidate,
+      status: candidateStatuses[candidate.id] || candidate.status,
+      memo: candidateMemos[candidate.id] !== undefined ? candidateMemos[candidate.id] : candidate.memo,
+    }))
     const projects = mockProjects.filter(p => 
       candidates.some(c => c.id === p.candidate_id)
     )
     return { user, stats, candidates, projects }
-  }, [selectedMember])
+  }, [selectedMember, candidateStatuses, candidateMemos])
 
   // ステータス別集計
   const getStatusCounts = (userId: string) => {
@@ -73,21 +94,24 @@ export default function MembersPage() {
     <AppLayout title="メンバー" description="担当者別の進捗管理">
       <div className="grid grid-cols-12 gap-6">
         {/* 左サイドバー: メンバーリスト */}
-        <div className="col-span-3">
-          <Card className="bg-white border-slate-200 shadow-sm">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-lg text-slate-800">メンバー</CardTitle>
-                <Tabs value={selectedTeam} onValueChange={(v) => setSelectedTeam(v as '1' | '2')}>
-                  <TabsList className="h-8 bg-slate-100">
-                    <TabsTrigger value="1" className="text-xs px-3 data-[state=active]:bg-white">1課</TabsTrigger>
-                    <TabsTrigger value="2" className="text-xs px-3 data-[state=active]:bg-white">2課</TabsTrigger>
-                  </TabsList>
-                </Tabs>
-              </div>
-            </CardHeader>
+        {isMemberCardVisible ? (
+          <div className="col-span-3">
+            <Card className="bg-white border-slate-200 shadow-sm">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-lg text-slate-800">メンバー</CardTitle>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setIsMemberCardVisible(false)}
+                    className="h-8 w-8 text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </Button>
+                </div>
+              </CardHeader>
             <CardContent className="space-y-2">
-              {teamMembers.map(memberId => {
+              {allMembers.map(memberId => {
                 const user = mockUsers.find(u => u.id === memberId)
                 const stats = mockMemberStats.find(s => s.userId === memberId)
                 const candidateCount = mockCandidates.filter(c => c.consultant_id === memberId).length
@@ -96,7 +120,10 @@ export default function MembersPage() {
                 return (
                   <button
                     key={memberId}
-                    onClick={() => setSelectedMember(memberId)}
+                    onClick={() => {
+                      setSelectedMember(memberId)
+                      setIsMemberCardVisible(false)
+                    }}
                     className={`w-full p-3 rounded-lg text-left transition-all ${
                       isSelected 
                         ? 'bg-gradient-to-r from-violet-500 to-indigo-600 text-white shadow-md' 
@@ -110,28 +137,31 @@ export default function MembersPage() {
                         }`}>
                           {user?.name.charAt(0)}
                         </div>
-                        <div>
-                          <p className="font-medium">{user?.name}</p>
-                          <p className={`text-xs ${isSelected ? 'text-white/70' : 'text-slate-500'}`}>
-                            担当 {candidateCount}件
-                          </p>
-                        </div>
+                        <p className="font-medium">{user?.name}</p>
                       </div>
-                      {stats && stats.sales > 0 && (
-                        <Badge className={isSelected ? 'bg-white/20 text-white' : 'bg-green-100 text-green-700'}>
-                          ¥{(stats.sales / 10000).toFixed(0)}万
-                        </Badge>
-                      )}
                     </div>
                   </button>
                 )
               })}
             </CardContent>
           </Card>
-        </div>
+          </div>
+        ) : (
+          <div className="col-span-1 flex items-start pt-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setIsMemberCardVisible(true)}
+              className="h-10 w-10 rounded-r-lg bg-white border border-l-0 border-slate-200 shadow-sm hover:bg-slate-50 text-slate-600 hover:text-slate-900 transition-all"
+              title="メンバーを表示"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </Button>
+          </div>
+        )}
 
         {/* メインコンテンツ: 選択メンバーの詳細 */}
-        <div className="col-span-9">
+        <div className={isMemberCardVisible ? "col-span-9" : "col-span-11"}>
           {!selectedMember ? (
             <Card className="bg-white border-slate-200 shadow-sm">
               <CardContent className="py-20 text-center">
@@ -190,50 +220,48 @@ export default function MembersPage() {
                       担当求職者一覧
                     </CardTitle>
                   </CardHeader>
-                  <CardContent className="pt-3">
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="border-slate-100 bg-slate-50">
-                          <TableHead className="text-slate-600">氏名</TableHead>
-                          <TableHead className="text-slate-600">ステータス</TableHead>
-                          <TableHead className="text-slate-600">案件</TableHead>
-                          <TableHead className="text-slate-600">ヨミ</TableHead>
-                          <TableHead className="text-slate-600">メモ</TableHead>
-                          <TableHead className="w-16"></TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {memberData.candidates.map(candidate => {
-                          const project = mockProjects.find(p => p.candidate_id === candidate.id)
-                          return (
-                            <TableRow key={candidate.id} className="border-slate-100 hover:bg-violet-50/30">
-                              <TableCell>
-                                <a 
-                                  href={`/candidates/${candidate.id}`}
-                                  className="block hover:text-violet-600"
+                  <CardContent className="pt-3 px-0">
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="border-slate-100 bg-slate-50">
+                            <TableHead className="text-slate-600 px-6">氏名</TableHead>
+                            <TableHead className="text-slate-600 px-6">ステータス</TableHead>
+                            <TableHead className="text-slate-600 px-6">案件</TableHead>
+                            <TableHead className="text-slate-600 px-6">ヨミ</TableHead>
+                            <TableHead className="text-slate-600 px-6">メモ</TableHead>
+                            <TableHead className="w-16 px-6"></TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {memberData.candidates.map(candidate => {
+                            const project = mockProjects.find(p => p.candidate_id === candidate.id)
+                            return (
+                            <TableRow 
+                              key={candidate.id} 
+                              className="border-slate-100 hover:bg-violet-50/30 transition-all"
+                            >
+                              <TableCell className="px-6">
+                                <Link 
+                                  href={`/candidates/${candidate.id}?from=members&memberId=${selectedMember}`}
+                                  className="block hover:text-violet-600 transition-colors"
                                 >
-                                  <p className="font-medium text-slate-800 hover:underline">{candidate.name}</p>
+                                  <p className="font-medium text-slate-800 hover:underline cursor-pointer">{candidate.name}</p>
                                   <p className="text-xs text-slate-500">{candidate.id}</p>
-                                </a>
+                                </Link>
                               </TableCell>
-                              <TableCell>
-                                <Select defaultValue={candidate.status}>
-                                  <SelectTrigger className="w-24 h-7 text-xs">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {Object.entries(statusLabels).map(([value, label]) => (
-                                      <SelectItem key={value} value={value} className="text-xs">
-                                        {label}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
+                              <TableCell className="px-6">
+                                <Badge
+                                  variant="outline"
+                                  className={statusColors[candidate.status]}
+                                >
+                                  {statusLabels[candidate.status]}
+                                </Badge>
                               </TableCell>
-                              <TableCell className="text-slate-700 text-sm">
+                              <TableCell className="text-slate-700 text-sm px-6">
                                 {project?.client_name || '-'}
                               </TableCell>
-                              <TableCell>
+                              <TableCell className="px-6">
                                 {project && (
                                   <Select defaultValue={project.probability || undefined}>
                                     <SelectTrigger className="w-14 h-7 text-xs">
@@ -247,37 +275,107 @@ export default function MembersPage() {
                                   </Select>
                                 )}
                               </TableCell>
-                              <TableCell className="text-slate-500 text-xs max-w-[180px] truncate">
+                              <TableCell className="text-slate-500 text-xs max-w-[180px] truncate px-6">
                                 {candidate.memo || '-'}
                               </TableCell>
-                              <TableCell>
-                                <Dialog>
+                              <TableCell className="px-6">
+                                <Dialog 
+                                  open={editingCandidateId === candidate.id}
+                                  onOpenChange={(open) => {
+                                    if (!open) {
+                                      setEditingCandidateId(null)
+                                      setEditStatus('')
+                                      setEditMemo('')
+                                    }
+                                  }}
+                                >
                                   <DialogTrigger asChild>
-                                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-slate-400 hover:text-violet-600">
-                                      <MessageSquare className="w-3.5 h-3.5" />
+                                    <Button 
+                                      variant="ghost" 
+                                      size="sm" 
+                                      className="h-7 w-7 p-0 text-slate-400 hover:text-violet-600 hover:bg-violet-50"
+                                      onClick={() => {
+                                        setEditingCandidateId(candidate.id)
+                                        setEditStatus(candidate.status)
+                                        setEditMemo(candidate.memo || '')
+                                      }}
+                                    >
+                                      <Edit2 className="w-3.5 h-3.5" />
                                     </Button>
                                   </DialogTrigger>
                                   <DialogContent className="bg-white">
                                     <DialogHeader>
-                                      <DialogTitle>{candidate.name} - メモ編集</DialogTitle>
+                                      <DialogTitle>{candidate.name} - 編集</DialogTitle>
                                     </DialogHeader>
-                                    <Textarea 
-                                      defaultValue={candidate.memo || ''} 
-                                      placeholder="ヒアリング内容やメモを入力..."
-                                      className="min-h-[200px]"
-                                    />
+                                    <div className="space-y-4">
+                                      <div className="space-y-2">
+                                        <Label htmlFor="edit-status">ステータス</Label>
+                                        <Select 
+                                          value={editStatus} 
+                                          onValueChange={setEditStatus}
+                                        >
+                                          <SelectTrigger id="edit-status" className="w-full">
+                                            <SelectValue />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            {Object.entries(statusLabels).map(([value, label]) => (
+                                              <SelectItem key={value} value={value}>
+                                                <div className="flex items-center gap-2">
+                                                  <Badge variant="outline" className={statusColors[value]}>
+                                                    {label}
+                                                  </Badge>
+                                                </div>
+                                              </SelectItem>
+                                            ))}
+                                          </SelectContent>
+                                        </Select>
+                                      </div>
+                                      <div className="space-y-2">
+                                        <Label htmlFor="edit-memo">メモ</Label>
+                                        <Textarea 
+                                          id="edit-memo"
+                                          value={editMemo}
+                                          onChange={(e) => setEditMemo(e.target.value)}
+                                          placeholder="ヒアリング内容やメモを入力..."
+                                          className="min-h-[200px]"
+                                        />
+                                      </div>
+                                    </div>
                                     <div className="flex justify-end gap-2 mt-4">
-                                      <Button variant="outline">キャンセル</Button>
-                                      <Button className="bg-gradient-to-r from-violet-500 to-indigo-600">保存</Button>
+                                      <Button 
+                                        variant="outline"
+                                        onClick={() => {
+                                          setEditingCandidateId(null)
+                                          setEditStatus('')
+                                          setEditMemo('')
+                                        }}
+                                      >
+                                        キャンセル
+                                      </Button>
+                                      <Button 
+                                        className="bg-gradient-to-r from-violet-500 to-indigo-600"
+                                        onClick={() => {
+                                          if (editStatus) {
+                                            setCandidateStatuses(prev => ({ ...prev, [candidate.id]: editStatus }))
+                                          }
+                                          setCandidateMemos(prev => ({ ...prev, [candidate.id]: editMemo }))
+                                          setEditingCandidateId(null)
+                                          setEditStatus('')
+                                          setEditMemo('')
+                                        }}
+                                      >
+                                        保存
+                                      </Button>
                                     </div>
                                   </DialogContent>
                                 </Dialog>
                               </TableCell>
                             </TableRow>
-                          )
-                        })}
-                      </TableBody>
-                    </Table>
+                            )
+                          })}
+                        </TableBody>
+                      </Table>
+                    </div>
                   </CardContent>
                 </Card>
               </div>
@@ -345,6 +443,14 @@ export default function MembersPage() {
         </div>
       </div>
     </AppLayout>
+  )
+}
+
+export default function MembersPage() {
+  return (
+    <Suspense fallback={<div>読み込み中...</div>}>
+      <MembersPageContent />
+    </Suspense>
   )
 }
 

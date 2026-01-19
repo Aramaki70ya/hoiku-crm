@@ -72,6 +72,8 @@ CREATE TABLE IF NOT EXISTS candidates (
   source_id UUID REFERENCES sources(id),
   registered_at DATE,
   consultant_id UUID REFERENCES users(id),
+  approach_priority TEXT CHECK (approach_priority IN ('S', 'A', 'B', 'C')), -- アプローチ優先度（タスク画面用）
+  rank TEXT CHECK (rank IN ('S', 'A', 'B', 'C')), -- ランク（求職者管理画面用）
   memo TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -180,7 +182,46 @@ CREATE POLICY "Authenticated users can update interviews"
   ON interviews FOR UPDATE TO authenticated USING (true);
 
 -- ========================================
--- 7. インデックス
+-- 7. 成約テーブル
+-- ========================================
+CREATE TABLE IF NOT EXISTS contracts (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  candidate_id TEXT NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+  accepted_date DATE NOT NULL, -- 承諾日
+  employment_restriction_until DATE, -- 転職勧奨禁止期間
+  employment_type TEXT, -- 雇用形態（正社員、パート等）
+  job_type TEXT, -- 職種（保育士、栄養士等）
+  revenue_excluding_tax INTEGER NOT NULL, -- 売上（税抜）
+  revenue_including_tax INTEGER NOT NULL, -- 売上（税込）
+  payment_date DATE, -- 入金日
+  invoice_sent_date DATE, -- 請求書発送日
+  calculation_basis TEXT, -- 算出根拠（例：3,438,000円×20%）
+  document_url TEXT, -- 格納先URL
+  placement_company TEXT, -- 入職先（園名/法人名）
+  note TEXT, -- 備考
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TRIGGER update_contracts_updated_at
+  BEFORE UPDATE ON contracts
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+-- RLSを有効化
+ALTER TABLE contracts ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Authenticated users can view all contracts"
+  ON contracts FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "Authenticated users can insert contracts"
+  ON contracts FOR INSERT TO authenticated WITH CHECK (true);
+
+CREATE POLICY "Authenticated users can update contracts"
+  ON contracts FOR UPDATE TO authenticated USING (true);
+
+-- ========================================
+-- 8. インデックス
 -- ========================================
 CREATE INDEX IF NOT EXISTS idx_candidates_status ON candidates(status);
 CREATE INDEX IF NOT EXISTS idx_candidates_consultant ON candidates(consultant_id);
@@ -189,4 +230,7 @@ CREATE INDEX IF NOT EXISTS idx_projects_candidate ON projects(candidate_id);
 CREATE INDEX IF NOT EXISTS idx_projects_phase ON projects(phase);
 CREATE INDEX IF NOT EXISTS idx_interviews_project ON interviews(project_id);
 CREATE INDEX IF NOT EXISTS idx_interviews_start ON interviews(start_at);
+CREATE INDEX IF NOT EXISTS idx_contracts_candidate ON contracts(candidate_id);
+CREATE INDEX IF NOT EXISTS idx_contracts_accepted_date ON contracts(accepted_date);
+CREATE INDEX IF NOT EXISTS idx_contracts_payment_date ON contracts(payment_date);
 

@@ -3,7 +3,7 @@
  * Supabase接続前のUI確認用
  */
 
-import type { Candidate, Project, Interview, User, Source } from '@/types/database'
+import type { Candidate, Project, Interview, User, Source, Contract, Memo } from '@/types/database'
 
 export const mockUsers: User[] = [
   { id: '1', email: 'takizawa@example.com', name: '瀧澤', role: 'user', created_at: '2024-01-01' },
@@ -18,10 +18,7 @@ export const mockUsers: User[] = [
   { id: '10', email: 'ishii@example.com', name: '石井', role: 'admin', created_at: '2024-01-01' },
 ]
 
-// 1課メンバー
-export const team1Members = ['1', '6', '2', '5'] // 瀧澤, 戸部, 大塚, 松澤
-// 2課メンバー
-export const team2Members = ['3', '4', '7', '8', '9'] // 西田, 鈴木, 後藤, 小畦, 吉田
+// 課別表示は削除（一旦なし）
 
 export const mockSources: Source[] = [
   { id: '1', name: 'LINE', category: 'SNS' },
@@ -52,6 +49,8 @@ export const mockCandidates: Candidate[] = [
     source_id: '1',
     registered_at: '2025-11-11',
     consultant_id: '1',
+    approach_priority: 'S',
+    rank: 'A',
     memo: '面接確定済み 11/28 鵠沼げんきっず保育園',
     created_at: '2025-11-11T00:00:00Z',
     updated_at: '2025-11-25T00:00:00Z',
@@ -73,6 +72,8 @@ export const mockCandidates: Candidate[] = [
     source_id: '2',
     registered_at: '2025-11-23',
     consultant_id: '1',
+    approach_priority: 'S',
+    rank: 'A',
     memo: '面接確定済み 12/2 東よさみ幼稚園 インターナショナル希望',
     created_at: '2025-11-23T00:00:00Z',
     updated_at: '2025-11-25T00:00:00Z',
@@ -94,6 +95,8 @@ export const mockCandidates: Candidate[] = [
     source_id: '2',
     registered_at: '2025-11-21',
     consultant_id: '1',
+    approach_priority: 'S',
+    rank: 'B',
     memo: '面接確定済み 11/28 日吉台保育園',
     created_at: '2025-11-21T00:00:00Z',
     updated_at: '2025-11-25T00:00:00Z',
@@ -115,6 +118,8 @@ export const mockCandidates: Candidate[] = [
     source_id: '4',
     registered_at: '2025-11-21',
     consultant_id: '4',
+    approach_priority: 'A',
+    rank: 'A',
     memo: '役職希望・1時間以内',
     created_at: '2025-11-21T00:00:00Z',
     updated_at: '2025-11-25T00:00:00Z',
@@ -136,6 +141,8 @@ export const mockCandidates: Candidate[] = [
     source_id: '6',
     registered_at: '2025-11-25',
     consultant_id: '4',
+    approach_priority: 'A',
+    rank: 'B',
     memo: null,
     created_at: '2025-11-25T00:00:00Z',
     updated_at: '2025-11-25T00:00:00Z',
@@ -157,6 +164,8 @@ export const mockCandidates: Candidate[] = [
     source_id: '4',
     registered_at: '2025-10-17',
     consultant_id: '4',
+    approach_priority: 'C',
+    rank: 'A',
     memo: '成約済み エメット保育園',
     created_at: '2025-10-17T00:00:00Z',
     updated_at: '2025-11-20T00:00:00Z',
@@ -178,6 +187,8 @@ export const mockCandidates: Candidate[] = [
     source_id: '5',
     registered_at: '2025-10-14',
     consultant_id: '3',
+    approach_priority: 'C',
+    rank: 'A',
     memo: '成約済み ニチイキッズこくふ保育園',
     created_at: '2025-10-14T00:00:00Z',
     updated_at: '2025-11-10T00:00:00Z',
@@ -199,6 +210,8 @@ export const mockCandidates: Candidate[] = [
     source_id: '4',
     registered_at: '2025-11-27',
     consultant_id: '9',
+    approach_priority: 'A',
+    rank: 'B',
     memo: null,
     created_at: '2025-11-27T00:00:00Z',
     updated_at: '2025-11-27T00:00:00Z',
@@ -221,6 +234,8 @@ export const mockCandidates: Candidate[] = [
     source_id: '1',
     registered_at: '2025-11-26',
     consultant_id: '1',
+    approach_priority: 'S',
+    rank: 'S',
     memo: null,
     created_at: '2025-11-26T00:00:00Z',
     updated_at: '2025-11-26T00:00:00Z',
@@ -242,6 +257,8 @@ export const mockCandidates: Candidate[] = [
     source_id: '2',
     registered_at: '2025-11-25',
     consultant_id: '2',
+    approach_priority: 'B',
+    rank: 'C',
     memo: '電話連絡中',
     created_at: '2025-11-25T00:00:00Z',
     updated_at: '2025-11-26T00:00:00Z',
@@ -263,6 +280,8 @@ export const mockCandidates: Candidate[] = [
     source_id: '3',
     registered_at: '2025-11-20',
     consultant_id: '6',
+    approach_priority: 'A',
+    rank: 'A',
     memo: '提案中：みらい保育園',
     created_at: '2025-11-20T00:00:00Z',
     updated_at: '2025-11-25T00:00:00Z',
@@ -284,6 +303,8 @@ export const mockCandidates: Candidate[] = [
     source_id: '4',
     registered_at: '2025-11-10',
     consultant_id: '6',
+    approach_priority: 'S',
+    rank: 'S',
     memo: '内定：ひまわり保育園',
     created_at: '2025-11-10T00:00:00Z',
     updated_at: '2025-11-24T00:00:00Z',
@@ -305,6 +326,8 @@ export const mockCandidates: Candidate[] = [
     source_id: '5',
     registered_at: '2025-11-05',
     consultant_id: '5',
+    approach_priority: 'C',
+    rank: 'C',
     memo: '他社で決定',
     created_at: '2025-11-05T00:00:00Z',
     updated_at: '2025-11-20T00:00:00Z',
@@ -326,6 +349,8 @@ export const mockCandidates: Candidate[] = [
     source_id: '6',
     registered_at: '2025-10-28',
     consultant_id: '5',
+    approach_priority: 'C',
+    rank: 'C',
     memo: '来年4月希望',
     created_at: '2025-10-28T00:00:00Z',
     updated_at: '2025-11-15T00:00:00Z',
@@ -614,27 +639,476 @@ export const sourcePriorityRules: Record<string, string> = {
   '8': 'S', // 個人掘起こし → S
 }
 
-// 求職者優先度・コメント情報
-export interface CandidatePriority {
+// アプローチ優先度（タスク画面用）
+export interface ApproachPriority {
   candidateId: string
-  priority: 'S' | 'A' | 'B' | 'C'
+  approach_priority: 'S' | 'A' | 'B' | 'C'
   taskComment: string | null
   lastUpdated: string
 }
 
-export const mockCandidatePriorities: CandidatePriority[] = [
-  { candidateId: '20206444', priority: 'S', taskComment: '本日面接確認の電話必須', lastUpdated: '2025-11-28' },
-  { candidateId: '20206517', priority: 'S', taskComment: '12/2面接前の最終確認', lastUpdated: '2025-11-28' },
-  { candidateId: '20206512', priority: 'S', taskComment: '本日面接！事前連絡済み', lastUpdated: '2025-11-28' },
-  { candidateId: '20206510', priority: 'A', taskComment: '求人提案中、返答待ち', lastUpdated: '2025-11-27' },
-  { candidateId: '20206520', priority: 'A', taskComment: '希望条件ヒアリング済み、案件探し中', lastUpdated: '2025-11-26' },
-  { candidateId: '20206533', priority: 'A', taskComment: '初回ヒアリング完了、提案準備', lastUpdated: '2025-11-27' },
-  { candidateId: '20206401', priority: 'S', taskComment: '新規登録！本日中に初回連絡', lastUpdated: '2025-11-28' },
-  { candidateId: '20206402', priority: 'B', taskComment: '電話つながらず、明日再連絡', lastUpdated: '2025-11-26' },
-  { candidateId: '20206403', priority: 'A', taskComment: '提案中、園見学の日程調整', lastUpdated: '2025-11-25' },
-  { candidateId: '20206404', priority: 'S', taskComment: '内定！入社意思確認急ぎ', lastUpdated: '2025-11-24' },
-  { candidateId: '20206405', priority: 'C', taskComment: '他社決定、フォロー終了', lastUpdated: '2025-11-20' },
-  { candidateId: '20206406', priority: 'C', taskComment: '来年4月希望、定期フォロー', lastUpdated: '2025-11-15' },
-  { candidateId: '20206295', priority: 'C', taskComment: '成約済み、入社フォロー', lastUpdated: '2025-11-20' },
-  { candidateId: '20206257', priority: 'C', taskComment: '成約済み、入社フォロー', lastUpdated: '2025-11-10' },
+export const mockApproachPriorities: ApproachPriority[] = [
+  { candidateId: '20206444', approach_priority: 'S', taskComment: '本日面接確認の電話必須', lastUpdated: '2025-11-28' },
+  { candidateId: '20206517', approach_priority: 'S', taskComment: '12/2面接前の最終確認', lastUpdated: '2025-11-28' },
+  { candidateId: '20206512', approach_priority: 'S', taskComment: '本日面接！事前連絡済み', lastUpdated: '2025-11-28' },
+  { candidateId: '20206510', approach_priority: 'A', taskComment: '求人提案中、返答待ち', lastUpdated: '2025-11-27' },
+  { candidateId: '20206520', approach_priority: 'A', taskComment: '希望条件ヒアリング済み、案件探し中', lastUpdated: '2025-11-26' },
+  { candidateId: '20206533', approach_priority: 'A', taskComment: '初回ヒアリング完了、提案準備', lastUpdated: '2025-11-27' },
+  { candidateId: '20206401', approach_priority: 'S', taskComment: '新規登録！本日中に初回連絡', lastUpdated: '2025-11-28' },
+  { candidateId: '20206402', approach_priority: 'B', taskComment: '電話つながらず、明日再連絡', lastUpdated: '2025-11-26' },
+  { candidateId: '20206403', approach_priority: 'A', taskComment: '提案中、園見学の日程調整', lastUpdated: '2025-11-25' },
+  { candidateId: '20206404', approach_priority: 'S', taskComment: '内定！入社意思確認急ぎ', lastUpdated: '2025-11-24' },
+  { candidateId: '20206405', approach_priority: 'C', taskComment: '他社決定、フォロー終了', lastUpdated: '2025-11-20' },
+  { candidateId: '20206406', approach_priority: 'C', taskComment: '来年4月希望、定期フォロー', lastUpdated: '2025-11-15' },
+  { candidateId: '20206295', approach_priority: 'C', taskComment: '成約済み、入社フォロー', lastUpdated: '2025-11-20' },
+  { candidateId: '20206257', approach_priority: 'C', taskComment: '成約済み、入社フォロー', lastUpdated: '2025-11-10' },
 ]
+
+// ランク（求職者管理画面用）
+export interface CandidateRank {
+  candidateId: string
+  rank: 'S' | 'A' | 'B' | 'C'
+  lastUpdated: string
+}
+
+export const mockCandidateRanks: CandidateRank[] = [
+  { candidateId: '20206444', rank: 'A', lastUpdated: '2025-11-28' },
+  { candidateId: '20206517', rank: 'A', lastUpdated: '2025-11-28' },
+  { candidateId: '20206512', rank: 'B', lastUpdated: '2025-11-28' },
+  { candidateId: '20206510', rank: 'A', lastUpdated: '2025-11-27' },
+  { candidateId: '20206520', rank: 'B', lastUpdated: '2025-11-26' },
+  { candidateId: '20206533', rank: 'B', lastUpdated: '2025-11-27' },
+  { candidateId: '20206401', rank: 'S', lastUpdated: '2025-11-28' },
+  { candidateId: '20206402', rank: 'C', lastUpdated: '2025-11-26' },
+  { candidateId: '20206403', rank: 'A', lastUpdated: '2025-11-25' },
+  { candidateId: '20206404', rank: 'S', lastUpdated: '2025-11-24' },
+  { candidateId: '20206405', rank: 'C', lastUpdated: '2025-11-20' },
+  { candidateId: '20206406', rank: 'C', lastUpdated: '2025-11-15' },
+  { candidateId: '20206295', rank: 'A', lastUpdated: '2025-11-20' },
+  { candidateId: '20206257', rank: 'A', lastUpdated: '2025-11-10' },
+]
+
+// メモデータ
+export const mockMemos: Memo[] = [
+  {
+    id: 'm1',
+    candidate_id: '20206444',
+    content: '面接確定済み 11/28 鵠沼げんきっず保育園',
+    created_by: '1',
+    created_at: '2025-11-25T10:00:00Z',
+  },
+  {
+    id: 'm2',
+    candidate_id: '20206444',
+    content: '初回ヒアリング完了。希望条件：正社員、神奈川県内、通勤時間1時間以内',
+    created_by: '1',
+    created_at: '2025-11-15T14:30:00Z',
+  },
+  {
+    id: 'm3',
+    candidate_id: '20206517',
+    content: '面接確定済み 12/2 東よさみ幼稚園 インターナショナル希望',
+    created_by: '1',
+    created_at: '2025-11-23T09:00:00Z',
+  },
+  {
+    id: 'm4',
+    candidate_id: '20206510',
+    content: '役職希望・1時間以内',
+    created_by: '4',
+    created_at: '2025-11-21T11:00:00Z',
+  },
+]
+
+// 成約データ（2025年10月分ベース）
+export const mockContracts: Contract[] = [
+  {
+    id: 'c1',
+    candidate_id: '20191096',
+    accepted_date: '2025-10-10',
+    employment_restriction_until: null,
+    employment_type: '正職員',
+    job_type: '保育士',
+    revenue_excluding_tax: 687600,
+    revenue_including_tax: 756360,
+    payment_date: '2025-10-31',
+    payment_scheduled_date: '2025-10-31',
+    invoice_sent_date: '2025-10-15',
+    calculation_basis: '3,438,000円×20%',
+    document_url: null,
+    placement_company: 'フェイスフルラバーズ',
+    placement_company_name: 'フェイスフルラバーズ株式会社',
+    placement_facility_name: 'フェイスフルラバーズ保育園',
+    note: null,
+    created_at: '2025-10-10T00:00:00Z',
+    updated_at: '2025-10-10T00:00:00Z',
+  },
+  {
+    id: 'c2',
+    candidate_id: '20204369',
+    accepted_date: '2025-10-07',
+    employment_restriction_until: null,
+    employment_type: null,
+    job_type: null,
+    revenue_excluding_tax: 610480,
+    revenue_including_tax: 671528,
+    payment_date: null,
+    payment_scheduled_date: '2025-11-15',
+    invoice_sent_date: null,
+    calculation_basis: null,
+    document_url: null,
+    placement_company: null,
+    placement_company_name: null,
+    placement_facility_name: null,
+    note: null,
+    created_at: '2025-10-07T00:00:00Z',
+    updated_at: '2025-10-07T00:00:00Z',
+  },
+  {
+    id: 'c3',
+    candidate_id: '20205637',
+    accepted_date: '2025-10-02',
+    employment_restriction_until: null,
+    employment_type: null,
+    job_type: null,
+    revenue_excluding_tax: 712085,
+    revenue_including_tax: 783294,
+    payment_date: null,
+    payment_scheduled_date: '2025-11-10',
+    invoice_sent_date: null,
+    calculation_basis: null,
+    document_url: null,
+    placement_company: null,
+    placement_company_name: null,
+    placement_facility_name: null,
+    note: null,
+    created_at: '2025-10-02T00:00:00Z',
+    updated_at: '2025-10-02T00:00:00Z',
+  },
+  {
+    id: 'c4',
+    candidate_id: '20206038',
+    accepted_date: '2025-10-15',
+    employment_restriction_until: null,
+    employment_type: null,
+    job_type: null,
+    revenue_excluding_tax: 1469633,
+    revenue_including_tax: 1616596,
+    payment_date: null,
+    payment_scheduled_date: '2025-11-20',
+    invoice_sent_date: null,
+    calculation_basis: null,
+    document_url: null,
+    placement_company: null,
+    placement_company_name: null,
+    placement_facility_name: null,
+    note: null,
+    created_at: '2025-10-15T00:00:00Z',
+    updated_at: '2025-10-15T00:00:00Z',
+  },
+  {
+    id: 'c5',
+    candidate_id: '20206055',
+    accepted_date: '2025-10-07',
+    employment_restriction_until: null,
+    employment_type: null,
+    job_type: null,
+    revenue_excluding_tax: 411720,
+    revenue_including_tax: 452892,
+    payment_date: null,
+    payment_scheduled_date: '2025-11-15',
+    invoice_sent_date: null,
+    calculation_basis: null,
+    document_url: null,
+    placement_company: null,
+    placement_company_name: null,
+    placement_facility_name: null,
+    note: null,
+    created_at: '2025-10-07T00:00:00Z',
+    updated_at: '2025-10-07T00:00:00Z',
+  },
+  {
+    id: 'c6',
+    candidate_id: '20206082',
+    accepted_date: '2025-10-01',
+    employment_restriction_until: null,
+    employment_type: '正社員',
+    job_type: '保育士',
+    revenue_excluding_tax: 240000,
+    revenue_including_tax: 264000,
+    payment_date: '2025-12-31',
+    payment_scheduled_date: '2025-12-31',
+    invoice_sent_date: null,
+    calculation_basis: '下限値30万',
+    document_url: null,
+    placement_company: '株式会社おはようキッズ',
+    placement_company_name: '株式会社おはようキッズ',
+    placement_facility_name: null,
+    note: null,
+    created_at: '2025-10-01T00:00:00Z',
+    updated_at: '2025-10-01T00:00:00Z',
+  },
+  {
+    id: 'c7',
+    candidate_id: '20206086',
+    accepted_date: '2025-10-31',
+    employment_restriction_until: null,
+    employment_type: null,
+    job_type: null,
+    revenue_excluding_tax: 200000,
+    revenue_including_tax: 220000,
+    payment_date: null,
+    payment_scheduled_date: '2025-12-15',
+    invoice_sent_date: null,
+    calculation_basis: null,
+    document_url: null,
+    placement_company: null,
+    placement_company_name: null,
+    placement_facility_name: null,
+    note: null,
+    created_at: '2025-10-31T00:00:00Z',
+    updated_at: '2025-10-31T00:00:00Z',
+  },
+  {
+    id: 'c8',
+    candidate_id: '20206119',
+    accepted_date: '2025-10-17',
+    employment_restriction_until: null,
+    employment_type: null,
+    job_type: null,
+    revenue_excluding_tax: 887840,
+    revenue_including_tax: 976624,
+    payment_date: null,
+    payment_scheduled_date: '2025-11-30',
+    invoice_sent_date: null,
+    calculation_basis: null,
+    document_url: null,
+    placement_company: null,
+    placement_company_name: null,
+    placement_facility_name: null,
+    note: null,
+    created_at: '2025-10-17T00:00:00Z',
+    updated_at: '2025-10-17T00:00:00Z',
+  },
+  {
+    id: 'c9',
+    candidate_id: '20206129',
+    accepted_date: '2025-10-17',
+    employment_restriction_until: null,
+    employment_type: null,
+    job_type: null,
+    revenue_excluding_tax: 702000,
+    revenue_including_tax: 772200,
+    payment_date: null,
+    payment_scheduled_date: '2025-11-25',
+    invoice_sent_date: null,
+    calculation_basis: null,
+    document_url: null,
+    placement_company: null,
+    placement_company_name: null,
+    placement_facility_name: null,
+    note: null,
+    created_at: '2025-10-17T00:00:00Z',
+    updated_at: '2025-10-17T00:00:00Z',
+  },
+  {
+    id: 'c10',
+    candidate_id: '20206167',
+    accepted_date: '2025-10-30',
+    employment_restriction_until: null,
+    employment_type: null,
+    job_type: null,
+    revenue_excluding_tax: 300000,
+    revenue_including_tax: 330000,
+    payment_date: null,
+    payment_scheduled_date: '2025-12-20',
+    invoice_sent_date: null,
+    calculation_basis: null,
+    document_url: null,
+    placement_company: null,
+    placement_company_name: null,
+    placement_facility_name: null,
+    note: null,
+    created_at: '2025-10-30T00:00:00Z',
+    updated_at: '2025-10-30T00:00:00Z',
+  },
+  {
+    id: 'c11',
+    candidate_id: '20206295',
+    accepted_date: '2025-10-31',
+    employment_restriction_until: null,
+    employment_type: '正社員',
+    job_type: '保育士',
+    revenue_excluding_tax: 945000,
+    revenue_including_tax: 1039500,
+    payment_date: '2026-05-31',
+    payment_scheduled_date: '2026-05-31',
+    invoice_sent_date: null,
+    calculation_basis: '3,780,000円×25%',
+    document_url: null,
+    placement_company: 'ソラスト東村山保育園',
+    placement_company_name: 'ソラスト株式会社',
+    placement_facility_name: 'ソラスト東村山保育園',
+    note: null,
+    created_at: '2025-10-31T00:00:00Z',
+    updated_at: '2025-10-31T00:00:00Z',
+  },
+  {
+    id: 'c12',
+    candidate_id: '20206298',
+    accepted_date: '2025-10-28',
+    employment_restriction_until: null,
+    employment_type: null,
+    job_type: null,
+    revenue_excluding_tax: 365040,
+    revenue_including_tax: 401544,
+    payment_date: '2025-11-28',
+    payment_scheduled_date: '2025-11-28',
+    invoice_sent_date: null,
+    calculation_basis: '1,216,800円×',
+    document_url: null,
+    placement_company: 'トットハウスみなと',
+    placement_company_name: null,
+    placement_facility_name: 'トットハウスみなと',
+    note: null,
+    created_at: '2025-10-28T00:00:00Z',
+    updated_at: '2025-10-28T00:00:00Z',
+  },
+]
+
+// 成約担当者情報（CSV経由から取得）
+export const contractConsultants: Record<string, string> = {
+  '20191096': '3', // 西田
+  '20204369': '2', // 大塚
+  '20205637': '1', // 瀧澤
+  '20206038': '6', // 戸部
+  '20206055': '1', // 瀧澤
+  '20206082': '4', // 鈴木
+  '20206086': '8', // 小畦
+  '20206119': '6', // 戸部
+  '20206129': '1', // 瀧澤
+  '20206167': '1', // 瀧澤
+  '20206295': '4', // 鈴木
+  '20206298': '1', // 瀧澤
+}
+
+// 成約者名情報（candidatesテーブルに含まれていない場合の補完用）
+export const contractCandidateNames: Record<string, string> = {
+  '20191096': '齋藤 真紀',
+  '20204369': '塩塚 奈名江',
+  '20205637': '原畠みわ',
+  '20206038': '小八重 千鶴',
+  '20206055': '陣内 あおい',
+  '20206082': '高松 里理',
+  '20206086': '内藤 紗矢子',
+  '20206119': '大野 成実',
+  '20206129': '古池 知尋',
+  '20206167': '米村 加菜子',
+  '20206295': '角田 智美',
+  '20206298': '三原 智代',
+}
+
+// 成約経由情報
+export const contractSources: Record<string, string> = {
+  '20191096': '求人版',
+  '20204369': 'LINE',
+  '20205637': '#N/A',
+  '20206038': 'NAVIS',
+  '20206055': 'ジョブカン（SGL）',
+  '20206082': '求人ボックス（サポーター）',
+  '20206086': '#N/A',
+  '20206119': 'NAVIS',
+  '20206129': '求人ボックス（求人版）',
+  '20206167': 'バイトル',
+  '20206295': 'スタンバイ（求人版）',
+  '20206298': 'バイトル',
+}
+
+// サマリーダッシュボード用：担当者別営業進捗データ
+export interface SalesProgress {
+  userId: string
+  userName: string
+  totalCount: number // 担当件数
+  firstContactCount: number // 初回接触数
+  interviewCount: number // 面接数
+  closedCount: number // 成約数
+  // ステータス別案件詳細
+  adjustingCases: Array<{ name: string; yomi: string; amount: number }> // 調整中
+  beforeInterviewCases: Array<{ name: string; yomi: string; amount: number }> // 面接前
+  waitingResultCases: Array<{ name: string; yomi: string; amount: number }> // 結果待ち
+  waitingReplyCases: Array<{ name: string; yomi: string; amount: number }> // 本人返事待ち
+}
+
+// スプレッドシートの内容を反映したデータ（2026/01/14時点）
+export const mockSalesProgress: SalesProgress[] = [
+  {
+    userId: '1',
+    userName: '瀧澤',
+    totalCount: 20,
+    firstContactCount: 9,
+    interviewCount: 1,
+    closedCount: 1,
+    adjustingCases: [],
+    beforeInterviewCases: [],
+    waitingResultCases: [],
+    waitingReplyCases: [],
+  },
+  {
+    userId: '3',
+    userName: '西田',
+    totalCount: 8,
+    firstContactCount: 6,
+    interviewCount: 1,
+    closedCount: 0,
+    adjustingCases: [{ name: '住友 淳子', yomi: 'Bヨミ(50%)', amount: 1020000 }],
+    beforeInterviewCases: [{ name: '有澤 佳谷', yomi: 'Dヨミ(10%)', amount: 800000 }],
+    waitingResultCases: [],
+    waitingReplyCases: [],
+  },
+  {
+    userId: '4',
+    userName: '鈴木',
+    totalCount: 12,
+    firstContactCount: 7,
+    interviewCount: 0,
+    closedCount: 0,
+    adjustingCases: [
+      { name: '塚本 佑香', yomi: 'Cヨミ(30%)', amount: 1000000 },
+      { name: '星野 理沙', yomi: 'Cヨミ(30%)', amount: 1000000 },
+    ],
+    beforeInterviewCases: [],
+    waitingResultCases: [],
+    waitingReplyCases: [{ name: '池田 裕子', yomi: 'Cヨミ(30%)', amount: 850000 }],
+  },
+  {
+    userId: '8',
+    userName: '小畦',
+    totalCount: 3,
+    firstContactCount: 3,
+    interviewCount: 1,
+    closedCount: 0,
+    adjustingCases: [{ name: '小椋 梨乃', yomi: 'Cヨミ(30%)', amount: 500000 }],
+    beforeInterviewCases: [{ name: '高橋 朋巳', yomi: 'Cヨミ(30%)', amount: 850000 }],
+    waitingResultCases: [],
+    waitingReplyCases: [],
+  },
+  {
+    userId: '9',
+    userName: '吉田',
+    totalCount: 0,
+    firstContactCount: 0,
+    interviewCount: 0,
+    closedCount: 0,
+    adjustingCases: [],
+    beforeInterviewCases: [],
+    waitingResultCases: [],
+    waitingReplyCases: [],
+  },
+]
+
+// 目標値（スプレッドシートから）
+export const targetRates = {
+  firstContactRate: 0.65, // 面談率 (担当→初回) 65%
+  interviewRate: 0.80, // 設定率 (初回→面接) 80%
+  closedRate: 0.60, // 成約率 (面接→成約) 60%
+}

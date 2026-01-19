@@ -12,7 +12,7 @@ interface AppLayoutProps {
 
 export function AppLayout({ children, title, description }: AppLayoutProps) {
   return (
-    <div className="flex h-screen bg-gradient-to-br from-slate-50 via-violet-50/30 to-indigo-50/50">
+    <div className="flex h-screen bg-gradient-to-br from-slate-50 via-violet-50/30 to-indigo-50/50 relative">
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
         <Header title={title} description={description} />

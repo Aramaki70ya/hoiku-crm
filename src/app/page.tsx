@@ -42,9 +42,8 @@ import {
   mockProjects,
   mockInterviews,
   mockUsers,
+  mockSources,
   mockMemberStats,
-  team1Members,
-  team2Members,
   totalBudget,
   statusLabels,
   statusColors,
@@ -86,19 +85,7 @@ export default function DashboardPage() {
   const totalYomiB = mockMemberStats.reduce((sum, s) => sum + s.yomiB, 0)
   const shortfall = totalBudget - totalSales - totalYomiA - totalYomiB
 
-  // 1課統計
-  const team1Stats = mockMemberStats.filter(s => team1Members.includes(s.userId))
-  const team1Budget = team1Stats.reduce((sum, s) => sum + s.budget, 0)
-  const team1Sales = team1Stats.reduce((sum, s) => sum + s.sales, 0)
-  const team1YomiA = team1Stats.reduce((sum, s) => sum + s.yomiA, 0)
-  const team1YomiB = team1Stats.reduce((sum, s) => sum + s.yomiB, 0)
-
-  // 2課統計
-  const team2Stats = mockMemberStats.filter(s => team2Members.includes(s.userId))
-  const team2Budget = team2Stats.reduce((sum, s) => sum + s.budget, 0)
-  const team2Sales = team2Stats.reduce((sum, s) => sum + s.sales, 0)
-  const team2YomiA = team2Stats.reduce((sum, s) => sum + s.yomiA, 0)
-  const team2YomiB = team2Stats.reduce((sum, s) => sum + s.yomiB, 0)
+  // 課別表示は削除（一旦なし）
 
   // プロセス別集計
   const processCounts: Record<string, number> = {}
@@ -122,14 +109,44 @@ export default function DashboardPage() {
   const actualFirstContactRate = registrations > 0 ? (firstContacts / registrations) * 100 : 0
   const actualInterviewRate = firstContacts > 0 ? (interviewCount / firstContacts) * 100 : 0
   const actualClosedRate = interviewCount > 0 ? (closedWonCount / interviewCount) * 100 : 0
+  
+  // 実績の成約単価（成約額 / 成約人数）
+  const actualRevenuePerClosed = closedWonCount > 0 ? totalSales / closedWonCount : 0
 
-  // 今週の面接
-  const upcomingInterviews = mockInterviews
-    .filter((i) => i.status === 'scheduled')
-    .sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime())
+  // 今月の応募数
+  const now = new Date()
+  const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+  const currentMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+  const thisMonthCandidates = mockCandidates.filter(c => {
+    const registeredDate = new Date(c.registered_at)
+    return registeredDate >= currentMonthStart && registeredDate <= currentMonthEnd
+  })
+
+  // 流入経路ごとの集計（LINEを除く）
+  const sourceStats: Record<string, { count: number; thisMonthCount: number }> = {}
+  mockCandidates.forEach(c => {
+    if (c.source_id && c.source_id !== '1') { // LINEを除く（source_id: '1'）
+      const sourceName = mockSources.find(s => s.id === c.source_id)?.name || '不明'
+      if (!sourceStats[sourceName]) {
+        sourceStats[sourceName] = { count: 0, thisMonthCount: 0 }
+      }
+      sourceStats[sourceName].count++
+      const registeredDate = new Date(c.registered_at)
+      if (registeredDate >= currentMonthStart && registeredDate <= currentMonthEnd) {
+        sourceStats[sourceName].thisMonthCount++
+      }
+    }
+  })
+
+  // 全体の人数
+  const totalCandidatesCount = mockCandidates.length
+
+  // 流入経路割合の計算（LINEを除く）
+  const candidatesWithoutLine = mockCandidates.filter(c => c.source_id !== '1')
+  const totalWithoutLine = candidatesWithoutLine.length
 
   return (
-    <AppLayout title="ダッシュボード" description="保育事業部 採用管理">
+    <AppLayout title="全体サマリー" description="保育事業部 採用管理">
       {/* 期間選択 */}
       <div className="flex items-center gap-4 mb-6 p-4 bg-white rounded-xl border border-slate-200 shadow-sm">
         <div className="flex items-center gap-2 text-slate-600">
@@ -287,14 +304,14 @@ export default function DashboardPage() {
         </Card>
 
         {/* 不足金額 */}
-        <Card className="bg-gradient-to-br from-rose-500 to-pink-600 text-white border-0 shadow-lg">
+        <Card className="bg-gradient-to-br from-rose-200 to-pink-200 text-slate-700 border-0 shadow-lg">
           <CardContent className="pt-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-rose-200">不足金額（推定）</p>
-                <p className="text-2xl font-bold mt-1">¥{shortfall > 0 ? (shortfall / 10000).toLocaleString() : 0}万</p>
+                <p className="text-sm text-slate-600">不足金額（推定）</p>
+                <p className="text-2xl font-bold mt-1 text-slate-800">¥{shortfall > 0 ? (shortfall / 10000).toLocaleString() : 0}万</p>
               </div>
-              <AlertCircle className="w-10 h-10 text-rose-300" />
+              <AlertCircle className="w-10 h-10 text-rose-400" />
             </div>
           </CardContent>
         </Card>
@@ -321,14 +338,17 @@ export default function DashboardPage() {
                 <p className="text-sm text-slate-500 mb-1">目標</p>
               </div>
               <div className="mt-2 pt-2 border-t border-purple-200">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-slate-500">実績</span>
-                  <Badge className={actualFirstContactRate >= kpiAssumptions.registrationToFirstContactRate * 100 
-                    ? 'bg-emerald-100 text-emerald-700' 
-                    : 'bg-amber-100 text-amber-700'}>
+                <div className="flex items-end gap-2">
+                  <p className={`text-3xl font-bold ${actualFirstContactRate >= kpiAssumptions.registrationToFirstContactRate * 100 
+                    ? 'text-emerald-600' 
+                    : 'text-amber-600'}`}>
                     {actualFirstContactRate.toFixed(1)}%
-                  </Badge>
+                  </p>
+                  <p className="text-sm text-slate-500 mb-1">実績</p>
                 </div>
+                <p className="text-sm text-slate-500 mt-1">
+                  {firstContacts}件 / {registrations}件
+                </p>
               </div>
             </div>
 
@@ -343,14 +363,17 @@ export default function DashboardPage() {
                 <p className="text-sm text-slate-500 mb-1">目標</p>
               </div>
               <div className="mt-2 pt-2 border-t border-cyan-200">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-slate-500">実績</span>
-                  <Badge className={actualInterviewRate >= kpiAssumptions.firstContactToInterviewRate * 100 
-                    ? 'bg-emerald-100 text-emerald-700' 
-                    : 'bg-amber-100 text-amber-700'}>
+                <div className="flex items-end gap-2">
+                  <p className={`text-3xl font-bold ${actualInterviewRate >= kpiAssumptions.firstContactToInterviewRate * 100 
+                    ? 'text-emerald-600' 
+                    : 'text-amber-600'}`}>
                     {actualInterviewRate.toFixed(1)}%
-                  </Badge>
+                  </p>
+                  <p className="text-sm text-slate-500 mb-1">実績</p>
                 </div>
+                <p className="text-sm text-slate-500 mt-1">
+                  {interviewCount}件 / {firstContacts}件
+                </p>
               </div>
             </div>
 
@@ -365,14 +388,17 @@ export default function DashboardPage() {
                 <p className="text-sm text-slate-500 mb-1">目標</p>
               </div>
               <div className="mt-2 pt-2 border-t border-emerald-200">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-slate-500">実績</span>
-                  <Badge className={actualClosedRate >= kpiAssumptions.interviewToClosedRate * 100 
-                    ? 'bg-emerald-100 text-emerald-700' 
-                    : 'bg-amber-100 text-amber-700'}>
+                <div className="flex items-end gap-2">
+                  <p className={`text-3xl font-bold ${actualClosedRate >= kpiAssumptions.interviewToClosedRate * 100 
+                    ? 'text-emerald-600' 
+                    : 'text-amber-600'}`}>
                     {actualClosedRate.toFixed(1)}%
-                  </Badge>
+                  </p>
+                  <p className="text-sm text-slate-500 mb-1">実績</p>
                 </div>
+                <p className="text-sm text-slate-500 mt-1">
+                  {closedWonCount}件 / {interviewCount}件
+                </p>
               </div>
             </div>
 
@@ -387,92 +413,24 @@ export default function DashboardPage() {
                 <p className="text-sm text-slate-500 mb-1">/人</p>
               </div>
               <div className="mt-2 pt-2 border-t border-amber-200">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-slate-500">今月成約</span>
-                  <Badge className="bg-amber-100 text-amber-700">
-                    {closedWonCount}人
-                  </Badge>
+                <div className="flex items-end gap-2">
+                  <p className={`text-3xl font-bold ${actualRevenuePerClosed >= kpiAssumptions.revenuePerClosed 
+                    ? 'text-emerald-600' 
+                    : actualRevenuePerClosed > 0 ? 'text-amber-600' : 'text-slate-400'}`}>
+                    {actualRevenuePerClosed > 0 ? `¥${(actualRevenuePerClosed / 10000).toFixed(0)}万` : '-'}
+                  </p>
+                  <p className="text-sm text-slate-500 mb-1">実績</p>
                 </div>
+                <p className="text-sm text-slate-500 mt-1">
+                  {closedWonCount}件
+                </p>
               </div>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* 課別予算進捗 */}
-      <div className="grid grid-cols-2 gap-4 mb-6">
-        {/* 1課 */}
-        <Card className="bg-white border-slate-200 shadow-sm">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base text-slate-800 flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-violet-500" />
-              1課
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-4 gap-3 text-center">
-              <div className="p-2 bg-slate-50 rounded-lg">
-                <p className="text-xs text-slate-500">予算</p>
-                <p className="font-bold text-slate-800">¥{(team1Budget / 10000).toFixed(0)}万</p>
-              </div>
-              <div className="p-2 bg-emerald-50 rounded-lg">
-                <p className="text-xs text-emerald-600">売上</p>
-                <p className="font-bold text-emerald-700">¥{(team1Sales / 10000).toFixed(0)}万</p>
-              </div>
-              <div className="p-2 bg-red-50 rounded-lg">
-                <p className="text-xs text-red-600">Aヨミ</p>
-                <p className="font-bold text-red-700">¥{(team1YomiA / 10000).toFixed(0)}万</p>
-              </div>
-              <div className="p-2 bg-orange-50 rounded-lg">
-                <p className="text-xs text-orange-600">Bヨミ</p>
-                <p className="font-bold text-orange-700">¥{(team1YomiB / 10000).toFixed(0)}万</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 mt-3">
-              <Progress value={(team1Sales / team1Budget) * 100} className="h-2 flex-1" />
-              <span className="text-sm font-medium text-slate-600">
-                {((team1Sales / team1Budget) * 100).toFixed(1)}%
-              </span>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* 2課 */}
-        <Card className="bg-white border-slate-200 shadow-sm">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base text-slate-800 flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-indigo-500" />
-              2課
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-4 gap-3 text-center">
-              <div className="p-2 bg-slate-50 rounded-lg">
-                <p className="text-xs text-slate-500">予算</p>
-                <p className="font-bold text-slate-800">¥{(team2Budget / 10000).toFixed(0)}万</p>
-              </div>
-              <div className="p-2 bg-emerald-50 rounded-lg">
-                <p className="text-xs text-emerald-600">売上</p>
-                <p className="font-bold text-emerald-700">¥{(team2Sales / 10000).toFixed(0)}万</p>
-              </div>
-              <div className="p-2 bg-red-50 rounded-lg">
-                <p className="text-xs text-red-600">Aヨミ</p>
-                <p className="font-bold text-red-700">¥{(team2YomiA / 10000).toFixed(0)}万</p>
-              </div>
-              <div className="p-2 bg-orange-50 rounded-lg">
-                <p className="text-xs text-orange-600">Bヨミ</p>
-                <p className="font-bold text-orange-700">¥{(team2YomiB / 10000).toFixed(0)}万</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 mt-3">
-              <Progress value={(team2Sales / team2Budget) * 100} className="h-2 flex-1" />
-              <span className="text-sm font-medium text-slate-600">
-                {((team2Sales / team2Budget) * 100).toFixed(1)}%
-              </span>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      {/* 課別表示は削除（一旦なし） */}
 
       {/* プロセス進捗 */}
       <Card className="bg-white border-slate-200 shadow-sm mb-6">
@@ -509,99 +467,86 @@ export default function DashboardPage() {
         </CardContent>
       </Card>
 
-      {/* 課別タブ */}
-      <Tabs defaultValue="team1" className="mb-6">
-        <TabsList className="bg-white border border-slate-200 shadow-sm">
-          <TabsTrigger 
-            value="team1" 
-            className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-indigo-600 data-[state=active]:text-white"
-          >
-            1課
-          </TabsTrigger>
-          <TabsTrigger 
-            value="team2"
-            className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-indigo-600 data-[state=active]:text-white"
-          >
-            2課
-          </TabsTrigger>
-        </TabsList>
+      {/* 課別タブは削除（一旦なし） */}
 
-        {/* 1課詳細 */}
-        <TabsContent value="team1" className="mt-4">
-          <TeamDetailSection teamMembers={team1Members} teamName="1課" />
-        </TabsContent>
-
-        {/* 2課詳細 */}
-        <TabsContent value="team2" className="mt-4">
-          <TeamDetailSection teamMembers={team2Members} teamName="2課" />
-        </TabsContent>
-      </Tabs>
-
-      {/* 直近の面接予定 */}
+      {/* 登録者数サマリー */}
       <Card className="bg-white border-slate-200 shadow-sm">
         <CardHeader>
           <CardTitle className="text-lg text-slate-800 flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-violet-500" />
-            直近の面接予定
+            <Users className="w-5 h-5 text-violet-500" />
+            登録者数サマリー
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {upcomingInterviews.length === 0 ? (
-            <p className="text-slate-500 text-center py-8">
-              予定されている面接はありません
-            </p>
-          ) : (
-            <div className="space-y-3">
-              {upcomingInterviews.map((interview) => {
-                const project = mockProjects.find((p) => p.id === interview.project_id)
-                const candidate = mockCandidates.find(
-                  (c) => c.id === project?.candidate_id
-                )
-                const consultant = mockUsers.find(c => c.id === candidate?.consultant_id)
-                return (
-                  <div
-                    key={interview.id}
-                    className="flex items-center gap-4 p-4 rounded-xl bg-gradient-to-r from-violet-50 to-indigo-50 border border-violet-100"
-                  >
-                    <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-white border border-violet-200 flex flex-col items-center justify-center shadow-sm">
-                      <span className="text-lg font-bold text-violet-600">
-                        {new Date(interview.start_at).getDate()}
-                      </span>
-                      <span className="text-xs text-violet-500">
-                        {new Date(interview.start_at).toLocaleDateString('ja-JP', {
-                          month: 'short',
-                        })}
-                      </span>
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-slate-800">
-                          {candidate?.name}
-                        </span>
-                        <ArrowUpRight className="w-4 h-4 text-slate-400" />
-                        <span className="text-slate-600">{project?.client_name}</span>
-                      </div>
-                      <div className="flex items-center gap-3 mt-1 text-sm text-slate-500">
-                        <span>
-                          {new Date(interview.start_at).toLocaleTimeString('ja-JP', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </span>
-                        <span>•</span>
-                        <span>{interview.location}</span>
-                        <span>•</span>
-                        <span className="text-violet-600">担当: {consultant?.name}</span>
-                      </div>
-                    </div>
-                    <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200">
-                      面接予定
-                    </Badge>
-                  </div>
-                )
-              })}
+          <div className="space-y-6">
+            {/* 今月の応募数と全体の人数 */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="p-4 rounded-xl bg-gradient-to-br from-violet-50 to-indigo-50 border border-violet-100">
+                <div className="flex items-center gap-2 mb-2">
+                  <TrendingUp className="w-5 h-5 text-violet-600" />
+                  <p className="text-sm font-medium text-violet-700">今月の応募</p>
+                </div>
+                <p className="text-3xl font-bold text-violet-600">{thisMonthCandidates.length}人</p>
+              </div>
+              <div className="p-4 rounded-xl bg-gradient-to-br from-slate-50 to-slate-100 border border-slate-200">
+                <div className="flex items-center gap-2 mb-2">
+                  <Users className="w-5 h-5 text-slate-600" />
+                  <p className="text-sm font-medium text-slate-700">全体の人数</p>
+                </div>
+                <p className="text-3xl font-bold text-slate-800">{totalCandidatesCount}人</p>
+              </div>
             </div>
-          )}
+
+            {/* 流入経路ごとの新規人数（LINEを除く） */}
+            <div>
+              <h3 className="text-sm font-semibold text-slate-700 mb-3">流入経路ごとの新規人数（LINE除く）</h3>
+              <div className="grid grid-cols-2 gap-3">
+                {Object.entries(sourceStats)
+                  .sort((a, b) => b[1].thisMonthCount - a[1].thisMonthCount)
+                  .map(([sourceName, stats]) => (
+                    <div key={sourceName} className="p-3 rounded-lg bg-slate-50 border border-slate-200">
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="text-sm font-medium text-slate-700">{sourceName}</p>
+                        <p className="text-xs text-slate-500">今月: {stats.thisMonthCount}人</p>
+                      </div>
+                      <div className="flex items-end gap-2">
+                        <p className="text-2xl font-bold text-slate-800">{stats.count}人</p>
+                        <p className="text-xs text-slate-500 mb-1">全体</p>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+
+            {/* 流入経路割合 */}
+            <div>
+              <h3 className="text-sm font-semibold text-slate-700 mb-3">流入経路割合（LINE除く）</h3>
+              <div className="space-y-2">
+                {Object.entries(sourceStats)
+                  .sort((a, b) => b[1].count - a[1].count)
+                  .map(([sourceName, stats]) => {
+                    const percentage = totalWithoutLine > 0 
+                      ? ((stats.count / totalWithoutLine) * 100).toFixed(1) 
+                      : '0.0'
+                    return (
+                      <div key={sourceName} className="flex items-center gap-3">
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-sm text-slate-700">{sourceName}</span>
+                            <span className="text-sm font-medium text-slate-800">{percentage}%</span>
+                          </div>
+                          <Progress 
+                            value={parseFloat(percentage)} 
+                            className="h-2"
+                          />
+                        </div>
+                        <span className="text-sm text-slate-600 w-16 text-right">{stats.count}人</span>
+                      </div>
+                    )
+                  })}
+              </div>
+            </div>
+          </div>
         </CardContent>
       </Card>
     </AppLayout>
@@ -609,210 +554,4 @@ export default function DashboardPage() {
 }
 
 // 課別詳細セクション
-function TeamDetailSection({ teamMembers, teamName }: { teamMembers: string[], teamName: string }) {
-  const teamStats = mockMemberStats.filter(s => teamMembers.includes(s.userId))
-  
-  // メンバー別ステータス集計
-  const getMemberStatusCounts = (userId: string) => {
-    const candidates = mockCandidates.filter(c => c.consultant_id === userId)
-    const counts: Record<string, number> = {
-      'リード管理': 0,
-      '面談フェーズ': 0,
-      '提案フェーズ': 0,
-      '面接フェーズ': 0,
-      '内定確認中': 0,
-      '内定承諾': 0,
-      '内定辞退': 0,
-      'フォロー・ロスト': 0,
-    }
-    candidates.forEach(c => {
-      const process = processStatusLabels[c.status] || c.status
-      if (counts[process] !== undefined) {
-        counts[process]++
-      }
-    })
-    return counts
-  }
-
-  return (
-    <div className="space-y-4">
-      {/* 売上数字・行動目標 */}
-      <Card className="bg-white border-slate-200 shadow-sm">
-        <CardHeader className="pb-2 bg-gradient-to-r from-violet-500 to-indigo-600 text-white rounded-t-lg">
-          <CardTitle className="text-base">{teamName} - 売上数字・行動目標</CardTitle>
-        </CardHeader>
-        <CardContent className="pt-4">
-          <Table>
-            <TableHeader>
-              <TableRow className="border-slate-100 bg-slate-50">
-                <TableHead className="text-slate-600">メンバー</TableHead>
-                <TableHead className="text-slate-600 text-right">売上予算</TableHead>
-                <TableHead className="text-slate-600 text-right">成約額</TableHead>
-                <TableHead className="text-slate-600 text-right">対予算(%)</TableHead>
-                <TableHead className="text-slate-600 text-right">面談設定目標</TableHead>
-                <TableHead className="text-slate-600 text-right">面談設定数</TableHead>
-                <TableHead className="text-slate-600 text-right">対面談設定(%)</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {teamStats.map(stats => {
-                const user = mockUsers.find(u => u.id === stats.userId)
-                const budgetRate = (stats.sales / stats.budget) * 100
-                const meetingRate = (stats.meetingCount / stats.meetingTarget) * 100
-                return (
-                  <TableRow key={stats.userId} className="border-slate-100">
-                    <TableCell className="font-medium text-slate-800">{user?.name}</TableCell>
-                    <TableCell className="text-right text-slate-600">¥{(stats.budget / 10000).toFixed(0)}万</TableCell>
-                    <TableCell className="text-right font-medium text-emerald-600">¥{(stats.sales / 10000).toFixed(0)}万</TableCell>
-                    <TableCell className="text-right">
-                      <Badge className={budgetRate >= 50 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}>
-                        {budgetRate.toFixed(1)}%
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right text-slate-600">{stats.meetingTarget}</TableCell>
-                    <TableCell className="text-right text-slate-600">{stats.meetingCount}</TableCell>
-                    <TableCell className="text-right">
-                      <Badge className={meetingRate >= 50 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}>
-                        {meetingRate.toFixed(1)}%
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-
-      {/* ヨミ数字 */}
-      <div className="grid grid-cols-2 gap-4">
-        {/* 当月 */}
-        <Card className="bg-white border-slate-200 shadow-sm">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base text-slate-800">ヨミ数字（当月）</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow className="border-slate-100 bg-slate-50">
-                  <TableHead className="text-slate-600">メンバー</TableHead>
-                  <TableHead className="text-slate-600 text-right">Aヨミ(80%)</TableHead>
-                  <TableHead className="text-slate-600 text-right">Bヨミ(50%)</TableHead>
-                  <TableHead className="text-slate-600 text-right">Cヨミ(30%)</TableHead>
-                  <TableHead className="text-slate-600 text-right">Dヨミ(10%)</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {teamStats.map(stats => {
-                  const user = mockUsers.find(u => u.id === stats.userId)
-                  return (
-                    <TableRow key={stats.userId} className="border-slate-100">
-                      <TableCell className="font-medium text-slate-800">{user?.name}</TableCell>
-                      <TableCell className="text-right text-red-600">¥{(stats.yomiA / 10000).toFixed(0)}万</TableCell>
-                      <TableCell className="text-right text-orange-600">¥{(stats.yomiB / 10000).toFixed(0)}万</TableCell>
-                      <TableCell className="text-right text-yellow-600">¥{(stats.yomiC / 10000).toFixed(0)}万</TableCell>
-                      <TableCell className="text-right text-slate-500">¥{(stats.yomiD / 10000).toFixed(0)}万</TableCell>
-                    </TableRow>
-                  )
-                })}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-
-        {/* 翌月 */}
-        <Card className="bg-white border-slate-200 shadow-sm">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base text-slate-800">ヨミ数字（翌月）</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow className="border-slate-100 bg-slate-50">
-                  <TableHead className="text-slate-600">メンバー</TableHead>
-                  <TableHead className="text-slate-600 text-right">Aヨミ(80%)</TableHead>
-                  <TableHead className="text-slate-600 text-right">Bヨミ(50%)</TableHead>
-                  <TableHead className="text-slate-600 text-right">Cヨミ(30%)</TableHead>
-                  <TableHead className="text-slate-600 text-right">Dヨミ(10%)</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {teamStats.map(stats => {
-                  const user = mockUsers.find(u => u.id === stats.userId)
-                  return (
-                    <TableRow key={stats.userId} className="border-slate-100">
-                      <TableCell className="font-medium text-slate-800">{user?.name}</TableCell>
-                      <TableCell className="text-right text-red-500">¥{(stats.yomiANext / 10000).toFixed(0)}万</TableCell>
-                      <TableCell className="text-right text-orange-500">¥{(stats.yomiBNext / 10000).toFixed(0)}万</TableCell>
-                      <TableCell className="text-right text-yellow-500">¥{(stats.yomiCNext / 10000).toFixed(0)}万</TableCell>
-                      <TableCell className="text-right text-slate-400">¥{(stats.yomiDNext / 10000).toFixed(0)}万</TableCell>
-                    </TableRow>
-                  )
-                })}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-        </div>
-
-      {/* ステータス概況 */}
-      <Card className="bg-white border-slate-200 shadow-sm">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base text-slate-800">ステータス概況（個人別プロセス）</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow className="border-slate-100 bg-slate-50">
-                <TableHead className="text-slate-600">メンバー</TableHead>
-                <TableHead className="text-slate-600 text-center">リード</TableHead>
-                <TableHead className="text-slate-600 text-center">面談</TableHead>
-                <TableHead className="text-slate-600 text-center">提案</TableHead>
-                <TableHead className="text-slate-600 text-center">面接</TableHead>
-                <TableHead className="text-slate-600 text-center">内定確認</TableHead>
-                <TableHead className="text-slate-600 text-center">内定承諾</TableHead>
-                <TableHead className="text-slate-600 text-center">内定辞退</TableHead>
-                <TableHead className="text-slate-600 text-center">フォロー</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {teamMembers.map(memberId => {
-                const user = mockUsers.find(u => u.id === memberId)
-                const counts = getMemberStatusCounts(memberId)
-                return (
-                  <TableRow key={memberId} className="border-slate-100">
-                    <TableCell className="font-medium text-slate-800">{user?.name}</TableCell>
-                    <TableCell className="text-center">
-                      <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">{counts['リード管理']}</Badge>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">{counts['面談フェーズ']}</Badge>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200">{counts['提案フェーズ']}</Badge>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <Badge variant="outline" className="bg-cyan-50 text-cyan-700 border-cyan-200">{counts['面接フェーズ']}</Badge>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <Badge variant="outline" className="bg-pink-50 text-pink-700 border-pink-200">{counts['内定確認中']}</Badge>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">{counts['内定承諾']}</Badge>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">{counts['内定辞退']}</Badge>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <Badge variant="outline" className="bg-slate-100 text-slate-700 border-slate-200">{counts['フォロー・ロスト']}</Badge>
-                    </TableCell>
-                  </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-    </div>
-  )
-}
+// TeamDetailSectionコンポーネントは削除（課別表示なし）

@@ -28,6 +28,16 @@ export interface Database {
         Insert: Omit<Source, 'id'>
         Update: Partial<Omit<Source, 'id'>>
       }
+      contracts: {
+        Row: Contract
+        Insert: Omit<Contract, 'id' | 'created_at' | 'updated_at'>
+        Update: Partial<Omit<Contract, 'id'>>
+      }
+      memos: {
+        Row: Memo
+        Insert: Omit<Memo, 'id' | 'created_at'>
+        Update: Partial<Omit<Memo, 'id' | 'created_at'>>
+      }
     }
   }
 }
@@ -50,6 +60,8 @@ export interface Candidate {
   source_id: string | null // 媒体マスタへのFK
   registered_at: string | null // ISO date string
   consultant_id: string | null // 担当者へのFK
+  approach_priority: 'S' | 'A' | 'B' | 'C' | null // アプローチ優先度（タスク画面用）
+  rank: 'S' | 'A' | 'B' | 'C' | null // ランク（求職者管理画面用）
   memo: string | null
   created_at: string
   updated_at: string
@@ -135,6 +147,34 @@ export interface Source {
   category: string | null // カテゴリ（求人版, LINE, バイトル等）
 }
 
+// 成約テーブル
+export interface Contract {
+  id: string
+  candidate_id: string
+  accepted_date: string // 承諾日（ISO date string）
+  employment_restriction_until: string | null // 転職勧奨禁止期間
+  employment_type: string | null // 雇用形態（正社員、パート等）
+  job_type: string | null // 職種（保育士、栄養士等）
+  revenue_excluding_tax: number // 売上（税抜）
+  revenue_including_tax: number // 売上（税込）
+  payment_date: string | null // 入金日（ISO date string）
+  payment_scheduled_date: string | null // 入金予定日（ISO date string）
+  invoice_sent_date: string | null // 請求書発送日
+  calculation_basis: string | null // 算出根拠（例：3,438,000円×20%）
+  document_url: string | null // 格納先URL
+  placement_company: string | null // 入職先（園名/法人名）※後方互換性のため残す
+  placement_company_name: string | null // 入職先（法人名）
+  placement_facility_name: string | null // 入職先（園名）
+  note: string | null // 備考
+  is_cancelled: boolean | null // キャンセル済みかどうか
+  refund_required: boolean | null // 返金あり/なし
+  refund_date: string | null // 返金日（ISO date string）
+  refund_amount: number | null // 返金額
+  cancellation_reason: string | null // キャンセル備考（理由）
+  created_at: string
+  updated_at: string
+}
+
 // リレーション付きの型
 export interface CandidateWithRelations extends Candidate {
   consultant?: User | null
@@ -145,5 +185,18 @@ export interface CandidateWithRelations extends Candidate {
 export interface ProjectWithRelations extends Project {
   candidate?: Candidate
   interviews?: Interview[]
+}
+
+export interface ContractWithRelations extends Contract {
+  candidate?: CandidateWithRelations
+}
+
+// メモ
+export interface Memo {
+  id: string
+  candidate_id: string
+  content: string
+  created_by: string | null // ユーザーID
+  created_at: string
 }
 
