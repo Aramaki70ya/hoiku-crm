@@ -103,8 +103,7 @@ export default function DashboardSummaryPage() {
           // 結果待ち: 面接が終了し、結果を待っている案件
           else if (
             project.phase === 'interviewing' &&
-            completedInterviews.length > 0 &&
-            project.phase !== 'offer'
+            completedInterviews.length > 0
           ) {
             waitingResult.push(caseInfo)
           }
