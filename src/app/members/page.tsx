@@ -274,7 +274,7 @@ function MembersPageContent() {
                         </TableHeader>
                         <TableBody>
                           {memberData.candidates.map(candidate => {
-                            const project = mockProjects.find(p => p.candidate_id === candidate.id)
+                            const project = projects.find(p => p.candidate_id === candidate.id)
                             return (
                             <TableRow 
                               key={candidate.id} 

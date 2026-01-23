@@ -131,7 +131,7 @@ export default function DashboardPage() {
   // ローディング中の処理
   if (loading) {
     return (
-      <AppLayout>
+      <AppLayout title="ダッシュボード" description="データを読み込み中...">
         <div className="flex items-center justify-center h-64">
           <p>データを読み込み中...</p>
         </div>

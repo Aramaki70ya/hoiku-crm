@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Calendar, Clock, MapPin, User, Building, CheckCircle, XCircle } from 'lucide-react'
+import { Calendar, Clock, MapPin, User as UserIcon, Building, CheckCircle, XCircle } from 'lucide-react'
 import {
   interviewStatusLabels,
   interviewStatusColors,
@@ -29,7 +29,7 @@ import {
 import { useInterviews } from '@/hooks/useInterviews'
 import { useUsers } from '@/hooks/useUsers'
 import { useCandidates } from '@/hooks/useCandidates'
-import type { Candidate } from '@/types/database'
+import type { Candidate, User } from '@/types/database'
 
 // 年月の選択肢を生成
 function generateMonthOptions() {
@@ -306,8 +306,6 @@ interface EnrichedInterview {
     name: string
   }
 }
-
-import type { User } from '@/types/database'
 
 interface InterviewTableProps {
   interviews: EnrichedInterview[]
