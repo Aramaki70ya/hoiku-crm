@@ -20,8 +20,9 @@ function validateUpdatePayload(payload: UpdatePayload) {
 
 export async function PATCH(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
   const { authUser, appUser } = await getAuthContext()
 
   if (!authUser) {
@@ -49,7 +50,7 @@ export async function PATCH(
       ...(payload.email ? { email: payload.email.trim() } : {}),
       ...(payload.role ? { role: payload.role } : {}),
     })
-    .eq('id', params.id)
+    .eq('id', id)
     .select('*')
     .single()
 
@@ -62,8 +63,9 @@ export async function PATCH(
 
 export async function DELETE(
   _request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
   const { authUser, appUser } = await getAuthContext()
 
   if (!authUser) {
@@ -74,7 +76,7 @@ export async function DELETE(
   }
 
   const supabase = await createClient()
-  const { error } = await supabase.from('users').delete().eq('id', params.id)
+  const { error } = await supabase.from('users').delete().eq('id', id)
 
   if (error) {
     return NextResponse.json({ message: error.message }, { status: 500 })
