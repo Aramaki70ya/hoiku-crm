@@ -65,13 +65,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ message: validationError }, { status: 400 })
   }
 
+  // バリデーション後は name と email が確実に存在する
+  const name = payload.name!.trim()
+  const email = payload.email!.trim()
+  const role = payload.role || 'user'
+
   const supabase = await createClient()
   const { data, error } = await supabase
     .from('users')
     .insert({
-      name: payload.name?.trim(),
-      email: payload.email?.trim(),
-      role: payload.role,
+      name,
+      email,
+      role,
     } satisfies Omit<User, 'created_at'>)
     .select('*')
     .single()
