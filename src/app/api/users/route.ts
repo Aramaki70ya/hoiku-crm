@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getAuthContext, isAdminUser } from '@/lib/auth/server'
 import type { User } from '@/types/database'
@@ -49,7 +49,7 @@ export async function GET() {
   return NextResponse.json({ users: data ?? [] })
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   const { authUser, appUser } = await getAuthContext()
 
   if (!authUser) {

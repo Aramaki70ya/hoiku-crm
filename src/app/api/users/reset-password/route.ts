@@ -1,8 +1,8 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getAuthContext, isAdminUser } from '@/lib/auth/server'
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   const { authUser, appUser } = await getAuthContext()
 
   if (!authUser) {
