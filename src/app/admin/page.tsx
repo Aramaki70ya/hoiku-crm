@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { AppLayout } from '@/components/layout/app-layout'
 import { AdminGuard } from '@/components/admin/AdminGuard'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -33,7 +33,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { mockUsers, mockSources, statusLabels } from '@/lib/mock-data'
+import { statusLabels } from '@/lib/mock-data'
+import { useUsers } from '@/hooks/useUsers'
+import { useSources } from '@/hooks/useSources'
 import type { User, Source } from '@/types/database'
 
 export default function AdminPage() {
@@ -291,7 +293,9 @@ function DashboardSettingsTab() {
 
 // ユーザー管理タブ
 function UserManagementTab() {
-  const [users, setUsers] = useState<User[]>(mockUsers)
+  const [users, setUsers] = useState<User[]>([])
+  const [isLoadingUsers, setIsLoadingUsers] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
@@ -301,12 +305,43 @@ function UserManagementTab() {
     name: '',
     email: '',
     role: 'user' as 'admin' | 'user',
-    password: '',
   })
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
 
+  const readErrorMessage = async (response: Response, fallback: string) => {
+    try {
+      const data = await response.json()
+      return data?.message ?? fallback
+    } catch {
+      return fallback
+    }
+  }
+
+  useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        setIsLoadingUsers(true)
+        setLoadError(null)
+        const response = await fetch('/api/users')
+        if (!response.ok) {
+          const message = await readErrorMessage(response, 'ユーザー一覧の取得に失敗しました')
+          setLoadError(message)
+          return
+        }
+        const data = await response.json()
+        setUsers(data?.users ?? [])
+      } catch {
+        setLoadError('ユーザー一覧の取得に失敗しました')
+      } finally {
+        setIsLoadingUsers(false)
+      }
+    }
+
+    fetchUsers()
+  }, [])
+
   const handleAddUser = () => {
-    setFormData({ name: '', email: '', role: 'user', password: '' })
+    setFormData({ name: '', email: '', role: 'user' })
     setSelectedUser(null)
     setIsAddDialogOpen(true)
   }
@@ -317,7 +352,6 @@ function UserManagementTab() {
       name: user.name,
       email: user.email,
       role: user.role,
-      password: '',
     })
     setIsEditDialogOpen(true)
   }
@@ -346,65 +380,107 @@ function UserManagementTab() {
       setSaveMessage({ type: 'error', text: '有効なメールアドレスを入力してください' })
       return
     }
-    if (isAddDialogOpen && !formData.password.trim()) {
-      setSaveMessage({ type: 'error', text: 'パスワードを入力してください' })
-      return
-    }
 
-    // TODO: 実際のAPI呼び出しに置き換え
-    await new Promise(resolve => setTimeout(resolve, 500))
+    try {
+      if (isAddDialogOpen) {
+        const response = await fetch('/api/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: formData.name.trim(),
+            email: formData.email.trim(),
+            role: formData.role,
+          }),
+        })
 
-    if (isAddDialogOpen) {
-      // 新規追加
-      const newUser: User = {
-        id: String(users.length + 1),
-        name: formData.name,
-        email: formData.email,
-        role: formData.role,
-        created_at: new Date().toISOString().split('T')[0],
+        if (!response.ok) {
+          const message = await readErrorMessage(response, 'ユーザーの追加に失敗しました')
+          setSaveMessage({ type: 'error', text: message })
+          return
+        }
+
+        const data = await response.json()
+        setUsers([...users, data.user])
+        setSaveMessage({ type: 'success', text: 'ユーザーを追加しました' })
+      } else if (selectedUser) {
+        const response = await fetch(`/api/users/${selectedUser.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: formData.name.trim(),
+            email: formData.email.trim(),
+            role: formData.role,
+          }),
+        })
+
+        if (!response.ok) {
+          const message = await readErrorMessage(response, 'ユーザー情報の更新に失敗しました')
+          setSaveMessage({ type: 'error', text: message })
+          return
+        }
+
+        const data = await response.json()
+        setUsers(users.map(userItem => (userItem.id === selectedUser.id ? data.user : userItem)))
+        setSaveMessage({ type: 'success', text: 'ユーザー情報を更新しました' })
       }
-      setUsers([...users, newUser])
-      setSaveMessage({ type: 'success', text: 'ユーザーを追加しました' })
-    } else {
-      // 編集
-      setUsers(users.map(u => 
-        u.id === selectedUser?.id 
-          ? { ...u, name: formData.name, email: formData.email, role: formData.role }
-          : u
-      ))
-      setSaveMessage({ type: 'success', text: 'ユーザー情報を更新しました' })
-    }
 
-    setIsAddDialogOpen(false)
-    setIsEditDialogOpen(false)
-    setFormData({ name: '', email: '', role: 'user', password: '' })
-    setSelectedUser(null)
-    setTimeout(() => setSaveMessage(null), 3000)
+      setIsAddDialogOpen(false)
+      setIsEditDialogOpen(false)
+      setFormData({ name: '', email: '', role: 'user' })
+      setSelectedUser(null)
+      setTimeout(() => setSaveMessage(null), 3000)
+    } catch {
+      setSaveMessage({ type: 'error', text: 'ユーザー情報の保存に失敗しました' })
+    }
   }
 
   const handleConfirmDelete = async () => {
     if (!selectedUser) return
 
-    // TODO: 実際のAPI呼び出しに置き換え
-    await new Promise(resolve => setTimeout(resolve, 500))
+    try {
+      const response = await fetch(`/api/users/${selectedUser.id}`, {
+        method: 'DELETE',
+      })
 
-    setUsers(users.filter(u => u.id !== selectedUser.id))
-    setIsDeleteDialogOpen(false)
-    setSelectedUser(null)
-    setSaveMessage({ type: 'success', text: 'ユーザーを削除しました' })
-    setTimeout(() => setSaveMessage(null), 3000)
+      if (!response.ok) {
+        const message = await readErrorMessage(response, 'ユーザーの削除に失敗しました')
+        setSaveMessage({ type: 'error', text: message })
+        return
+      }
+
+      setUsers(users.filter(u => u.id !== selectedUser.id))
+      setIsDeleteDialogOpen(false)
+      setSelectedUser(null)
+      setSaveMessage({ type: 'success', text: 'ユーザーを削除しました' })
+      setTimeout(() => setSaveMessage(null), 3000)
+    } catch {
+      setSaveMessage({ type: 'error', text: 'ユーザーの削除に失敗しました' })
+    }
   }
 
   const handlePasswordResetConfirm = async () => {
     if (!selectedUser) return
 
-    // TODO: 実際のAPI呼び出しに置き換え
-    await new Promise(resolve => setTimeout(resolve, 500))
+    try {
+      const response = await fetch('/api/users/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: selectedUser.email }),
+      })
 
-    setIsPasswordResetDialogOpen(false)
-    setSelectedUser(null)
-    setSaveMessage({ type: 'success', text: 'パスワードリセットメールを送信しました' })
-    setTimeout(() => setSaveMessage(null), 3000)
+      if (!response.ok) {
+        const message = await readErrorMessage(response, 'パスワードリセットに失敗しました')
+        setSaveMessage({ type: 'error', text: message })
+        return
+      }
+
+      setIsPasswordResetDialogOpen(false)
+      setSelectedUser(null)
+      setSaveMessage({ type: 'success', text: 'パスワードリセットメールを送信しました' })
+      setTimeout(() => setSaveMessage(null), 3000)
+    } catch {
+      setSaveMessage({ type: 'error', text: 'パスワードリセットに失敗しました' })
+    }
   }
 
   return (
@@ -416,6 +492,14 @@ function UserManagementTab() {
             : 'bg-rose-50 text-rose-700 border border-rose-200'
         }`}>
           {saveMessage.text}
+        </div>
+      )}
+      {isLoadingUsers && (
+        <div className="text-sm text-slate-500">ユーザー一覧を読み込み中...</div>
+      )}
+      {loadError && (
+        <div className="p-3 rounded-lg bg-rose-50 text-rose-700 border border-rose-200">
+          {loadError}
         </div>
       )}
 
@@ -539,16 +623,9 @@ function UserManagementTab() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="add-password">パスワード</Label>
-              <Input
-                id="add-password"
-                type="password"
-                value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                placeholder="パスワードを入力"
-              />
-            </div>
+            <p className="text-xs text-slate-500">
+              ログイン用アカウントはSupabase Auth側で管理します。
+            </p>
           </div>
           {saveMessage && saveMessage.type === 'error' && (
             <div className="p-3 rounded-lg bg-rose-50 text-rose-700 border border-rose-200">
@@ -681,7 +758,8 @@ function UserManagementTab() {
 
 // マスタデータ管理タブ
 function MasterDataTab() {
-  const [sources, setSources] = useState<Source[]>(mockSources)
+  // API経由でソースデータを取得
+  const { sources, isLoading, createSource, updateSource, deleteSource, refetch } = useSources()
   const [statusLabelSettings, setStatusLabelSettings] = useState<Record<string, string>>(statusLabels)
   const [isSourceAddDialogOpen, setIsSourceAddDialogOpen] = useState(false)
   const [isSourceEditDialogOpen, setIsSourceEditDialogOpen] = useState(false)
@@ -719,44 +797,58 @@ function MasterDataTab() {
       return
     }
 
-    // TODO: 実際のAPI呼び出しに置き換え
-    await new Promise(resolve => setTimeout(resolve, 500))
-
-    if (isSourceAddDialogOpen) {
-      const newSource: Source = {
-        id: String(sources.length + 1),
-        name: sourceFormData.name,
-        category: sourceFormData.category || null,
+    try {
+      if (isSourceAddDialogOpen) {
+        const newSource = await createSource({
+          name: sourceFormData.name,
+          category: sourceFormData.category || null,
+        })
+        if (newSource) {
+          setSaveMessage({ type: 'success', text: '媒体を追加しました' })
+        } else {
+          setSaveMessage({ type: 'error', text: '媒体の追加に失敗しました' })
+          return
+        }
+      } else if (selectedSource) {
+        const success = await updateSource(selectedSource.id, {
+          name: sourceFormData.name,
+          category: sourceFormData.category || null,
+        })
+        if (success) {
+          setSaveMessage({ type: 'success', text: '媒体情報を更新しました' })
+        } else {
+          setSaveMessage({ type: 'error', text: '媒体情報の更新に失敗しました' })
+          return
+        }
       }
-      setSources([...sources, newSource])
-      setSaveMessage({ type: 'success', text: '媒体を追加しました' })
-    } else {
-      setSources(sources.map(s => 
-        s.id === selectedSource?.id 
-          ? { ...s, name: sourceFormData.name, category: sourceFormData.category || null }
-          : s
-      ))
-      setSaveMessage({ type: 'success', text: '媒体情報を更新しました' })
-    }
 
-    setIsSourceAddDialogOpen(false)
-    setIsSourceEditDialogOpen(false)
-    setSourceFormData({ name: '', category: '' })
-    setSelectedSource(null)
-    setTimeout(() => setSaveMessage(null), 3000)
+      setIsSourceAddDialogOpen(false)
+      setIsSourceEditDialogOpen(false)
+      setSourceFormData({ name: '', category: '' })
+      setSelectedSource(null)
+      setTimeout(() => setSaveMessage(null), 3000)
+    } catch (err) {
+      setSaveMessage({ type: 'error', text: '操作に失敗しました' })
+    }
   }
 
   const handleConfirmDeleteSource = async () => {
     if (!selectedSource) return
 
-    // TODO: 実際のAPI呼び出しに置き換え
-    await new Promise(resolve => setTimeout(resolve, 500))
-
-    setSources(sources.filter(s => s.id !== selectedSource.id))
-    setIsSourceDeleteDialogOpen(false)
-    setSelectedSource(null)
-    setSaveMessage({ type: 'success', text: '媒体を削除しました' })
-    setTimeout(() => setSaveMessage(null), 3000)
+    try {
+      const success = await deleteSource(selectedSource.id)
+      if (success) {
+        setSaveMessage({ type: 'success', text: '媒体を削除しました' })
+      } else {
+        setSaveMessage({ type: 'error', text: '媒体の削除に失敗しました' })
+        return
+      }
+      setIsSourceDeleteDialogOpen(false)
+      setSelectedSource(null)
+      setTimeout(() => setSaveMessage(null), 3000)
+    } catch (err) {
+      setSaveMessage({ type: 'error', text: '削除に失敗しました' })
+    }
   }
 
   const handleSaveStatusLabels = async () => {

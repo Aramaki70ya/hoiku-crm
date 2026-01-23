@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useEffect, Suspense } from 'react'
+import { useState, useMemo, useEffect, Suspense, useCallback } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { AppLayout } from '@/components/layout/app-layout'
@@ -34,23 +34,44 @@ import {
 import { Plus, Edit2, MessageSquare, TrendingUp, Users, ChevronLeft, ChevronRight, Menu } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import {
-  mockUsers,
-  mockCandidates,
-  mockProjects,
   mockMemberStats,
   statusLabels,
   statusColors,
 } from '@/lib/mock-data'
+import { useCandidates } from '@/hooks/useCandidates'
+import { useUsers } from '@/hooks/useUsers'
+import type { Project } from '@/types/database'
 
 function MembersPageContent() {
   const searchParams = useSearchParams()
   const [selectedMember, setSelectedMember] = useState<string | null>(null)
   const [isMemberCardVisible, setIsMemberCardVisible] = useState(true)
-  const [candidateStatuses, setCandidateStatuses] = useState<Record<string, string>>({})
-  const [candidateMemos, setCandidateMemos] = useState<Record<string, string>>({})
+  const [localCandidateStatuses, setLocalCandidateStatuses] = useState<Record<string, string>>({})
+  const [localCandidateMemos, setLocalCandidateMemos] = useState<Record<string, string>>({})
   const [editingCandidateId, setEditingCandidateId] = useState<string | null>(null)
   const [editStatus, setEditStatus] = useState<string>('')
   const [editMemo, setEditMemo] = useState<string>('')
+  const [projects, setProjects] = useState<Project[]>([])
+  
+  // API経由でデータを取得
+  const { candidates: allCandidates, isLoading, updateCandidate } = useCandidates()
+  const { users, consultants } = useUsers()
+  
+  // プロジェクトを取得
+  useEffect(() => {
+    const fetchProjects = async () => {
+      try {
+        const res = await fetch('/api/projects')
+        if (res.ok) {
+          const { data } = await res.json()
+          setProjects(data || [])
+        }
+      } catch (err) {
+        console.error('Error fetching projects:', err)
+      }
+    }
+    fetchProjects()
+  }, [])
   
   // URLパラメータから選択状態を復元
   useEffect(() => {
@@ -62,32 +83,50 @@ function MembersPageContent() {
   }, [searchParams])
 
   // 全メンバーを表示（課別なし）
-  const allMembers = mockUsers.filter(u => u.role !== 'admin').map(u => u.id)
+  const allMembers = consultants.map(u => u.id)
 
   // 選択中メンバーのデータ
   const memberData = useMemo(() => {
     if (!selectedMember) return null
-    const user = mockUsers.find(u => u.id === selectedMember)
+    const user = users.find(u => u.id === selectedMember)
     const stats = mockMemberStats.find(s => s.userId === selectedMember)
-    const candidates = mockCandidates.filter(c => c.consultant_id === selectedMember).map(candidate => ({
+    const candidates = allCandidates.filter(c => c.consultant_id === selectedMember).map(candidate => ({
       ...candidate,
-      status: candidateStatuses[candidate.id] || candidate.status,
-      memo: candidateMemos[candidate.id] !== undefined ? candidateMemos[candidate.id] : candidate.memo,
+      status: localCandidateStatuses[candidate.id] || candidate.status,
+      memo: localCandidateMemos[candidate.id] !== undefined ? localCandidateMemos[candidate.id] : candidate.memo,
     }))
-    const projects = mockProjects.filter(p => 
+    const memberProjects = projects.filter(p => 
       candidates.some(c => c.id === p.candidate_id)
     )
-    return { user, stats, candidates, projects }
-  }, [selectedMember, candidateStatuses, candidateMemos])
+    return { user, stats, candidates, projects: memberProjects }
+  }, [selectedMember, localCandidateStatuses, localCandidateMemos, allCandidates, users, projects])
 
   // ステータス別集計
   const getStatusCounts = (userId: string) => {
-    const candidates = mockCandidates.filter(c => c.consultant_id === userId)
+    const candidates = allCandidates.filter(c => c.consultant_id === userId)
     const counts: Record<string, number> = {}
     candidates.forEach(c => {
       counts[c.status] = (counts[c.status] || 0) + 1
     })
     return counts
+  }
+  
+  // ステータス・メモ更新ハンドラー
+  const handleSaveEdit = useCallback(async (candidateId: string, status: string, memo: string) => {
+    setLocalCandidateStatuses(prev => ({ ...prev, [candidateId]: status }))
+    setLocalCandidateMemos(prev => ({ ...prev, [candidateId]: memo }))
+    await updateCandidate(candidateId, { status: status as 'new' | 'contacting' | 'first_contact_done' | 'proposing' | 'interviewing' | 'offer' | 'closed_won' | 'closed_lost' | 'pending' | 'on_hold', memo })
+  }, [updateCandidate])
+
+  // ローディング中の表示
+  if (isLoading) {
+    return (
+      <AppLayout title="メンバー" description="データを読み込み中...">
+        <div className="flex items-center justify-center h-64">
+          <p className="text-slate-500">読み込み中...</p>
+        </div>
+      </AppLayout>
+    )
   }
 
   return (
@@ -112,9 +151,9 @@ function MembersPageContent() {
               </CardHeader>
             <CardContent className="space-y-2">
               {allMembers.map(memberId => {
-                const user = mockUsers.find(u => u.id === memberId)
+                const user = users.find(u => u.id === memberId)
                 const stats = mockMemberStats.find(s => s.userId === memberId)
-                const candidateCount = mockCandidates.filter(c => c.consultant_id === memberId).length
+                const candidateCount = allCandidates.filter(c => c.consultant_id === memberId).length
                 const isSelected = selectedMember === memberId
 
                 return (
@@ -356,9 +395,8 @@ function MembersPageContent() {
                                         className="bg-gradient-to-r from-violet-500 to-indigo-600"
                                         onClick={() => {
                                           if (editStatus) {
-                                            setCandidateStatuses(prev => ({ ...prev, [candidate.id]: editStatus }))
+                                            handleSaveEdit(candidate.id, editStatus, editMemo)
                                           }
-                                          setCandidateMemos(prev => ({ ...prev, [candidate.id]: editMemo }))
                                           setEditingCandidateId(null)
                                           setEditStatus('')
                                           setEditMemo('')

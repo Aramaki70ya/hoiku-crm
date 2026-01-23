@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { AppLayout } from '@/components/layout/app-layout'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -38,12 +38,15 @@ import {
   ChevronDown,
 } from 'lucide-react'
 import {
-  mockCandidates,
-  mockProjects,
-  mockInterviews,
-  mockUsers,
-  mockSources,
-  mockMemberStats,
+  getCandidatesClient as getCandidates,
+  getProjectsClient as getProjects,
+  getContractsClient as getContracts,
+  getUsersClient as getUsers,
+  getSourcesClient as getSources,
+  getInterviewsClient as getInterviews,
+} from '@/lib/supabase/queries-client-with-fallback'
+import type { Candidate, Project, User, Contract, Source, Interview } from '@/types/database'
+import {
   totalBudget,
   statusLabels,
   statusColors,
@@ -57,6 +60,48 @@ export default function DashboardPage() {
   const [periodType, setPeriodType] = useState<PeriodType>('current_month')
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')
+  
+  // Supabaseデータ取得
+  const [candidates, setCandidates] = useState<Candidate[]>([])
+  const [projects, setProjects] = useState<Project[]>([])
+  const [contracts, setContracts] = useState<Contract[]>([])
+  const [interviews, setInterviews] = useState<Interview[]>([])
+  const [users, setUsers] = useState<User[]>([])
+  const [sources, setSources] = useState<Source[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        const [candidatesData, projectsData, contractsData, interviewsData, usersData, sourcesData] = await Promise.all([
+          getCandidates(),
+          getProjects(),
+          getContracts(),
+          getInterviews(),
+          getUsers(),
+          getSources(),
+        ])
+        setCandidates(candidatesData)
+        setProjects(projectsData)
+        setContracts(contractsData)
+        setInterviews(interviewsData)
+        setUsers(usersData)
+        setSources(sourcesData)
+      } catch (error) {
+        console.error('Error fetching data:', error)
+        // エラー時は空配列を設定（既存の動作を維持）
+        setCandidates([])
+        setProjects([])
+        setContracts([])
+        setInterviews([])
+        setUsers([])
+        setSources([])
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchData()
+  }, [])
 
   // 期間表示用テキスト
   const getPeriodLabel = () => {
@@ -79,45 +124,140 @@ export default function DashboardPage() {
   // 残り営業日（仮）
   const remainingDays = 2
 
-  // 全体統計
-  const totalSales = mockMemberStats.reduce((sum, s) => sum + s.sales, 0)
-  const totalYomiA = mockMemberStats.reduce((sum, s) => sum + s.yomiA, 0)
-  const totalYomiB = mockMemberStats.reduce((sum, s) => sum + s.yomiB, 0)
-  const shortfall = totalBudget - totalSales - totalYomiA - totalYomiB
+  // 全体統計（成約統計は既に計算済み）
 
   // 課別表示は削除（一旦なし）
 
-  // プロセス別集計
+  // ローディング中の処理
+  if (loading) {
+    return (
+      <AppLayout>
+        <div className="flex items-center justify-center h-64">
+          <p>データを読み込み中...</p>
+        </div>
+      </AppLayout>
+    )
+  }
+
+  // 期間の開始日・終了日を計算
+  const getPeriodDates = useMemo(() => {
+    const now = new Date()
+    let startDate: Date
+    let endDate: Date
+
+    switch (periodType) {
+      case 'current_month':
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1)
+        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59)
+        break
+      case 'previous_month':
+        const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+        startDate = new Date(prev.getFullYear(), prev.getMonth(), 1)
+        endDate = new Date(prev.getFullYear(), prev.getMonth() + 1, 0, 23, 59, 59)
+        break
+      case 'custom':
+        if (customStartDate && customEndDate) {
+          startDate = new Date(customStartDate)
+          endDate = new Date(customEndDate)
+          endDate.setHours(23, 59, 59, 999)
+        } else {
+          // カスタム期間が未設定の場合は当月
+          startDate = new Date(now.getFullYear(), now.getMonth(), 1)
+          endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59)
+        }
+        break
+      default:
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1)
+        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59)
+    }
+
+    return { startDate, endDate }
+  }, [periodType, customStartDate, customEndDate])
+
+  // 期間内のデータをフィルタリング
+  const periodCandidates = useMemo(() => {
+    return candidates.filter(c => {
+      if (!c.registered_at) return false
+      const registeredDate = new Date(c.registered_at)
+      return registeredDate >= getPeriodDates.startDate && registeredDate <= getPeriodDates.endDate
+    })
+  }, [candidates, getPeriodDates])
+
+  const periodContracts = useMemo(() => {
+    return contracts.filter(c => {
+      if (!c.contracted_at) return false
+      const contractedDate = new Date(c.contracted_at)
+      return contractedDate >= getPeriodDates.startDate && contractedDate <= getPeriodDates.endDate
+    })
+  }, [contracts, getPeriodDates])
+
+  const periodInterviews = useMemo(() => {
+    return interviews.filter(i => {
+      if (!i.start_at) return false
+      const interviewDate = new Date(i.start_at)
+      return interviewDate >= getPeriodDates.startDate && interviewDate <= getPeriodDates.endDate
+    })
+  }, [interviews, getPeriodDates])
+
+  // プロセス別集計（全期間）
   const processCounts: Record<string, number> = {}
-  mockCandidates.forEach(c => {
+  candidates.forEach(c => {
     const process = processStatusLabels[c.status] || c.status
     processCounts[process] = (processCounts[process] || 0) + 1
   })
-  const totalCandidates = mockCandidates.length
+  const totalCandidates = candidates.length
 
-  // 実績からの転換率計算
-  const registrations = mockCandidates.length
-  const firstContacts = mockCandidates.filter(c => 
+  // 期間内の実績計算
+  const periodRegistrations = periodCandidates.length
+  const periodFirstContacts = periodCandidates.filter(c => 
     !['new', 'contacting'].includes(c.status)
   ).length
-  const interviewCount = mockCandidates.filter(c => 
-    ['interviewing', 'offer', 'closed_won'].includes(c.status)
-  ).length
-  const closedWonCount = mockCandidates.filter(c => c.status === 'closed_won').length
-
-  // 実際の転換率
-  const actualFirstContactRate = registrations > 0 ? (firstContacts / registrations) * 100 : 0
-  const actualInterviewRate = firstContacts > 0 ? (interviewCount / firstContacts) * 100 : 0
-  const actualClosedRate = interviewCount > 0 ? (closedWonCount / interviewCount) * 100 : 0
   
-  // 実績の成約単価（成約額 / 成約人数）
-  const actualRevenuePerClosed = closedWonCount > 0 ? totalSales / closedWonCount : 0
+  // 期間内に面接を設定したユニークな求職者数
+  const periodInterviewCandidates = useMemo(() => {
+    const candidateIds = new Set<string>()
+    periodInterviews.forEach(i => {
+      const project = projects.find(p => p.id === i.project_id)
+      if (project) {
+        candidateIds.add(project.candidate_id)
+      }
+    })
+    return candidateIds.size
+  }, [periodInterviews, projects])
 
-  // 今月の応募数
+  const periodClosedWonCount = periodContracts.length
+
+  // 成約統計（期間内）
+  const periodTotalSales = periodContracts.reduce((sum, c) => sum + (c.revenue_including_tax || 0), 0)
+
+  // 実際の転換率（期間内のデータを使用）
+  const actualFirstContactRate = periodRegistrations > 0 ? (periodFirstContacts / periodRegistrations) * 100 : 0
+  const actualInterviewRate = periodFirstContacts > 0 ? (periodInterviewCandidates / periodFirstContacts) * 100 : 0
+  const actualClosedRate = periodInterviewCandidates > 0 ? (periodClosedWonCount / periodInterviewCandidates) * 100 : 0
+  
+  // 実績の成約単価（期間内のデータを使用）
+  const actualRevenuePerClosed = periodClosedWonCount > 0 ? periodTotalSales / periodClosedWonCount : 0
+
+  // A/Bヨミの計算（projectsから）
+  const totalYomiA = useMemo(() => {
+    return projects
+      .filter(p => p.probability === 'A' && p.expected_amount)
+      .reduce((sum, p) => sum + (p.expected_amount || 0), 0)
+  }, [projects])
+
+  const totalYomiB = useMemo(() => {
+    return projects
+      .filter(p => p.probability === 'B' && p.expected_amount)
+      .reduce((sum, p) => sum + (p.expected_amount || 0), 0)
+  }, [projects])
+
+  const shortfall = totalBudget - periodTotalSales - totalYomiA - totalYomiB
+
+  // 今月の応募数（表示用、当月固定）
   const now = new Date()
   const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1)
   const currentMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0)
-  const thisMonthCandidates = mockCandidates.filter(c => {
+  const thisMonthCandidates = candidates.filter(c => {
     if (!c.registered_at) return false
     const registeredDate = new Date(c.registered_at)
     return registeredDate >= currentMonthStart && registeredDate <= currentMonthEnd
@@ -125,9 +265,9 @@ export default function DashboardPage() {
 
   // 流入経路ごとの集計（LINEを除く）
   const sourceStats: Record<string, { count: number; thisMonthCount: number }> = {}
-  mockCandidates.forEach(c => {
+  candidates.forEach(c => {
     if (c.source_id && c.source_id !== '1') { // LINEを除く（source_id: '1'）
-      const sourceName = mockSources.find(s => s.id === c.source_id)?.name || '不明'
+      const sourceName = sources.find(s => s.id === c.source_id)?.name || '不明'
       if (!sourceStats[sourceName]) {
         sourceStats[sourceName] = { count: 0, thisMonthCount: 0 }
       }
@@ -142,10 +282,10 @@ export default function DashboardPage() {
   })
 
   // 全体の人数
-  const totalCandidatesCount = mockCandidates.length
+  const totalCandidatesCount = candidates.length
 
   // 流入経路割合の計算（LINEを除く）
-  const candidatesWithoutLine = mockCandidates.filter(c => c.source_id !== '1')
+  const candidatesWithoutLine = candidates.filter(c => c.source_id !== '1')
   const totalWithoutLine = candidatesWithoutLine.length
 
   return (
@@ -261,7 +401,7 @@ export default function DashboardPage() {
       </div>
 
       {/* トップライン情報 */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-3 gap-4 mb-6">
         {/* 残り営業日 */}
         <Card className="bg-gradient-to-br from-slate-700 to-slate-800 text-white border-0 shadow-lg">
           <CardContent className="pt-4">
@@ -278,43 +418,43 @@ export default function DashboardPage() {
         {/* 予算達成状況 */}
         <Card className="bg-white border-slate-200 shadow-sm col-span-2">
           <CardContent className="pt-4">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-sm text-slate-500">予算達成状況（全体）</p>
-              <Badge className="bg-violet-100 text-violet-700">
-                {((totalSales / totalBudget) * 100).toFixed(1)}%
-              </Badge>
-            </div>
-            <div className="flex items-end gap-4">
-              <div>
-                <p className="text-xs text-slate-400">予算</p>
-                <p className="text-lg font-bold text-slate-800">¥{(totalBudget / 10000).toLocaleString()}万</p>
+            <div className="flex gap-4">
+              {/* 左側: 予算・売上・ヨミ情報 */}
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-3">
+                  <p className="text-sm text-slate-500">予算達成状況（全体）</p>
+                  <Badge className="bg-violet-100 text-violet-700 text-base px-3 py-1 font-semibold">
+                    {((periodTotalSales / totalBudget) * 100).toFixed(1)}%
+                  </Badge>
+                </div>
+                <div className="flex items-end gap-4">
+                  <div>
+                    <p className="text-xs text-slate-400">予算</p>
+                    <p className="text-xl font-bold text-slate-800">¥{(totalBudget / 10000).toLocaleString()}万</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-400">売上</p>
+                    <p className="text-xl font-bold text-emerald-600">¥{(periodTotalSales / 10000).toLocaleString()}万</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-400">Aヨミ</p>
+                    <p className="text-xl font-bold text-red-600">¥{(totalYomiA / 10000).toLocaleString()}万</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-400">Bヨミ</p>
+                    <p className="text-xl font-bold text-orange-600">¥{(totalYomiB / 10000).toLocaleString()}万</p>
+                  </div>
+                </div>
+                <Progress value={(periodTotalSales / totalBudget) * 100} className="mt-3 h-2" />
               </div>
-              <div>
-                <p className="text-xs text-slate-400">売上</p>
-                <p className="text-lg font-bold text-emerald-600">¥{(totalSales / 10000).toLocaleString()}万</p>
+              
+              {/* 右側: 不足金額カード */}
+              <div className="flex items-center">
+                <div className="bg-gradient-to-br from-rose-100 to-pink-100 rounded-xl px-4 py-3 text-center border border-rose-200">
+                  <p className="text-xs text-slate-600 mb-1">不足金額（推定）</p>
+                  <p className="text-xl font-bold text-slate-800">¥{shortfall > 0 ? (shortfall / 10000).toLocaleString() : 0}万</p>
+                </div>
               </div>
-              <div>
-                <p className="text-xs text-slate-400">Aヨミ</p>
-                <p className="text-lg font-bold text-red-600">¥{(totalYomiA / 10000).toLocaleString()}万</p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-400">Bヨミ</p>
-                <p className="text-lg font-bold text-orange-600">¥{(totalYomiB / 10000).toLocaleString()}万</p>
-              </div>
-            </div>
-            <Progress value={(totalSales / totalBudget) * 100} className="mt-3 h-2" />
-          </CardContent>
-        </Card>
-
-        {/* 不足金額 */}
-        <Card className="bg-gradient-to-br from-rose-200 to-pink-200 text-slate-700 border-0 shadow-lg">
-          <CardContent className="pt-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-slate-600">不足金額（推定）</p>
-                <p className="text-2xl font-bold mt-1 text-slate-800">¥{shortfall > 0 ? (shortfall / 10000).toLocaleString() : 0}万</p>
-              </div>
-              <AlertCircle className="w-10 h-10 text-rose-400" />
             </div>
           </CardContent>
         </Card>
@@ -337,20 +477,20 @@ export default function DashboardPage() {
                 <p className="text-sm font-medium text-purple-700">登録→初回率</p>
               </div>
               <div className="flex items-end gap-2">
-                <p className="text-3xl font-bold text-purple-600">{(kpiAssumptions.registrationToFirstContactRate * 100).toFixed(0)}%</p>
+                <p className="text-2xl font-bold text-purple-600">{(kpiAssumptions.registrationToFirstContactRate * 100).toFixed(0)}%</p>
                 <p className="text-sm text-slate-500 mb-1">目標</p>
               </div>
               <div className="mt-2 pt-2 border-t border-purple-200">
                 <div className="flex items-end gap-2">
-                  <p className={`text-3xl font-bold ${actualFirstContactRate >= kpiAssumptions.registrationToFirstContactRate * 100 
+                  <p className={`text-2xl font-bold ${actualFirstContactRate >= kpiAssumptions.registrationToFirstContactRate * 100 
                     ? 'text-emerald-600' 
                     : 'text-amber-600'}`}>
                     {actualFirstContactRate.toFixed(1)}%
                   </p>
                   <p className="text-sm text-slate-500 mb-1">実績</p>
                 </div>
-                <p className="text-sm text-slate-500 mt-1">
-                  {firstContacts}件 / {registrations}件
+                <p className="text-lg text-slate-500 mt-1">
+                  {periodFirstContacts}件 / {periodRegistrations}件
                 </p>
               </div>
             </div>
@@ -362,20 +502,20 @@ export default function DashboardPage() {
                 <p className="text-sm font-medium text-cyan-700">初回→面接率</p>
               </div>
               <div className="flex items-end gap-2">
-                <p className="text-3xl font-bold text-cyan-600">{(kpiAssumptions.firstContactToInterviewRate * 100).toFixed(0)}%</p>
+                <p className="text-2xl font-bold text-cyan-600">{(kpiAssumptions.firstContactToInterviewRate * 100).toFixed(0)}%</p>
                 <p className="text-sm text-slate-500 mb-1">目標</p>
               </div>
               <div className="mt-2 pt-2 border-t border-cyan-200">
                 <div className="flex items-end gap-2">
-                  <p className={`text-3xl font-bold ${actualInterviewRate >= kpiAssumptions.firstContactToInterviewRate * 100 
+                  <p className={`text-2xl font-bold ${actualInterviewRate >= kpiAssumptions.firstContactToInterviewRate * 100 
                     ? 'text-emerald-600' 
                     : 'text-amber-600'}`}>
                     {actualInterviewRate.toFixed(1)}%
                   </p>
                   <p className="text-sm text-slate-500 mb-1">実績</p>
                 </div>
-                <p className="text-sm text-slate-500 mt-1">
-                  {interviewCount}件 / {firstContacts}件
+                <p className="text-lg text-slate-500 mt-1">
+                  {periodInterviewCandidates}件 / {periodFirstContacts}件
                 </p>
               </div>
             </div>
@@ -387,20 +527,20 @@ export default function DashboardPage() {
                 <p className="text-sm font-medium text-emerald-700">面接→成約率</p>
               </div>
               <div className="flex items-end gap-2">
-                <p className="text-3xl font-bold text-emerald-600">{(kpiAssumptions.interviewToClosedRate * 100).toFixed(0)}%</p>
+                <p className="text-2xl font-bold text-emerald-600">{(kpiAssumptions.interviewToClosedRate * 100).toFixed(0)}%</p>
                 <p className="text-sm text-slate-500 mb-1">目標</p>
               </div>
               <div className="mt-2 pt-2 border-t border-emerald-200">
                 <div className="flex items-end gap-2">
-                  <p className={`text-3xl font-bold ${actualClosedRate >= kpiAssumptions.interviewToClosedRate * 100 
+                  <p className={`text-2xl font-bold ${actualClosedRate >= kpiAssumptions.interviewToClosedRate * 100 
                     ? 'text-emerald-600' 
                     : 'text-amber-600'}`}>
                     {actualClosedRate.toFixed(1)}%
                   </p>
                   <p className="text-sm text-slate-500 mb-1">実績</p>
                 </div>
-                <p className="text-sm text-slate-500 mt-1">
-                  {closedWonCount}件 / {interviewCount}件
+                <p className="text-lg text-slate-500 mt-1">
+                  {periodClosedWonCount}件 / {periodInterviewCandidates}件
                 </p>
               </div>
             </div>
@@ -412,20 +552,20 @@ export default function DashboardPage() {
                 <p className="text-sm font-medium text-amber-700">成約単価</p>
               </div>
               <div className="flex items-end gap-2">
-                <p className="text-3xl font-bold text-amber-600">¥{(kpiAssumptions.revenuePerClosed / 10000).toFixed(0)}万</p>
+                <p className="text-2xl font-bold text-amber-600">¥{(kpiAssumptions.revenuePerClosed / 10000).toFixed(0)}万</p>
                 <p className="text-sm text-slate-500 mb-1">/人</p>
               </div>
               <div className="mt-2 pt-2 border-t border-amber-200">
                 <div className="flex items-end gap-2">
-                  <p className={`text-3xl font-bold ${actualRevenuePerClosed >= kpiAssumptions.revenuePerClosed 
+                  <p className={`text-2xl font-bold ${actualRevenuePerClosed >= kpiAssumptions.revenuePerClosed 
                     ? 'text-emerald-600' 
                     : actualRevenuePerClosed > 0 ? 'text-amber-600' : 'text-slate-400'}`}>
                     {actualRevenuePerClosed > 0 ? `¥${(actualRevenuePerClosed / 10000).toFixed(0)}万` : '-'}
                   </p>
                   <p className="text-sm text-slate-500 mb-1">実績</p>
                 </div>
-                <p className="text-sm text-slate-500 mt-1">
-                  {closedWonCount}件
+                <p className="text-lg text-slate-500 mt-1">
+                  {periodClosedWonCount}件
                 </p>
               </div>
             </div>

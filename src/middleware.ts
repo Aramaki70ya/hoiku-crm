@@ -1,11 +1,9 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { updateSession } from '@/lib/supabase/middleware'
-
-// 開発時にSupabaseなしで動作確認したい場合は DEMO_MODE=true を設定
-const DEMO_MODE = process.env.DEMO_MODE === 'true'
+import { isDemoMode } from '@/lib/supabase/config'
 
 export async function middleware(request: NextRequest) {
-  if (DEMO_MODE) {
+  if (isDemoMode()) {
     return NextResponse.next()
   }
   return await updateSession(request)

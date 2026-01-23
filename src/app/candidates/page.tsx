@@ -1,12 +1,12 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import Link from 'next/link'
 import { AppLayout } from '@/components/layout/app-layout'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent } from '@/components/ui/card'
 import {
   Table,
@@ -30,7 +30,6 @@ import {
   Mail, 
   ChevronRight, 
   Users, 
-  UserCheck, 
   Star, 
   ClipboardList,
   AlertTriangle,
@@ -38,39 +37,26 @@ import {
   CheckCircle2,
 } from 'lucide-react'
 import { 
-  mockCandidates, 
-  mockUsers, 
   statusLabels, 
   statusColors, 
-  mockCandidateRanks, 
-  priorityLabels, 
   priorityColors, 
-  mockContracts, 
-  mockApproachPriorities,
   sourcePriorityRules
 } from '@/lib/mock-data'
-import type { Contract } from '@/types/database'
-
-// ランクを取得する関数（求職者管理画面用）
-const getRank = (candidateId: string) => {
-  const rankData = mockCandidateRanks.find(r => r.candidateId === candidateId)
-  return rankData?.rank || null
-}
+import { useCandidates } from '@/hooks/useCandidates'
+import { useUsers } from '@/hooks/useUsers'
+import type { Contract, CandidateWithRelations } from '@/types/database'
 
 // アプローチ優先度を取得する関数（タスク画面用）
-const getApproachPriority = (candidateId: string, sourceId: string | null) => {
-  const priorityData = mockApproachPriorities.find(p => p.candidateId === candidateId)
-  if (priorityData) return priorityData
-  // 登録経路による自動判定
-  const autoPriority = sourceId && sourcePriorityRules[sourceId] 
-    ? sourcePriorityRules[sourceId] as 'S' | 'A' | 'B' | 'C'
-    : 'B' as const
-  return {
-    candidateId,
-    approach_priority: autoPriority,
-    taskComment: null,
-    lastUpdated: new Date().toISOString().split('T')[0],
+const getApproachPriority = (candidate: CandidateWithRelations) => {
+  if (candidate.approach_priority) {
+    return candidate.approach_priority
   }
+  // 登録経路による自動判定
+  const sourceId = candidate.source_id
+  if (sourceId && sourcePriorityRules[sourceId]) {
+    return sourcePriorityRules[sourceId] as 'S' | 'A' | 'B' | 'C'
+  }
+  return 'B' as const
 }
 
 // 優先度の順序
@@ -89,50 +75,115 @@ export default function CandidatesPage() {
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [consultantFilter, setConsultantFilter] = useState<string>('all')
   const [priorityFilter, setPriorityFilter] = useState<string>('all')
-  const [activeTab, setActiveTab] = useState<'all' | 'active' | 'tasks'>('all')
-  const [candidateStatuses, setCandidateStatuses] = useState<Record<string, string>>({})
-  const [candidateConsultants, setCandidateConsultants] = useState<Record<string, string>>({})
-  const [priorities, setPriorities] = useState<Record<string, 'S' | 'A' | 'B' | 'C'>>({})
-  const [contracts, setContracts] = useState<typeof mockContracts>(mockContracts)
+  const [activeTab, setActiveTab] = useState<'all' | 'tasks'>('all')
+  const [localStatuses, setLocalStatuses] = useState<Record<string, string>>({})
+  const [localConsultants, setLocalConsultants] = useState<Record<string, string>>({})
+  const [localPriorities, setLocalPriorities] = useState<Record<string, 'S' | 'A' | 'B' | 'C'>>({})
+  const [localEmploymentTypes, setLocalEmploymentTypes] = useState<Record<string, string>>({})
+  const [contracts, setContracts] = useState<Contract[]>([])
 
-  // 管理者以外のユーザーを取得
-  const consultants = mockUsers.filter(u => u.role !== 'admin')
+  // API経由でデータを取得
+  const { candidates: rawCandidates, isLoading, updateCandidate } = useCandidates({
+    search: searchQuery,
+  })
+  const { consultants, users } = useUsers()
+
+  // ステータス変更ハンドラー
+  const handleStatusChange = useCallback(async (candidateId: string, newStatus: string) => {
+    setLocalStatuses(prev => ({ ...prev, [candidateId]: newStatus }))
+    
+    // API経由で更新
+    await updateCandidate(candidateId, { status: newStatus as Contract['candidate_id'] extends string ? 'new' | 'contacting' | 'first_contact_done' | 'proposing' | 'interviewing' | 'offer' | 'closed_won' | 'closed_lost' | 'pending' | 'on_hold' : never })
+    
+    // ステータスが「成約」になった場合、成約データを作成
+    if (newStatus === 'closed_won') {
+      const existingContract = contracts.find(c => c.candidate_id === candidateId)
+      if (!existingContract) {
+        const newContract: Contract = {
+          id: `c${Date.now()}`,
+          candidate_id: candidateId,
+          project_id: null,
+          contracted_at: new Date().toISOString(),
+          accepted_date: new Date().toISOString().split('T')[0],
+          entry_date: null,
+          employment_restriction_until: null,
+          employment_type: null,
+          job_type: null,
+          revenue_excluding_tax: 0,
+          revenue_including_tax: 0,
+          payment_date: null,
+          payment_scheduled_date: null,
+          invoice_sent_date: null,
+          calculation_basis: null,
+          document_url: null,
+          placement_company: null,
+          placement_company_name: null,
+          placement_facility_name: null,
+          note: null,
+          is_cancelled: null,
+          refund_required: null,
+          refund_date: null,
+          refund_amount: null,
+          cancellation_reason: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }
+        setContracts(prev => [...prev, newContract])
+      }
+    }
+  }, [updateCandidate, contracts])
+
+  // 担当者変更ハンドラー
+  const handleConsultantChange = useCallback(async (candidateId: string, consultantId: string) => {
+    if (consultantId === 'unassigned') {
+      setLocalConsultants(prev => {
+        const updated = { ...prev }
+        delete updated[candidateId]
+        return updated
+      })
+      await updateCandidate(candidateId, { consultant_id: null })
+    } else {
+      setLocalConsultants(prev => ({ ...prev, [candidateId]: consultantId }))
+      await updateCandidate(candidateId, { consultant_id: consultantId })
+    }
+  }, [updateCandidate])
+
+  // 優先度変更ハンドラー
+  const handlePriorityChange = useCallback(async (candidateId: string, priority: 'S' | 'A' | 'B' | 'C') => {
+    setLocalPriorities(prev => ({ ...prev, [candidateId]: priority }))
+    await updateCandidate(candidateId, { approach_priority: priority })
+  }, [updateCandidate])
+
+  // 雇用形態変更ハンドラー
+  const handleEmploymentTypeChange = useCallback(async (candidateId: string, employmentType: string) => {
+    const value = employmentType === 'unset' ? null : employmentType
+    setLocalEmploymentTypes(prev => ({ ...prev, [candidateId]: value || '' }))
+    await updateCandidate(candidateId, { desired_employment_type: value })
+  }, [updateCandidate])
 
   // 優先度別カウント（タスクタブ用）
   const priorityCounts = useMemo(() => {
     const counts: Record<string, number> = { S: 0, A: 0, B: 0, C: 0 }
     
-    mockCandidates
-      .filter(c => activeStatuses.includes(c.status))
+    rawCandidates
+      .filter(c => activeStatuses.includes(localStatuses[c.id] || c.status))
       .forEach(c => {
-        const priorityData = getApproachPriority(c.id, c.source_id)
-        counts[priorityData.approach_priority]++
+        const priority = localPriorities[c.id] || getApproachPriority(c)
+        counts[priority]++
       })
     
     return counts
-  }, [])
+  }, [rawCandidates, localStatuses, localPriorities])
 
   // フィルタリング
   const filteredCandidates = useMemo(() => {
-    let filtered = mockCandidates.filter((candidate) => {
+    let filtered = rawCandidates.filter((candidate) => {
       // 変更されたステータスを取得
-      const currentStatus = candidateStatuses[candidate.id] || candidate.status
+      const currentStatus = localStatuses[candidate.id] || candidate.status
       
       // タブによるフィルタ
-      if (activeTab === 'active' && !activeStatuses.includes(currentStatus)) {
-        return false
-      }
       if (activeTab === 'tasks' && !activeStatuses.includes(currentStatus)) {
         return false
-      }
-
-      // 検索クエリ
-      if (searchQuery) {
-        const query = searchQuery.toLowerCase()
-        const matchesName = candidate.name.toLowerCase().includes(query)
-        const matchesId = candidate.id.includes(query)
-        const matchesPhone = candidate.phone?.includes(query)
-        if (!matchesName && !matchesId && !matchesPhone) return false
       }
 
       // ステータスフィルタ
@@ -141,43 +192,40 @@ export default function CandidatesPage() {
       }
 
       // 担当者フィルタ
-      const currentConsultantIdForFilter = candidateConsultants[candidate.id] || candidate.consultant_id
+      const currentConsultantIdForFilter = localConsultants[candidate.id] || candidate.consultant_id
       if (consultantFilter !== 'all' && currentConsultantIdForFilter !== consultantFilter) {
         return false
       }
 
       // 優先度フィルタ（タスクタブのみ）
       if (activeTab === 'tasks' && priorityFilter !== 'all') {
-        const priorityData = getApproachPriority(candidate.id, candidate.source_id)
-        const currentPriority = priorities[candidate.id] || priorityData.approach_priority
+        const currentPriority = localPriorities[candidate.id] || getApproachPriority(candidate)
         if (currentPriority !== priorityFilter) return false
       }
 
       return true
     }).map(candidate => {
-      const priorityData = getApproachPriority(candidate.id, candidate.source_id)
+      const approachPriority = localPriorities[candidate.id] || getApproachPriority(candidate)
       return {
         ...candidate,
-        status: candidateStatuses[candidate.id] || candidate.status,
-        consultant_id: candidateConsultants[candidate.id] || candidate.consultant_id,
-        approach_priority: priorities[candidate.id] || priorityData.approach_priority,
-        taskComment: priorityData.taskComment,
+        status: localStatuses[candidate.id] || candidate.status,
+        consultant_id: localConsultants[candidate.id] || candidate.consultant_id,
+        approach_priority: approachPriority,
       }
     })
 
     // タスクタブの場合は優先度でソート
     if (activeTab === 'tasks') {
       filtered = filtered.sort((a, b) => {
-        return priorityOrder[a.approach_priority] - priorityOrder[b.approach_priority]
+        return priorityOrder[a.approach_priority || 'B'] - priorityOrder[b.approach_priority || 'B']
       })
     }
 
     return filtered
-  }, [searchQuery, statusFilter, consultantFilter, priorityFilter, activeTab, candidateStatuses, candidateConsultants, priorities])
+  }, [rawCandidates, statusFilter, consultantFilter, priorityFilter, activeTab, localStatuses, localConsultants, localPriorities])
 
-  const allCount = mockCandidates.length
-  const activeCount = mockCandidates.filter(c => activeStatuses.includes(c.status)).length
-  const taskCount = activeCount
+  const allCount = rawCandidates.length
+  const taskCount = rawCandidates.filter(c => activeStatuses.includes(localStatuses[c.id] || c.status)).length
 
   const today = new Date().toLocaleDateString('ja-JP', {
     year: 'numeric',
@@ -186,11 +234,22 @@ export default function CandidatesPage() {
     weekday: 'long',
   })
 
+  // ローディング中の表示
+  if (isLoading) {
+    return (
+      <AppLayout title="求職者管理" description="データを読み込み中...">
+        <div className="flex items-center justify-center h-64">
+          <p className="text-slate-500">読み込み中...</p>
+        </div>
+      </AppLayout>
+    )
+  }
+
   return (
     <AppLayout title="求職者管理" description={`${filteredCandidates.length}件の求職者`}>
       {/* タブ */}
       <Tabs value={activeTab} onValueChange={(v) => {
-        setActiveTab(v as 'all' | 'active' | 'tasks')
+        setActiveTab(v as 'all' | 'tasks')
         // タブ切り替え時にフィルターをリセット
         if (v !== 'tasks') {
           setPriorityFilter('all')
@@ -203,13 +262,6 @@ export default function CandidatesPage() {
           >
             <Users className="w-4 h-4 mr-2" />
             全体 ({allCount})
-          </TabsTrigger>
-          <TabsTrigger 
-            value="active"
-            className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-500 data-[state=active]:to-teal-600 data-[state=active]:text-white"
-          >
-            <UserCheck className="w-4 h-4 mr-2" />
-            アクティブ ({activeCount})
           </TabsTrigger>
           <TabsTrigger 
             value="tasks"
@@ -362,10 +414,9 @@ export default function CandidatesPage() {
               <TableHead className="text-slate-600 font-semibold w-20">優先度</TableHead>
               <TableHead className="text-slate-600 font-semibold">氏名</TableHead>
               <TableHead className="text-slate-600 font-semibold">連絡先</TableHead>
+              <TableHead className="text-slate-600 font-semibold">雇用形態</TableHead>
               <TableHead className="text-slate-600 font-semibold">ステータス</TableHead>
-              {activeTab === 'tasks' && (
-                <TableHead className="text-slate-600 font-semibold w-1/4">コメント（タスク内容）</TableHead>
-              )}
+              <TableHead className="text-slate-600 font-semibold w-1/4">メモ</TableHead>
               <TableHead className="text-slate-600 font-semibold">希望職種</TableHead>
               <TableHead className="text-slate-600 font-semibold">担当者</TableHead>
               <TableHead className="text-slate-600 font-semibold">登録日</TableHead>
@@ -374,11 +425,10 @@ export default function CandidatesPage() {
           </TableHeader>
           <TableBody>
             {filteredCandidates.map((candidate) => {
-              const currentConsultantId = candidateConsultants[candidate.id] || candidate.consultant_id
-              const consultant = mockUsers.find((u) => u.id === currentConsultantId)
-              const rank = getRank(candidate.id)
-              const approachPriority = (candidate as any).approach_priority || 'B'
-              const taskComment = (candidate as any).taskComment
+              const currentConsultantId = localConsultants[candidate.id] || candidate.consultant_id
+              const consultant = users.find((u) => u.id === currentConsultantId)
+              const rank = candidate.rank
+              const approachPriority = candidate.approach_priority || 'B'
               
               return (
                 <TableRow
@@ -404,7 +454,7 @@ export default function CandidatesPage() {
                     <Select
                       value={approachPriority}
                       onValueChange={(value: 'S' | 'A' | 'B' | 'C') => {
-                        setPriorities(prev => ({ ...prev, [candidate.id]: value }))
+                        handlePriorityChange(candidate.id, value)
                       }}
                     >
                       <SelectTrigger className="w-20 h-7 p-0 border-0 bg-transparent hover:bg-slate-100">
@@ -459,6 +509,7 @@ export default function CandidatesPage() {
                       <div className="text-sm text-slate-500">
                         {candidate.age && `${candidate.age}歳`}
                         {candidate.prefecture && ` / ${candidate.prefecture}`}
+                        {candidate.address && ` ${candidate.address}`}
                       </div>
                     </div>
                   </TableCell>
@@ -483,43 +534,36 @@ export default function CandidatesPage() {
                   </TableCell>
                   <TableCell>
                     <Select
+                      value={localEmploymentTypes[candidate.id] || candidate.desired_employment_type || 'unset'}
+                      onValueChange={(value) => {
+                        handleEmploymentTypeChange(candidate.id, value)
+                      }}
+                    >
+                      <SelectTrigger className="w-32 h-7 p-0 border-0 bg-transparent hover:bg-slate-100">
+                        <SelectValue>
+                          <span className="text-slate-600 text-sm">
+                            {(localEmploymentTypes[candidate.id] || candidate.desired_employment_type) || '-'}
+                          </span>
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent className="bg-white border-slate-200">
+                        <SelectItem value="unset">未設定</SelectItem>
+                        <SelectItem value="正社員">正社員</SelectItem>
+                        <SelectItem value="パート">パート</SelectItem>
+                        <SelectItem value="アルバイト">アルバイト</SelectItem>
+                        <SelectItem value="契約社員">契約社員</SelectItem>
+                        <SelectItem value="派遣">派遣</SelectItem>
+                        <SelectItem value="業務委託">業務委託</SelectItem>
+                        <SelectItem value="正社員, パート">正社員, パート</SelectItem>
+                        <SelectItem value="パート, アルバイト">パート, アルバイト</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
+                  <TableCell>
+                    <Select
                       value={candidate.status}
                       onValueChange={(value) => {
-                        setCandidateStatuses(prev => ({ ...prev, [candidate.id]: value }))
-                        
-                        // ステータスが「成約」になった場合、成約データを作成
-                        if (value === 'closed_won') {
-                          const existingContract = contracts.find(c => c.candidate_id === candidate.id)
-                          if (!existingContract) {
-                            const newContract: Contract = {
-                              id: `c${Date.now()}`,
-                              candidate_id: candidate.id,
-                              accepted_date: new Date().toISOString().split('T')[0],
-                              employment_restriction_until: null,
-                              employment_type: null,
-                              job_type: null,
-                              revenue_excluding_tax: 0,
-                              revenue_including_tax: 0,
-                              payment_date: null,
-                              payment_scheduled_date: null,
-                              invoice_sent_date: null,
-                              calculation_basis: null,
-                              document_url: null,
-                              placement_company: null,
-                              placement_company_name: null,
-                              placement_facility_name: null,
-                              note: null,
-                              is_cancelled: null,
-                              refund_required: null,
-                              refund_date: null,
-                              refund_amount: null,
-                              cancellation_reason: null,
-                              created_at: new Date().toISOString(),
-                              updated_at: new Date().toISOString(),
-                            }
-                            setContracts(prev => [...prev, newContract])
-                          }
-                        }
+                        handleStatusChange(candidate.id, value)
                       }}
                     >
                       <SelectTrigger className="w-32 h-7 p-0 border-0 bg-transparent hover:bg-slate-100">
@@ -545,19 +589,28 @@ export default function CandidatesPage() {
                       </SelectContent>
                     </Select>
                   </TableCell>
-                  {activeTab === 'tasks' && (
-                    <TableCell>
-                      {taskComment ? (
-                        <div className="flex items-start gap-2">
-                          <div className="text-sm text-slate-700 bg-amber-50 px-2 py-1 rounded border border-amber-200">
-                            {taskComment}
-                          </div>
+                  <TableCell>
+                    {candidate.memo ? (
+                      <div className="flex flex-col gap-1">
+                        <div className="text-sm text-slate-700">
+                          {candidate.memo}
                         </div>
-                      ) : (
-                        <span className="text-slate-400 text-sm">コメントなし</span>
-                      )}
-                    </TableCell>
-                  )}
+                        {candidate.updated_at && (
+                          <div className="text-xs text-slate-400">
+                            {new Date(candidate.updated_at).toLocaleDateString('ja-JP', {
+                              year: 'numeric',
+                              month: '2-digit',
+                              day: '2-digit',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-slate-400 text-sm">-</span>
+                    )}
+                  </TableCell>
                   <TableCell className="text-slate-700">
                     {candidate.desired_job_type || '-'}
                   </TableCell>
@@ -565,15 +618,7 @@ export default function CandidatesPage() {
                     <Select
                       value={currentConsultantId || 'unassigned'}
                       onValueChange={(value) => {
-                        if (value === 'unassigned') {
-                          setCandidateConsultants(prev => {
-                            const updated = { ...prev }
-                            delete updated[candidate.id]
-                            return updated
-                          })
-                        } else {
-                          setCandidateConsultants(prev => ({ ...prev, [candidate.id]: value }))
-                        }
+                        handleConsultantChange(candidate.id, value)
                       }}
                     >
                       <SelectTrigger className="w-32 h-7 p-0 border-0 bg-transparent hover:bg-slate-100">
@@ -585,7 +630,7 @@ export default function CandidatesPage() {
                         <SelectItem value="unassigned">
                           <span className="text-slate-400">未割り当て</span>
                         </SelectItem>
-                        {mockUsers.map((user) => (
+                        {users.map((user) => (
                           <SelectItem key={user.id} value={user.id}>
                             {user.name}
                           </SelectItem>

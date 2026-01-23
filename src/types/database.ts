@@ -38,6 +38,16 @@ export interface Database {
         Insert: Omit<Memo, 'id' | 'created_at'>
         Update: Partial<Omit<Memo, 'id' | 'created_at'>>
       }
+      status_history: {
+        Row: StatusHistory
+        Insert: Omit<StatusHistory, 'id'>
+        Update: Partial<Omit<StatusHistory, 'id'>>
+      }
+      email_logs: {
+        Row: EmailLog
+        Insert: Omit<EmailLog, 'id' | 'created_at'>
+        Update: Partial<Omit<EmailLog, 'id'>>
+      }
     }
   }
 }
@@ -151,7 +161,10 @@ export interface Source {
 export interface Contract {
   id: string
   candidate_id: string
+  project_id: string | null // 案件IDへのFK（リードタイム分析用）
+  contracted_at: string | null // 成約確定日時（リードタイム分析用）
   accepted_date: string // 承諾日（ISO date string）
+  entry_date: string | null // 入社日（ISO date string）
   employment_restriction_until: string | null // 転職勧奨禁止期間
   employment_type: string | null // 雇用形態（正社員、パート等）
   job_type: string | null // 職種（保育士、栄養士等）
@@ -198,5 +211,58 @@ export interface Memo {
   content: string
   created_by: string | null // ユーザーID
   created_at: string
+}
+
+// ステータス変更履歴（リードタイム分析・タイムライン表示用）
+export interface StatusHistory {
+  id: string
+  candidate_id: string
+  project_id: string | null // 案件に紐づく変更の場合
+  old_status: string | null // 変更前ステータス
+  new_status: string // 変更後ステータス
+  changed_by: string | null // 変更者（Users.id）
+  changed_at: string // 変更日時（リードタイム分析用）
+  note: string | null // 備考
+}
+
+// メール送信履歴（タイムライン表示用）
+export interface EmailLog {
+  id: string
+  candidate_id: string
+  template_type: EmailTemplateType
+  subject: string
+  body: string | null
+  to_address: string
+  sent_at: string // 送信日時
+  sent_by: string | null // 送信者（Users.id）
+  status: EmailStatus
+  error_message: string | null // エラーメッセージ（失敗時）
+  created_at: string
+}
+
+export type EmailTemplateType =
+  | 'first_contact' // 初回連絡
+  | 'interview_invitation' // 面接案内
+  | 'interview_reminder' // 面接リマインダー
+  | 'offer_notification' // 内定通知
+  | 'entry_confirmation' // 入社確認
+  | 'followup' // フォローアップ
+  | 'other' // その他
+
+export type EmailStatus =
+  | 'sent' // 送信済
+  | 'failed' // 失敗
+  | 'pending' // 保留中
+
+// リレーション付きの型
+export interface StatusHistoryWithRelations extends StatusHistory {
+  candidate?: Candidate
+  project?: Project
+  changed_by_user?: User
+}
+
+export interface EmailLogWithRelations extends EmailLog {
+  candidate?: Candidate
+  sent_by_user?: User
 }
 

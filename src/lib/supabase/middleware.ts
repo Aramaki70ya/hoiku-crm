@@ -1,10 +1,10 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { isDemoMode, hasSupabaseConfig, getSupabaseUrl, getSupabaseAnonKey } from './config'
 
 export async function updateSession(request: NextRequest) {
   // デモモードまたは環境変数が未設定の場合はスキップ
-  const isDemoMode = process.env.DEMO_MODE === 'true'
-  if (isDemoMode || !process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+  if (isDemoMode() || !hasSupabaseConfig()) {
     return NextResponse.next()
   }
 
@@ -13,8 +13,8 @@ export async function updateSession(request: NextRequest) {
   })
 
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    getSupabaseUrl(),
+    getSupabaseAnonKey(),
     {
       cookies: {
         getAll() {

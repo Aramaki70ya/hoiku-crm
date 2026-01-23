@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { AppLayout } from '@/components/layout/app-layout'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -23,13 +23,12 @@ import {
 } from '@/components/ui/select'
 import { Calendar, Clock, MapPin, User, Building, CheckCircle, XCircle } from 'lucide-react'
 import {
-  mockInterviews,
-  mockProjects,
-  mockCandidates,
-  mockUsers,
   interviewStatusLabels,
   interviewStatusColors,
 } from '@/lib/mock-data'
+import { useInterviews } from '@/hooks/useInterviews'
+import { useUsers } from '@/hooks/useUsers'
+import { useCandidates } from '@/hooks/useCandidates'
 import type { Candidate } from '@/types/database'
 
 // 年月の選択肢を生成
@@ -53,26 +52,27 @@ export default function InterviewsPage() {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   })
   const monthOptions = generateMonthOptions()
-  const [interviewStatuses, setInterviewStatuses] = useState<Record<string, string>>({})
-  const [interviewConsultants, setInterviewConsultants] = useState<Record<string, string>>({})
-  const [candidateConsultants, setCandidateConsultants] = useState<Record<string, string>>({})
-  const [timelineEvents, setTimelineEvents] = useState<Array<{
-    id: string
-    candidate_id: string
-    event_type: string
-    title: string
-    description: string
-    created_at: string
-  }>>([])
+  const [localInterviewStatuses, setLocalInterviewStatuses] = useState<Record<string, string>>({})
+  const [localInterviewConsultants, setLocalInterviewConsultants] = useState<Record<string, string>>({})
+  const [localCandidateConsultants, setLocalCandidateConsultants] = useState<Record<string, string>>({})
 
-  // 面接データを拡張
+  // API経由でデータを取得
+  const { interviews: apiInterviews, isLoading, updateInterview } = useInterviews({
+    month: selectedMonth,
+    status: statusFilter,
+    consultantId: consultantFilter,
+  })
+  const { users } = useUsers()
+  const { updateCandidate } = useCandidates()
+
+  // 面接データを拡張（API経由で取得したデータにローカルの変更をマージ）
   const enrichedInterviews = useMemo(() => {
-    return mockInterviews.map(interview => {
-      const project = mockProjects.find(p => p.id === interview.project_id)
-      const candidate = mockCandidates.find(c => c.id === project?.candidate_id)
-      const currentConsultantId = interviewConsultants[interview.id] || candidateConsultants[candidate?.id || ''] || candidate?.consultant_id || null
-      const consultant = mockUsers.find(u => u.id === currentConsultantId)
-      const currentStatus = interviewStatuses[interview.id] || interview.status
+    return apiInterviews.map(interview => {
+      const project = interview.project
+      const candidate = project?.candidate
+      const currentConsultantId = localInterviewConsultants[interview.id] || localCandidateConsultants[candidate?.id || ''] || candidate?.consultant_id || null
+      const consultant = users.find(u => u.id === currentConsultantId) || candidate?.consultant
+      const currentStatus = localInterviewStatuses[interview.id] || interview.status
       return {
         ...interview,
         status: currentStatus,
@@ -81,30 +81,52 @@ export default function InterviewsPage() {
         consultant,
       }
     }).sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime())
-  }, [interviewStatuses, interviewConsultants, candidateConsultants])
+  }, [apiInterviews, localInterviewStatuses, localInterviewConsultants, localCandidateConsultants, users])
 
-  // フィルタリング
-  const filteredInterviews = useMemo(() => {
-    return enrichedInterviews.filter(interview => {
-      // 年月フィルター
-      const interviewMonth = interview.start_at.substring(0, 7) // YYYY-MM
-      if (interviewMonth !== selectedMonth) {
-        return false
-      }
-      
-      if (statusFilter !== 'all' && interview.status !== statusFilter) {
-        return false
-      }
-      if (consultantFilter !== 'all' && interview.consultant?.id !== consultantFilter) {
-        return false
-      }
-      return true
-    })
-  }, [enrichedInterviews, statusFilter, consultantFilter, selectedMonth])
+  // フィルタリング（API側で既にフィルタリングされている）
+  const filteredInterviews = enrichedInterviews
 
   // ステータス別集計
   const scheduledCount = enrichedInterviews.filter(i => i.status === 'scheduled').length
   const completedCount = enrichedInterviews.filter(i => i.status === 'completed').length
+
+  // ステータス変更ハンドラー
+  const handleStatusChange = useCallback(async (interviewId: string, newStatus: string) => {
+    setLocalInterviewStatuses(prev => ({ ...prev, [interviewId]: newStatus }))
+    await updateInterview(interviewId, { status: newStatus as 'scheduled' | 'completed' | 'cancelled' | 'rescheduling' })
+  }, [updateInterview])
+
+  // 担当者変更ハンドラー
+  const handleConsultantChange = useCallback(async (interviewId: string, candidateId: string, consultantId: string) => {
+    if (consultantId === 'unassigned') {
+      setLocalInterviewConsultants(prev => {
+        const updated = { ...prev }
+        delete updated[interviewId]
+        return updated
+      })
+      setLocalCandidateConsultants(prev => {
+        const updated = { ...prev }
+        delete updated[candidateId]
+        return updated
+      })
+      await updateCandidate(candidateId, { consultant_id: null })
+    } else {
+      setLocalInterviewConsultants(prev => ({ ...prev, [interviewId]: consultantId }))
+      setLocalCandidateConsultants(prev => ({ ...prev, [candidateId]: consultantId }))
+      await updateCandidate(candidateId, { consultant_id: consultantId })
+    }
+  }, [updateCandidate])
+
+  // ローディング中の表示
+  if (isLoading) {
+    return (
+      <AppLayout title="面接一覧" description="データを読み込み中...">
+        <div className="flex items-center justify-center h-64">
+          <p className="text-slate-500">読み込み中...</p>
+        </div>
+      </AppLayout>
+    )
+  }
 
   return (
     <AppLayout title="面接一覧" description={`${filteredInterviews.length}件の面接`}>
@@ -184,7 +206,7 @@ export default function InterviewsPage() {
           </SelectTrigger>
           <SelectContent className="bg-white">
             <SelectItem value="all">すべて</SelectItem>
-            {mockUsers.map(user => (
+            {users.map(user => (
               <SelectItem key={user.id} value={user.id}>{user.name}</SelectItem>
             ))}
           </SelectContent>
@@ -217,37 +239,25 @@ export default function InterviewsPage() {
         <TabsContent value="all">
           <InterviewTable 
             interviews={filteredInterviews}
-            interviewStatuses={interviewStatuses}
-            interviewConsultants={interviewConsultants}
-            candidateConsultants={candidateConsultants}
-            setInterviewStatuses={setInterviewStatuses}
-            setInterviewConsultants={setInterviewConsultants}
-            setCandidateConsultants={setCandidateConsultants}
-            setTimelineEvents={setTimelineEvents}
+            users={users}
+            onStatusChange={handleStatusChange}
+            onConsultantChange={handleConsultantChange}
           />
         </TabsContent>
         <TabsContent value="scheduled">
           <InterviewTable 
             interviews={filteredInterviews.filter(i => i.status === 'scheduled')}
-            interviewStatuses={interviewStatuses}
-            interviewConsultants={interviewConsultants}
-            candidateConsultants={candidateConsultants}
-            setInterviewStatuses={setInterviewStatuses}
-            setInterviewConsultants={setInterviewConsultants}
-            setCandidateConsultants={setCandidateConsultants}
-            setTimelineEvents={setTimelineEvents}
+            users={users}
+            onStatusChange={handleStatusChange}
+            onConsultantChange={handleConsultantChange}
           />
         </TabsContent>
         <TabsContent value="completed">
           <InterviewTable 
             interviews={filteredInterviews.filter(i => i.status === 'completed')}
-            interviewStatuses={interviewStatuses}
-            interviewConsultants={interviewConsultants}
-            candidateConsultants={candidateConsultants}
-            setInterviewStatuses={setInterviewStatuses}
-            setInterviewConsultants={setInterviewConsultants}
-            setCandidateConsultants={setCandidateConsultants}
-            setTimelineEvents={setTimelineEvents}
+            users={users}
+            onStatusChange={handleStatusChange}
+            onConsultantChange={handleConsultantChange}
           />
         </TabsContent>
       </Tabs>
@@ -270,14 +280,26 @@ interface EnrichedInterview {
     candidate_id: string
     client_name: string
     phase: string
-    expected_amount: number | null
-    probability: string | null
+    expected_amount?: number | null
+    probability?: string | null
+    candidate?: {
+      id: string
+      name: string
+      phone: string | null
+      status: string
+      consultant_id: string | null
+      consultant?: {
+        id: string
+        name: string
+      }
+    }
   }
   candidate?: {
     id: string
     name: string
     phone: string | null
     status: string
+    consultant_id?: string | null
   }
   consultant?: {
     id: string
@@ -285,33 +307,20 @@ interface EnrichedInterview {
   }
 }
 
+import type { User } from '@/types/database'
+
 interface InterviewTableProps {
   interviews: EnrichedInterview[]
-  interviewStatuses: Record<string, string>
-  interviewConsultants: Record<string, string>
-  candidateConsultants: Record<string, string>
-  setInterviewStatuses: React.Dispatch<React.SetStateAction<Record<string, string>>>
-  setInterviewConsultants: React.Dispatch<React.SetStateAction<Record<string, string>>>
-  setCandidateConsultants: React.Dispatch<React.SetStateAction<Record<string, string>>>
-  setTimelineEvents: React.Dispatch<React.SetStateAction<Array<{
-    id: string
-    candidate_id: string
-    event_type: string
-    title: string
-    description: string
-    created_at: string
-  }>>>
+  users: User[]
+  onStatusChange: (interviewId: string, newStatus: string) => Promise<void>
+  onConsultantChange: (interviewId: string, candidateId: string, consultantId: string) => Promise<void>
 }
 
 function InterviewTable({ 
   interviews, 
-  interviewStatuses, 
-  interviewConsultants, 
-  candidateConsultants,
-  setInterviewStatuses,
-  setInterviewConsultants,
-  setCandidateConsultants,
-  setTimelineEvents,
+  users,
+  onStatusChange,
+  onConsultantChange,
 }: InterviewTableProps) {
   if (interviews.length === 0) {
     return (
@@ -382,46 +391,10 @@ function InterviewTable({
                 </TableCell>
                 <TableCell>
                   <Select
-                    value={interviewConsultants[interview.id] || ((interview.candidate as Candidate | undefined)?.consultant_id ?? 'unassigned')}
+                    value={interview.consultant?.id || ((interview.candidate as Candidate | undefined)?.consultant_id ?? 'unassigned')}
                     onValueChange={(value) => {
-                      if (value === 'unassigned') {
-                        setInterviewConsultants(prev => {
-                          const updated = { ...prev }
-                          delete updated[interview.id]
-                          return updated
-                        })
-                        // 候補者の担当者も更新
-                        if (interview.candidate?.id) {
-                          setCandidateConsultants(prev => {
-                            const updated = { ...prev }
-                            delete updated[interview.candidate!.id]
-                            return updated
-                          })
-                        }
-                      } else {
-                        setInterviewConsultants(prev => ({ ...prev, [interview.id]: value }))
-                        // 候補者の担当者も更新
-                        if (interview.candidate?.id) {
-                          setCandidateConsultants(prev => ({ ...prev, [interview.candidate!.id]: value }))
-                          // タイムラインイベントを追加
-                          const newConsultant = mockUsers.find(u => u.id === value)
-                          const oldConsultant = interview.consultant
-                          if (oldConsultant?.name !== newConsultant?.name) {
-                            const timelineEvent = {
-                              id: `tl-${Date.now()}-${interview.id}`,
-                              candidate_id: interview.candidate!.id,
-                              event_type: 'consultant_change',
-                              title: '担当者変更',
-                              description: `${oldConsultant?.name || '未割り当て'} → ${newConsultant?.name || '未割り当て'}`,
-                              created_at: new Date().toISOString(),
-                            }
-                            setTimelineEvents(prev => [...prev, timelineEvent])
-                            // localStorageに保存（求職者詳細ページで参照可能にするため）
-                            const stored = JSON.parse(localStorage.getItem('timelineEvents') || '[]')
-                            stored.push(timelineEvent)
-                            localStorage.setItem('timelineEvents', JSON.stringify(stored))
-                          }
-                        }
+                      if (interview.candidate?.id) {
+                        onConsultantChange(interview.id, interview.candidate.id, value)
                       }
                     }}
                   >
@@ -434,7 +407,7 @@ function InterviewTable({
                       <SelectItem value="unassigned">
                         <span className="text-slate-400">未割り当て</span>
                       </SelectItem>
-                      {mockUsers.map((user) => (
+                      {users.map((user) => (
                         <SelectItem key={user.id} value={user.id}>
                           {user.name}
                         </SelectItem>
@@ -446,27 +419,7 @@ function InterviewTable({
                   <Select
                     value={interview.status}
                     onValueChange={(value) => {
-                      setInterviewStatuses(prev => ({ ...prev, [interview.id]: value }))
-                        // タイムラインイベントを追加
-                      if (interview.candidate?.id) {
-                        const oldStatusLabel = interviewStatusLabels[interview.status] || interview.status
-                        const newStatusLabel = interviewStatusLabels[value] || value
-                        if (oldStatusLabel !== newStatusLabel) {
-                          const timelineEvent = {
-                            id: `tl-${Date.now()}-${interview.id}`,
-                            candidate_id: interview.candidate!.id,
-                            event_type: 'interview_status_change',
-                            title: '面接ステータス変更',
-                            description: `${interview.candidate?.name || ''} - ${interview.project?.client_name || ''}: ${oldStatusLabel} → ${newStatusLabel}`,
-                            created_at: new Date().toISOString(),
-                          }
-                          setTimelineEvents(prev => [...prev, timelineEvent])
-                          // localStorageに保存（求職者詳細ページで参照可能にするため）
-                          const stored = JSON.parse(localStorage.getItem('timelineEvents') || '[]')
-                          stored.push(timelineEvent)
-                          localStorage.setItem('timelineEvents', JSON.stringify(stored))
-                        }
-                      }
+                      onStatusChange(interview.id, value)
                     }}
                   >
                     <SelectTrigger className="w-32 h-7 p-0 border-0 bg-transparent hover:bg-slate-100">

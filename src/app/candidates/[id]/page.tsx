@@ -20,14 +20,6 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -53,7 +45,6 @@ import {
   FileText,
   Link as LinkIcon,
   CalendarCheck,
-  CheckCircle2,
 } from 'lucide-react'
 import {
   mockCandidates,
@@ -61,7 +52,6 @@ import {
   mockProjects,
   mockInterviews,
   mockContracts,
-  mockApproachPriorities,
   mockMemos,
   mockSources,
   contractCandidateNames,
@@ -126,13 +116,6 @@ export default function CandidateDetailPage({ params }: PageProps) {
   // 成約情報を取得
   const contract = mockContracts.find((c) => c.candidate_id === id)
   const isContracted = currentStatus === 'closed_won' || !!contract
-  
-  // タスクコメントを取得
-  const approachPriority = mockApproachPriorities.find(p => p.candidateId === id)
-  const taskComment = approachPriority?.taskComment || null
-  
-  // タスク完了状態を管理
-  const [isTaskCompleted, setIsTaskCompleted] = useState(false)
   
   // メモを取得（この求職者に関連するメモ）
   const candidateMemos = mockMemos.filter(m => m.candidate_id === id).sort((a, b) => 
@@ -279,25 +262,6 @@ export default function CandidateDetailPage({ params }: PageProps) {
     }
   }, [projects.length, projects[0]?.probability, projects[0]?.expected_amount])
   
-  // タスク編集用state
-  const [taskForm, setTaskForm] = useState({
-    taskComment: taskComment || '',
-  })
-  const [isTaskEditDialogOpen, setIsTaskEditDialogOpen] = useState(false)
-  
-  // タスクフォームをtaskComment変更時に更新
-  useEffect(() => {
-    setTaskForm(prev => {
-      // 値が実際に変更された場合のみ更新
-      if (prev.taskComment !== (taskComment || '')) {
-        return {
-          taskComment: taskComment || '',
-        }
-      }
-      return prev
-    })
-  }, [taskComment])
-  
   const handleContractFormChange = (field: keyof Contract, value: string) => {
     setContractForm(prev => ({ ...prev, [field]: value }))
   }
@@ -328,13 +292,6 @@ export default function CandidateDetailPage({ params }: PageProps) {
   const handleSaveYomi = () => {
     // 実際のアプリでは、ここでAPIを呼び出してヨミ情報を保存
     console.log('保存するヨミ情報:', yomiForm)
-    // TODO: 成功通知を表示
-  }
-  
-  const handleSaveTask = () => {
-    // 実際のアプリでは、ここでAPIを呼び出してタスクを保存
-    console.log('保存するタスク:', taskForm)
-    setIsTaskEditDialogOpen(false)
     // TODO: 成功通知を表示
   }
 
@@ -726,27 +683,36 @@ export default function CandidateDetailPage({ params }: PageProps) {
             }}
           >
           <Tabs defaultValue="timeline" className="w-full">
-            <TabsList className="bg-white border border-slate-200 shadow-sm">
-              <TabsTrigger value="timeline" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-indigo-600 data-[state=active]:text-white">
-                タイムライン
-              </TabsTrigger>
-              <TabsTrigger value="projects" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-indigo-600 data-[state=active]:text-white">
-                選考状況 ({projects.length})
-              </TabsTrigger>
-              {isContracted && (
-                <TabsTrigger value="contract" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-indigo-600 data-[state=active]:text-white">
-                  <Trophy className="w-4 h-4 mr-1" />
-                  成約情報
+            <div className="flex items-center justify-between mb-4">
+              <TabsList className="bg-white border border-slate-200 shadow-sm">
+                <TabsTrigger value="timeline" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-indigo-600 data-[state=active]:text-white">
+                  タイムライン
                 </TabsTrigger>
-              )}
-              <TabsTrigger value="memo" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-indigo-600 data-[state=active]:text-white">
-                メモ
-              </TabsTrigger>
-            </TabsList>
-
-            {/* 選考状況タブ */}
-            <TabsContent value="projects" className="mt-4 space-y-4">
-              <div className="flex justify-end mb-4">
+                <TabsTrigger value="projects" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-indigo-600 data-[state=active]:text-white">
+                  選考状況 ({projects.length})
+                </TabsTrigger>
+                {isContracted && (
+                  <TabsTrigger value="contract" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-indigo-600 data-[state=active]:text-white">
+                    <Trophy className="w-4 h-4 mr-1" />
+                    成約情報
+                  </TabsTrigger>
+                )}
+                <TabsTrigger value="memo" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-indigo-600 data-[state=active]:text-white">
+                  メモ
+                </TabsTrigger>
+              </TabsList>
+              <div className="flex items-center gap-2">
+                <DialogTrigger asChild>
+                  <Button 
+                    className="bg-gradient-to-r from-violet-500 to-indigo-600 hover:from-violet-600 hover:to-indigo-700 text-white shadow-md"
+                    onClick={() => {
+                      setEditType('memo')
+                    }}
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    メモ追加
+                  </Button>
+                </DialogTrigger>
                 <DialogTrigger asChild>
                   <Button 
                     className="bg-gradient-to-r from-violet-500 to-indigo-600 hover:from-violet-600 hover:to-indigo-700 text-white shadow-md"
@@ -754,11 +720,15 @@ export default function CandidateDetailPage({ params }: PageProps) {
                       setEditType('project')
                     }}
                   >
-                    <Edit className="w-4 h-4 mr-2" />
-                    編集
+                    <Plus className="w-4 h-4 mr-2" />
+                    案件追加
                   </Button>
                 </DialogTrigger>
               </div>
+            </div>
+
+            {/* 選考状況タブ */}
+            <TabsContent value="projects" className="mt-4 space-y-4">
 
               {projects.length === 0 ? (
                 <Card className="bg-white border-slate-200 shadow-sm">
@@ -1128,113 +1098,6 @@ export default function CandidateDetailPage({ params }: PageProps) {
 
             {/* タイムラインタブ */}
             <TabsContent value="timeline" className="mt-4 space-y-4">
-              <div className="flex justify-end mb-4">
-                <DialogTrigger asChild>
-                  <Button 
-                    className="bg-gradient-to-r from-violet-500 to-indigo-600 hover:from-violet-600 hover:to-indigo-700 text-white shadow-md"
-                    onClick={() => {
-                      setEditType('timeline')
-                    }}
-                  >
-                    <Edit className="w-4 h-4 mr-2" />
-                    編集
-                  </Button>
-                </DialogTrigger>
-              </div>
-              {/* タスク一覧 */}
-              <Card className="bg-white border-slate-200 shadow-sm">
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle className="text-lg text-slate-800">タスク一覧</CardTitle>
-                  <Dialog open={isTaskEditDialogOpen} onOpenChange={setIsTaskEditDialogOpen}>
-                    <DialogTrigger asChild>
-                      <Button 
-                        size="sm"
-                        className="bg-gradient-to-r from-violet-500 to-indigo-600 hover:from-violet-600 hover:to-indigo-700 text-white shadow-md"
-                        onClick={() => {
-                          setTaskForm({ taskComment: taskComment || '' })
-                          setIsTaskEditDialogOpen(true)
-                        }}
-                      >
-                        <Plus className="w-4 h-4 mr-2" />
-                        タスクを追加
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="sm:max-w-[500px]">
-                      <DialogHeader>
-                        <DialogTitle>{taskComment ? 'タスクの編集' : 'タスクの追加'}</DialogTitle>
-                        <DialogDescription>
-                          {taskComment ? 'タスク内容を編集できます' : '新しいタスクを追加できます'}
-                        </DialogDescription>
-                      </DialogHeader>
-                      <div className="grid gap-4 py-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="task-comment">タスク内容</Label>
-                          <Textarea
-                            id="task-comment"
-                            placeholder="タスク内容を入力してください..."
-                            value={taskForm.taskComment}
-                            onChange={(e) => setTaskForm(prev => ({ ...prev, taskComment: e.target.value }))}
-                            className="min-h-[150px]"
-                          />
-                        </div>
-                      </div>
-                      <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsTaskEditDialogOpen(false)}>
-                          キャンセル
-                        </Button>
-                        <Button 
-                          onClick={handleSaveTask}
-                          className="bg-gradient-to-r from-violet-500 to-indigo-600 hover:from-violet-600 hover:to-indigo-700 text-white"
-                          disabled={!taskForm.taskComment.trim()}
-                        >
-                          保存
-                        </Button>
-                      </DialogFooter>
-                    </DialogContent>
-                  </Dialog>
-                </CardHeader>
-                <CardContent>
-                  {taskComment ? (
-                    <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="border-slate-100 bg-slate-50 hover:bg-slate-50">
-                            <TableHead className="text-slate-600 font-semibold w-12"></TableHead>
-                            <TableHead className="text-slate-600 font-semibold">タスク内容</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          <TableRow className={`border-slate-100 transition-colors ${isTaskCompleted ? 'bg-slate-50' : 'bg-rose-50/50 hover:bg-rose-50'}`}>
-                            <TableCell className="p-2 align-middle">
-                              <button
-                                onClick={() => setIsTaskCompleted(!isTaskCompleted)}
-                                className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
-                                  isTaskCompleted
-                                    ? 'bg-violet-600 border-violet-600'
-                                    : 'border-slate-300 hover:border-violet-400'
-                                }`}
-                              >
-                                {isTaskCompleted && (
-                                  <CheckCircle2 className="w-3.5 h-3.5 text-white" />
-                                )}
-                              </button>
-                            </TableCell>
-                            <TableCell className={`p-2 align-middle ${isTaskCompleted ? 'line-through text-slate-400' : 'text-slate-800'}`}>
-                              {taskComment}
-                            </TableCell>
-                          </TableRow>
-                        </TableBody>
-                      </Table>
-                    </div>
-                  ) : (
-                    <div className="text-center py-12 text-slate-500">
-                      <Clock className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-                      <p>タスクはありません</p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-              
               {/* タイムライン */}
               <Card className="bg-white border-slate-200 shadow-sm">
                 <CardHeader>
@@ -1298,19 +1161,6 @@ export default function CandidateDetailPage({ params }: PageProps) {
 
             {/* メモタブ */}
             <TabsContent value="memo" className="mt-4">
-              <div className="flex justify-end mb-4">
-                <DialogTrigger asChild>
-                  <Button 
-                    className="bg-gradient-to-r from-violet-500 to-indigo-600 hover:from-violet-600 hover:to-indigo-700 text-white shadow-md"
-                    onClick={() => {
-                      setEditType('memo')
-                    }}
-                  >
-                    <Edit className="w-4 h-4 mr-2" />
-                    編集
-                  </Button>
-                </DialogTrigger>
-              </div>
               <Card className="bg-white border-slate-200 shadow-sm">
                 <CardContent className="py-6">
                   {candidateMemos.length === 0 ? (

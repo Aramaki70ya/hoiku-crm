@@ -1,7 +1,8 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { useAuth } from '@/hooks/useAuth'
-import { mockUsers } from '@/lib/mock-data'
+import type { User } from '@/types/database'
 import { Card, CardContent } from '@/components/ui/card'
 import { AlertCircle } from 'lucide-react'
 
@@ -11,8 +12,33 @@ interface AdminGuardProps {
 
 export function AdminGuard({ children }: AdminGuardProps) {
   const { user, loading } = useAuth()
+  const [appUser, setAppUser] = useState<User | null>(null)
+  const [isFetchingRole, setIsFetchingRole] = useState(true)
 
-  if (loading) {
+  useEffect(() => {
+    const fetchMe = async () => {
+      try {
+        setIsFetchingRole(true)
+        const response = await fetch('/api/auth/me')
+        if (!response.ok) {
+          setAppUser(null)
+          return
+        }
+        const data = await response.json()
+        setAppUser(data.user ?? null)
+      } catch {
+        setAppUser(null)
+      } finally {
+        setIsFetchingRole(false)
+      }
+    }
+
+    if (!loading) {
+      fetchMe()
+    }
+  }, [loading, user])
+
+  if (loading || isFetchingRole) {
     return (
       <div className="flex items-center justify-center h-screen">
         <div className="text-slate-500">読み込み中...</div>
@@ -20,11 +46,9 @@ export function AdminGuard({ children }: AdminGuardProps) {
     )
   }
 
-  // モックデータからユーザーのroleを取得
-  const userData = user ? mockUsers.find(u => u.email === user.email) : null
-  const isAdmin = userData?.role === 'admin'
+  const isAdmin = appUser?.role === 'admin'
 
-  if (!user) {
+  if (!user && !appUser) {
     return (
       <div className="flex items-center justify-center h-screen">
         <Card className="bg-white border-slate-200 shadow-sm max-w-md">

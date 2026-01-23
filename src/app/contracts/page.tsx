@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import Link from 'next/link'
 import { AppLayout } from '@/components/layout/app-layout'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -20,13 +20,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import {
-  mockContracts,
-  mockUsers,
-  contractConsultants,
-  contractCandidateNames,
-  contractSources,
-} from '@/lib/mock-data'
+import { useContracts } from '@/hooks/useContracts'
+import { useUsers } from '@/hooks/useUsers'
 import type { Contract } from '@/types/database'
 import {
   Trophy,
@@ -82,9 +77,29 @@ function generateMonthOptions() {
 }
 
 export default function ContractsPage() {
-  const [selectedMonth, setSelectedMonth] = useState('2025-10') // デフォルト: 2025年10月
+  // 現在の年月をデフォルトに設定
+  const now = new Date()
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  const [selectedMonth, setSelectedMonth] = useState(currentMonth)
   const [selectedConsultant, setSelectedConsultant] = useState<string>('all')
-  const [contracts, setContracts] = useState(mockContracts)
+  
+  // API経由でデータを取得
+  const { contracts: apiContracts, isLoading, updateContract } = useContracts({
+    month: selectedMonth,
+    consultantId: selectedConsultant,
+  })
+  const { users, consultants: consultantUsers } = useUsers()
+  
+  // ローカル状態で編集中のデータを管理
+  const [localContracts, setLocalContracts] = useState<Contract[]>([])
+  
+  // APIから取得したデータをローカル状態にマージ
+  const contracts = useMemo(() => {
+    const contractMap = new Map<string, Contract>()
+    apiContracts.forEach(c => contractMap.set(c.id, c))
+    localContracts.forEach(c => contractMap.set(c.id, c))
+    return Array.from(contractMap.values())
+  }, [apiContracts, localContracts])
   const [editingContractId, setEditingContractId] = useState<string | null>(null)
   const [editData, setEditData] = useState<Partial<Contract>>({})
   const [cancellingContractId, setCancellingContractId] = useState<string | null>(null)
@@ -121,12 +136,27 @@ export default function ContractsPage() {
     })
   }
 
-  const handleSaveEdit = (contractId: string) => {
-    setContracts(prev => prev.map(c => 
-      c.id === contractId 
-        ? { ...c, ...editData, updated_at: new Date().toISOString() }
-        : c
-    ))
+  const handleSaveEdit = async (contractId: string) => {
+    // API経由で更新
+    await updateContract(contractId, editData)
+    
+    // ローカル状態も更新
+    setLocalContracts(prev => {
+      const existing = prev.find(c => c.id === contractId)
+      if (existing) {
+        return prev.map(c => 
+          c.id === contractId 
+            ? { ...c, ...editData, updated_at: new Date().toISOString() }
+            : c
+        )
+      }
+      const apiContract = apiContracts.find(c => c.id === contractId)
+      if (apiContract) {
+        return [...prev, { ...apiContract, ...editData, updated_at: new Date().toISOString() }]
+      }
+      return prev
+    })
+    
     setEditingContractId(null)
     setEditData({})
   }
@@ -143,17 +173,40 @@ export default function ContractsPage() {
     })
   }
 
-  const handleSaveCancel = (contractId: string) => {
-    setContracts(prev => prev.map(c => 
-      c.id === contractId 
-        ? { 
-            ...c, 
-            is_cancelled: true,
-            refund_required: cancelFormData.refund_required,
-            updated_at: new Date().toISOString() 
-          }
-        : c
-    ))
+  const handleSaveCancel = async (contractId: string) => {
+    // API経由で更新
+    await updateContract(contractId, {
+      is_cancelled: true,
+      refund_required: cancelFormData.refund_required,
+    })
+    
+    // ローカル状態も更新
+    setLocalContracts(prev => {
+      const existing = prev.find(c => c.id === contractId)
+      if (existing) {
+        return prev.map(c => 
+          c.id === contractId 
+            ? { 
+                ...c, 
+                is_cancelled: true,
+                refund_required: cancelFormData.refund_required,
+                updated_at: new Date().toISOString() 
+              }
+            : c
+        )
+      }
+      const apiContract = apiContracts.find(c => c.id === contractId)
+      if (apiContract) {
+        return [...prev, { 
+          ...apiContract, 
+          is_cancelled: true,
+          refund_required: cancelFormData.refund_required,
+          updated_at: new Date().toISOString() 
+        }]
+      }
+      return prev
+    })
+    
     setCancellingContractId(null)
     setCancelFormData({
       refund_required: false,
@@ -176,18 +229,43 @@ export default function ContractsPage() {
     })
   }
 
-  const handleSaveEditCancel = (contractId: string) => {
-    setContracts(prev => prev.map(c => 
-      c.id === contractId 
-        ? { 
-            ...c, 
-            refund_date: cancelEditData.refund_date,
-            refund_amount: cancelEditData.refund_amount,
-            cancellation_reason: cancelEditData.cancellation_reason,
-            updated_at: new Date().toISOString() 
-          }
-        : c
-    ))
+  const handleSaveEditCancel = async (contractId: string) => {
+    // API経由で更新
+    await updateContract(contractId, {
+      refund_date: cancelEditData.refund_date,
+      refund_amount: cancelEditData.refund_amount,
+      cancellation_reason: cancelEditData.cancellation_reason,
+    })
+    
+    // ローカル状態も更新
+    setLocalContracts(prev => {
+      const existing = prev.find(c => c.id === contractId)
+      if (existing) {
+        return prev.map(c => 
+          c.id === contractId 
+            ? { 
+                ...c, 
+                refund_date: cancelEditData.refund_date,
+                refund_amount: cancelEditData.refund_amount,
+                cancellation_reason: cancelEditData.cancellation_reason,
+                updated_at: new Date().toISOString() 
+              }
+            : c
+        )
+      }
+      const apiContract = apiContracts.find(c => c.id === contractId)
+      if (apiContract) {
+        return [...prev, { 
+          ...apiContract, 
+          refund_date: cancelEditData.refund_date,
+          refund_amount: cancelEditData.refund_amount,
+          cancellation_reason: cancelEditData.cancellation_reason,
+          updated_at: new Date().toISOString() 
+        }]
+      }
+      return prev
+    })
+    
     setEditingCancelId(null)
     setCancelEditData({
       refund_date: null,
@@ -208,34 +286,18 @@ export default function ContractsPage() {
   // 選択した月の成約データをフィルター（キャンセル済みを除く）
   const filteredContracts = useMemo(() => {
     return contracts.filter((contract) => {
-      const contractMonth = contract.accepted_date.substring(0, 7) // YYYY-MM
-      const matchesMonth = contractMonth === selectedMonth
-
-      // 担当者フィルター
-      const consultantId = contractConsultants[contract.candidate_id]
-      const matchesConsultant =
-        selectedConsultant === 'all' || consultantId === selectedConsultant
-
       // キャンセル済みは除外
-      return matchesMonth && matchesConsultant && !contract.is_cancelled
+      return !contract.is_cancelled
     })
-  }, [selectedMonth, selectedConsultant, contracts])
+  }, [contracts])
 
   // キャンセル済みの成約データをフィルター
   const cancelledContracts = useMemo(() => {
     return contracts.filter((contract) => {
-      const contractMonth = contract.accepted_date.substring(0, 7) // YYYY-MM
-      const matchesMonth = contractMonth === selectedMonth
-
-      // 担当者フィルター
-      const consultantId = contractConsultants[contract.candidate_id]
-      const matchesConsultant =
-        selectedConsultant === 'all' || consultantId === selectedConsultant
-
       // キャンセル済みのみ
-      return matchesMonth && matchesConsultant && contract.is_cancelled
+      return contract.is_cancelled
     })
-  }, [selectedMonth, selectedConsultant, contracts])
+  }, [contracts])
 
   // サマリー計算
   const summary = useMemo(() => {
@@ -259,6 +321,17 @@ export default function ContractsPage() {
     }
   }, [filteredContracts])
 
+
+  // ローディング中の表示
+  if (isLoading) {
+    return (
+      <AppLayout title="成約管理">
+        <div className="flex items-center justify-center h-64">
+          <p className="text-slate-500">読み込み中...</p>
+        </div>
+      </AppLayout>
+    )
+  }
 
   return (
     <AppLayout title="成約管理">
@@ -298,9 +371,7 @@ export default function ContractsPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">全員</SelectItem>
-                {mockUsers
-                  .filter((u) => u.role !== 'admin')
-                  .map((user) => (
+                {consultantUsers.map((user) => (
                     <SelectItem key={user.id} value={user.id}>
                       {user.name}
                     </SelectItem>
@@ -422,15 +493,12 @@ export default function ContractsPage() {
                     </TableRow>
                   ) : (
                     filteredContracts.map((contract) => {
-                      const consultantId =
-                        contractConsultants[contract.candidate_id]
-                      const consultant = mockUsers.find(
-                        (u) => u.id === consultantId
-                      )
-                      const candidateName =
-                        contractCandidateNames[contract.candidate_id] || '不明'
-                      const source =
-                        contractSources[contract.candidate_id] || '-'
+                      // API経由で取得したデータからcandidateの情報を取得
+                      const candidateData = (contract as { candidate?: { name?: string; consultant_id?: string; source?: { name?: string } } }).candidate
+                      const consultantId = candidateData?.consultant_id
+                      const consultant = users.find((u) => u.id === consultantId)
+                      const candidateName = candidateData?.name || '不明'
+                      const source = candidateData?.source?.name || '-'
 
                       return (
                         <TableRow key={contract.id}>
@@ -715,13 +783,11 @@ export default function ContractsPage() {
                   </TableHeader>
                   <TableBody>
                     {cancelledContracts.map((contract) => {
-                      const consultantId =
-                        contractConsultants[contract.candidate_id]
-                      const consultant = mockUsers.find(
-                        (u) => u.id === consultantId
-                      )
-                      const candidateName =
-                        contractCandidateNames[contract.candidate_id] || '不明'
+                      // API経由で取得したデータからcandidateの情報を取得
+                      const candidateData = (contract as { candidate?: { name?: string; consultant_id?: string } }).candidate
+                      const consultantId = candidateData?.consultant_id
+                      const consultant = users.find((u) => u.id === consultantId)
+                      const candidateName = candidateData?.name || '不明'
 
                       return (
                         <TableRow key={contract.id}>

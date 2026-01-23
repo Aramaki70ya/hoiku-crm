@@ -1,15 +1,9 @@
 import { createBrowserClient } from '@supabase/ssr'
+import { getSupabaseUrl, getSupabaseAnonKey } from './config'
 
 export function createClient() {
-  // デモモードまたは環境変数が未設定の場合はダミークライアントを返す
-  const isDemoMode = process.env.DEMO_MODE === 'true'
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://demo.supabase.co'
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'demo-key'
-
-  if (isDemoMode || !process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-    // デモモードではダミーのクライアントを返す
-    return createBrowserClient(url, key)
-  }
+  const url = getSupabaseUrl()
+  const key = getSupabaseAnonKey()
 
   return createBrowserClient(url, key)
 }

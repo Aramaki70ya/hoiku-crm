@@ -196,20 +196,23 @@ CREATE POLICY "Authenticated users can insert timeline_events"
   ON timeline_events FOR INSERT TO authenticated WITH CHECK (true);
 
 -- ========================================
--- 15. ステータス変更履歴テーブル（オプション）
+-- 15. ステータス変更履歴テーブル（リードタイム分析・タイムライン表示用）
 -- ========================================
 CREATE TABLE IF NOT EXISTS status_history (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   candidate_id TEXT NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
-  old_status TEXT,
-  new_status TEXT NOT NULL,
+  project_id UUID REFERENCES projects(id) ON DELETE SET NULL, -- 案件に紐づく変更の場合
+  old_status TEXT, -- 変更前ステータス
+  new_status TEXT NOT NULL, -- 変更後ステータス
   changed_by UUID REFERENCES users(id),
-  changed_at TIMESTAMPTZ DEFAULT NOW(),
-  note TEXT
+  changed_at TIMESTAMPTZ DEFAULT NOW(), -- 変更日時（リードタイム分析用）
+  note TEXT -- 備考
 );
 
 CREATE INDEX IF NOT EXISTS idx_status_history_candidate ON status_history(candidate_id);
+CREATE INDEX IF NOT EXISTS idx_status_history_project ON status_history(project_id);
 CREATE INDEX IF NOT EXISTS idx_status_history_changed_at ON status_history(candidate_id, changed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_status_history_new_status ON status_history(new_status); -- ステータス別集計用
 
 ALTER TABLE status_history ENABLE ROW LEVEL SECURITY;
 
@@ -220,22 +223,93 @@ CREATE POLICY "Authenticated users can insert status_history"
   ON status_history FOR INSERT TO authenticated WITH CHECK (true);
 
 -- ========================================
+-- 15-2. メール送信履歴テーブル（タイムライン表示用）
+-- ========================================
+CREATE TABLE IF NOT EXISTS email_logs (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  candidate_id TEXT NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+  template_type TEXT NOT NULL CHECK (template_type IN (
+    'first_contact', -- 初回連絡
+    'interview_invitation', -- 面接案内
+    'interview_reminder', -- 面接リマインダー
+    'offer_notification', -- 内定通知
+    'entry_confirmation', -- 入社確認
+    'followup', -- フォローアップ
+    'other' -- その他
+  )),
+  subject TEXT NOT NULL, -- 件名
+  body TEXT, -- 本文
+  to_address TEXT NOT NULL, -- 送信先メールアドレス
+  sent_at TIMESTAMPTZ DEFAULT NOW(), -- 送信日時
+  sent_by UUID REFERENCES users(id), -- 送信者
+  status TEXT NOT NULL DEFAULT 'sent' CHECK (status IN ('sent', 'failed', 'pending')), -- 送信状態
+  error_message TEXT, -- エラーメッセージ（失敗時）
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_logs_candidate ON email_logs(candidate_id);
+CREATE INDEX IF NOT EXISTS idx_email_logs_sent_at ON email_logs(candidate_id, sent_at DESC);
+CREATE INDEX IF NOT EXISTS idx_email_logs_template_type ON email_logs(template_type);
+CREATE INDEX IF NOT EXISTS idx_email_logs_sent_by ON email_logs(sent_by);
+
+ALTER TABLE email_logs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Authenticated users can view all email_logs"
+  ON email_logs FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "Authenticated users can insert email_logs"
+  ON email_logs FOR INSERT TO authenticated WITH CHECK (true);
+
+CREATE POLICY "Authenticated users can update email_logs"
+  ON email_logs FOR UPDATE TO authenticated USING (true);
+
+-- ========================================
+-- 15-3. contractsテーブルの拡張（リードタイム分析用）
+-- ========================================
+-- 成約確定日時（リードタイム分析用）
+ALTER TABLE contracts ADD COLUMN IF NOT EXISTS contracted_at TIMESTAMPTZ;
+-- 案件IDとの紐付け
+ALTER TABLE contracts ADD COLUMN IF NOT EXISTS project_id UUID REFERENCES projects(id) ON DELETE SET NULL;
+-- 入社日
+ALTER TABLE contracts ADD COLUMN IF NOT EXISTS entry_date DATE;
+-- 法人名（分離）
+ALTER TABLE contracts ADD COLUMN IF NOT EXISTS placement_company_name TEXT;
+-- 園名（分離）
+ALTER TABLE contracts ADD COLUMN IF NOT EXISTS placement_facility_name TEXT;
+-- キャンセル関連
+ALTER TABLE contracts ADD COLUMN IF NOT EXISTS is_cancelled BOOLEAN DEFAULT false;
+ALTER TABLE contracts ADD COLUMN IF NOT EXISTS refund_required BOOLEAN DEFAULT false;
+ALTER TABLE contracts ADD COLUMN IF NOT EXISTS refund_date DATE;
+ALTER TABLE contracts ADD COLUMN IF NOT EXISTS refund_amount INTEGER;
+ALTER TABLE contracts ADD COLUMN IF NOT EXISTS cancellation_reason TEXT;
+-- 入金予定日
+ALTER TABLE contracts ADD COLUMN IF NOT EXISTS payment_scheduled_date DATE;
+
+-- インデックス追加
+CREATE INDEX IF NOT EXISTS idx_contracts_project ON contracts(project_id);
+CREATE INDEX IF NOT EXISTS idx_contracts_contracted_at ON contracts(contracted_at);
+CREATE INDEX IF NOT EXISTS idx_contracts_entry_date ON contracts(entry_date);
+CREATE INDEX IF NOT EXISTS idx_contracts_is_cancelled ON contracts(is_cancelled);
+
+-- ========================================
 -- 16. トリガー: ステータス変更時に履歴を記録
 -- ========================================
 CREATE OR REPLACE FUNCTION log_status_change()
 RETURNS TRIGGER AS $$
 BEGIN
   IF OLD.status IS DISTINCT FROM NEW.status THEN
-    INSERT INTO status_history (candidate_id, old_status, new_status, changed_by)
-    VALUES (NEW.id, OLD.status, NEW.status, auth.uid());
+    -- ステータス変更履歴に記録（リードタイム分析用）
+    INSERT INTO status_history (candidate_id, old_status, new_status, changed_by, changed_at)
+    VALUES (NEW.id, OLD.status, NEW.status, auth.uid(), NOW());
     
     -- タイムラインイベントも作成
-    INSERT INTO timeline_events (candidate_id, event_type, title, description, created_by)
+    INSERT INTO timeline_events (candidate_id, event_type, title, description, metadata, created_by)
     VALUES (
       NEW.id,
       'status_change',
       'ステータス変更',
       OLD.status || ' → ' || NEW.status,
+      jsonb_build_object('from_status', OLD.status, 'to_status', NEW.status),
       auth.uid()
     );
   END IF;
@@ -263,11 +337,13 @@ BEGIN
       INSERT INTO contracts (
         candidate_id,
         accepted_date,
+        contracted_at, -- 成約確定日時（リードタイム分析用）
         revenue_excluding_tax,
         revenue_including_tax
       ) VALUES (
         NEW.id,
         CURRENT_DATE,
+        NOW(), -- 成約確定日時を記録
         0,
         0
       );

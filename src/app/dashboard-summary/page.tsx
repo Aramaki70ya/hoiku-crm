@@ -1,9 +1,16 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { AppLayout } from '@/components/layout/app-layout'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
 import {
   Table,
   TableBody,
@@ -19,10 +26,11 @@ import {
   Percent,
   DollarSign,
   Calendar,
+  CalendarDays,
   AlertCircle,
+  ChevronDown,
 } from 'lucide-react'
 import {
-  mockSalesProgress,
   mockMemberStats,
   mockUsers,
   mockCandidates,
@@ -30,8 +38,143 @@ import {
   mockInterviews,
   targetRates,
 } from '@/lib/mock-data'
+import {
+  getCandidatesClient as getCandidates,
+  getProjectsClient as getProjects,
+  getContractsClient as getContracts,
+  getUsersClient as getUsers,
+  getInterviewsClient as getInterviews,
+} from '@/lib/supabase/queries-client-with-fallback'
+import type { Candidate, Project, Interview, User, Contract } from '@/types/database'
+
+type PeriodType = 'current_month' | 'previous_month' | 'custom'
 
 export default function DashboardSummaryPage() {
+  const [periodType, setPeriodType] = useState<PeriodType>('current_month')
+  const [customStartDate, setCustomStartDate] = useState('')
+  const [customEndDate, setCustomEndDate] = useState('')
+  
+  // Supabaseデータ取得
+  const [candidates, setCandidates] = useState<Candidate[]>([])
+  const [projects, setProjects] = useState<Project[]>([])
+  const [contracts, setContracts] = useState<Contract[]>([])
+  const [interviews, setInterviews] = useState<Interview[]>([])
+  const [users, setUsers] = useState<User[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        const [candidatesData, projectsData, contractsData, interviewsData, usersData] = await Promise.all([
+          getCandidates(),
+          getProjects(),
+          getContracts(),
+          getInterviews(),
+          getUsers(),
+        ])
+        setCandidates(candidatesData)
+        setProjects(projectsData)
+        setContracts(contractsData)
+        setInterviews(interviewsData)
+        setUsers(usersData)
+      } catch (error) {
+        console.error('Error fetching data:', error)
+        // エラー時は空配列を設定
+        setCandidates([])
+        setProjects([])
+        setContracts([])
+        setInterviews([])
+        setUsers([])
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchData()
+  }, [])
+
+  // 期間表示用テキスト
+  const getPeriodLabel = () => {
+    const now = new Date()
+    switch (periodType) {
+      case 'current_month':
+        return `${now.getFullYear()}年${now.getMonth() + 1}月（当月）`
+      case 'previous_month':
+        const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+        return `${prev.getFullYear()}年${prev.getMonth() + 1}月（前月）`
+      case 'custom':
+        if (customStartDate && customEndDate) {
+          return `${customStartDate} 〜 ${customEndDate}`
+        }
+        return '期間を選択'
+      default:
+        return '当月'
+    }
+  }
+
+  // 期間の開始日・終了日を計算
+  const getPeriodDates = useMemo(() => {
+    const now = new Date()
+    let startDate: Date
+    let endDate: Date
+
+    switch (periodType) {
+      case 'current_month':
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1)
+        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59)
+        break
+      case 'previous_month':
+        const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+        startDate = new Date(prev.getFullYear(), prev.getMonth(), 1)
+        endDate = new Date(prev.getFullYear(), prev.getMonth() + 1, 0, 23, 59, 59)
+        break
+      case 'custom':
+        if (customStartDate && customEndDate) {
+          startDate = new Date(customStartDate)
+          endDate = new Date(customEndDate)
+          endDate.setHours(23, 59, 59, 999)
+        } else {
+          // カスタム期間が未設定の場合は当月
+          startDate = new Date(now.getFullYear(), now.getMonth(), 1)
+          endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59)
+        }
+        break
+      default:
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1)
+        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59)
+    }
+
+    return { startDate, endDate }
+  }, [periodType, customStartDate, customEndDate])
+  // 期間内のデータをフィルタリング
+  const periodCandidates = useMemo(() => {
+    const { startDate, endDate } = getPeriodDates
+    return candidates.filter(c => {
+      if (!c.registered_at) return false
+      const registeredDate = new Date(c.registered_at)
+      return registeredDate >= startDate && registeredDate <= endDate
+    })
+  }, [candidates, periodType, customStartDate, customEndDate])
+
+  // 期間内に成約を設定した数（created_atで判定）
+  const periodContracts = useMemo(() => {
+    const { startDate, endDate } = getPeriodDates
+    return contracts.filter(c => {
+      if (!c.created_at) return false
+      const createdDate = new Date(c.created_at)
+      return createdDate >= startDate && createdDate <= endDate
+    })
+  }, [contracts, periodType, customStartDate, customEndDate])
+
+  // 期間内に面接を設定した数（created_atで判定）
+  const periodInterviews = useMemo(() => {
+    const { startDate, endDate } = getPeriodDates
+    return interviews.filter(i => {
+      if (!i.created_at) return false
+      const createdDate = new Date(i.created_at)
+      return createdDate >= startDate && createdDate <= endDate
+    })
+  }, [interviews, periodType, customStartDate, customEndDate])
+
   // 実際のデータから各ステータスの案件を集計
   const getStatusCases = useMemo(() => {
     const statusCases: Record<
@@ -45,11 +188,11 @@ export default function DashboardSummaryPage() {
     > = {}
 
     // 各担当者ごとに集計
-    mockUsers
+    users
       .filter((u) => u.role !== 'admin')
       .forEach((user) => {
-        const userCandidates = mockCandidates.filter((c) => c.consultant_id === user.id)
-        const userProjects = mockProjects.filter((p) =>
+        const userCandidates = candidates.filter((c) => c.consultant_id === user.id)
+        const userProjects = projects.filter((p) =>
           userCandidates.some((c) => c.id === p.candidate_id)
         )
 
@@ -62,9 +205,9 @@ export default function DashboardSummaryPage() {
           const candidate = userCandidates.find((c) => c.id === project.candidate_id)
           if (!candidate) return
 
-          const interviews = mockInterviews.filter((i) => i.project_id === project.id)
-          const scheduledInterviews = interviews.filter((i) => i.status === 'scheduled')
-          const completedInterviews = interviews.filter((i) => i.status === 'completed')
+          const projectInterviews = interviews.filter((i) => i.project_id === project.id)
+          const scheduledInterviews = projectInterviews.filter((i) => i.status === 'scheduled')
+          const completedInterviews = projectInterviews.filter((i) => i.status === 'completed')
 
           // ヨミの表示用フォーマット
           const yomiLabel = project.probability
@@ -122,11 +265,55 @@ export default function DashboardSummaryPage() {
       })
 
     return statusCases
-  }, [])
+  }, [users, candidates, projects, interviews])
+
+  // 実際のデータから営業進捗を計算（期間対応）
+  const salesProgress = useMemo(() => {
+    return users
+      .filter((u) => u.role !== 'admin')
+      .map((user) => {
+        // 期間内に登録された求職者（担当件数）
+        const userPeriodCandidates = periodCandidates.filter((c) => c.consultant_id === user.id)
+        const totalCount = userPeriodCandidates.length
+
+        // 初回連絡済み（ステータスがfirst_contact_done以降）
+        const firstContactCount = userPeriodCandidates.filter(
+          (c) => !['new', 'contacting'].includes(c.status)
+        ).length
+
+        // 期間内に面接を設定したユニークな求職者数（created_atで判定）
+        const interviewCandidateIds = new Set<string>()
+        periodInterviews.forEach((i) => {
+          const project = projects.find((p) => p.id === i.project_id)
+          if (project) {
+            const candidate = candidates.find((c) => c.id === project.candidate_id)
+            if (candidate && candidate.consultant_id === user.id) {
+              interviewCandidateIds.add(candidate.id)
+            }
+          }
+        })
+        const interviewCount = interviewCandidateIds.size
+
+        // 期間内に成約を設定した数（created_atで判定）
+        const closedCount = periodContracts.filter((c) => {
+          const candidate = candidates.find((ca) => ca.id === c.candidate_id)
+          return candidate && candidate.consultant_id === user.id
+        }).length
+
+        return {
+          userId: user.id,
+          userName: user.name,
+          totalCount,
+          firstContactCount,
+          interviewCount,
+          closedCount,
+        }
+      })
+  }, [users, periodCandidates, periodInterviews, periodContracts, projects, candidates])
 
   // 全体集計
   const totalProgress = useMemo(() => {
-    return mockSalesProgress.reduce(
+    return salesProgress.reduce(
       (acc, progress) => ({
         totalCount: acc.totalCount + progress.totalCount,
         firstContactCount: acc.firstContactCount + progress.firstContactCount,
@@ -135,7 +322,7 @@ export default function DashboardSummaryPage() {
       }),
       { totalCount: 0, firstContactCount: 0, interviewCount: 0, closedCount: 0 }
     )
-  }, [])
+  }, [salesProgress])
 
   // 全体の転換率計算
   const totalFirstContactRate =
@@ -215,13 +402,128 @@ export default function DashboardSummaryPage() {
     return `¥${(amount / 10000).toFixed(0)}万`
   }
 
+  // ローディング中の表示（すべてのフックの後に配置）
+  if (loading) {
+    return (
+      <AppLayout title="ダッシュボード" description="営業進捗と売上実績のサマリー">
+        <div className="flex items-center justify-center h-64">
+          <p>データを読み込み中...</p>
+        </div>
+      </AppLayout>
+    )
+  }
+
   return (
     <AppLayout title="ダッシュボード" description="営業進捗と売上実績のサマリー">
       <div className="space-y-6">
-        {/* 日付表示 */}
-        <div className="flex items-center gap-2 p-4 bg-white rounded-xl border border-slate-200 shadow-sm">
-          <Calendar className="w-5 h-5 text-violet-500" />
-          <span className="font-medium text-slate-700">2026年1月14日時点</span>
+        {/* 期間選択 */}
+        <div className="flex items-center gap-4 p-4 bg-white rounded-xl border border-slate-200 shadow-sm">
+          <div className="flex items-center gap-2 text-slate-600">
+            <CalendarDays className="w-5 h-5 text-violet-500" />
+            <span className="font-medium">集計期間:</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant={periodType === 'current_month' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setPeriodType('current_month')}
+              className={periodType === 'current_month' 
+                ? 'bg-gradient-to-r from-violet-500 to-indigo-600 text-white' 
+                : 'border-slate-200 text-slate-600 hover:bg-slate-50'}
+            >
+              当月
+            </Button>
+            <Button
+              variant={periodType === 'previous_month' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setPeriodType('previous_month')}
+              className={periodType === 'previous_month' 
+                ? 'bg-gradient-to-r from-violet-500 to-indigo-600 text-white' 
+                : 'border-slate-200 text-slate-600 hover:bg-slate-50'}
+            >
+              前月
+            </Button>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant={periodType === 'custom' ? 'default' : 'outline'}
+                  size="sm"
+                  className={periodType === 'custom' 
+                    ? 'bg-gradient-to-r from-violet-500 to-indigo-600 text-white' 
+                    : 'border-slate-200 text-slate-600 hover:bg-slate-50'}
+                >
+                  指定期間
+                  <ChevronDown className="w-4 h-4 ml-1" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-72 p-4" align="start">
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-sm font-medium text-slate-700">開始日</label>
+                    <Input
+                      type="date"
+                      value={customStartDate}
+                      onChange={(e) => {
+                        setCustomStartDate(e.target.value)
+                        setPeriodType('custom')
+                      }}
+                      className="mt-1"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-slate-700">終了日</label>
+                    <Input
+                      type="date"
+                      value={customEndDate}
+                      onChange={(e) => {
+                        setCustomEndDate(e.target.value)
+                        setPeriodType('custom')
+                      }}
+                      className="mt-1"
+                    />
+                  </div>
+                  <div className="flex gap-2 pt-2">
+                    <Button 
+                      size="sm" 
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => {
+                        // 今週
+                        const now = new Date()
+                        const weekStart = new Date(now)
+                        weekStart.setDate(now.getDate() - now.getDay())
+                        setCustomStartDate(weekStart.toISOString().split('T')[0])
+                        setCustomEndDate(now.toISOString().split('T')[0])
+                        setPeriodType('custom')
+                      }}
+                    >
+                      今週
+                    </Button>
+                    <Button 
+                      size="sm" 
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => {
+                        // 月初〜今日
+                        const now = new Date()
+                        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+                        setCustomStartDate(monthStart.toISOString().split('T')[0])
+                        setCustomEndDate(now.toISOString().split('T')[0])
+                        setPeriodType('custom')
+                      }}
+                    >
+                      月初〜今日
+                    </Button>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
+          <div className="ml-auto">
+            <Badge className="bg-violet-100 text-violet-700 px-3 py-1 text-sm">
+              {getPeriodLabel()}
+            </Badge>
+          </div>
         </div>
 
         {/* 営業進捗状況 */}
@@ -278,7 +580,7 @@ export default function DashboardSummaryPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {mockSalesProgress.map((progress) => {
+                  {salesProgress.map((progress) => {
                     const firstContactRate =
                       progress.totalCount > 0
                         ? (progress.firstContactCount / progress.totalCount) * 100
@@ -457,12 +759,12 @@ export default function DashboardSummaryPage() {
           </CardContent>
         </Card>
 
-        {/* 2課 売上数字 */}
+        {/* 売上数字 */}
         <Card className="bg-white border-slate-200 shadow-sm">
           <CardHeader className="pb-3">
             <CardTitle className="text-lg text-slate-800 flex items-center gap-2">
               <DollarSign className="w-5 h-5 text-violet-500" />
-              2課 売上数字
+              売上数字
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -480,27 +782,36 @@ export default function DashboardSummaryPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {mockMemberStats
-                    .filter((stats) => team2UserIds.includes(stats.userId))
-                    .map((stats) => {
-                      const user = mockUsers.find((u) => u.id === stats.userId)
-                      const budgetRate =
-                        stats.budget > 0 ? (stats.sales / stats.budget) * 100 : 0
-                      const meetingRate =
-                        stats.meetingTarget > 0
-                          ? (stats.meetingCount / stats.meetingTarget) * 100
-                          : 0
+                  {salesProgress.map((progress) => {
+                      const user = users.find((u) => u.id === progress.userId)
+                      // 期間内の成約金額を計算
+                      const periodSales = periodContracts
+                        .filter((c) => {
+                          const candidate = candidates.find((ca) => ca.id === c.candidate_id)
+                          return candidate && candidate.consultant_id === progress.userId
+                        })
+                        .reduce((sum, c) => sum + (c.revenue_excluding_tax || 0), 0)
+                      
+                      // mockから予算と面談設定目標を取得（設定ページができたら実データに変更）
+                      const stats = mockMemberStats.find((s) => s.userId === progress.userId)
+                      const budget = stats?.budget || 0
+                      const meetingTarget = stats?.meetingTarget || 0
+                      
+                      const budgetRate = budget > 0 ? (periodSales / budget) * 100 : 0
+                      const meetingRate = meetingTarget > 0
+                        ? (progress.interviewCount / meetingTarget) * 100
+                        : 0
 
                       return (
-                        <TableRow key={stats.userId} className="hover:bg-slate-50">
+                        <TableRow key={progress.userId} className="hover:bg-slate-50">
                           <TableCell className="font-medium text-slate-800">
-                            {user?.name || '-'}
+                            {user?.name || progress.userName || '-'}
                           </TableCell>
                           <TableCell className="text-right">
-                            {formatAmount(stats.budget)}
+                            {formatAmount(budget)}
                           </TableCell>
                           <TableCell className="text-right text-emerald-600 font-semibold">
-                            {formatAmount(stats.sales)}
+                            {formatAmount(periodSales)}
                           </TableCell>
                           <TableCell className="text-right">
                             <span
@@ -515,8 +826,8 @@ export default function DashboardSummaryPage() {
                               {budgetRate.toFixed(1)}%
                             </span>
                           </TableCell>
-                          <TableCell className="text-center">{stats.meetingTarget}</TableCell>
-                          <TableCell className="text-center">{stats.meetingCount}</TableCell>
+                          <TableCell className="text-center">{meetingTarget}</TableCell>
+                          <TableCell className="text-center">{progress.interviewCount}</TableCell>
                           <TableCell className="text-right">
                             <span
                               className={
@@ -539,12 +850,12 @@ export default function DashboardSummaryPage() {
           </CardContent>
         </Card>
 
-        {/* 2課 ヨミ数字（当月） */}
+        {/* ヨミ数字（当月） */}
         <Card className="bg-white border-slate-200 shadow-sm">
           <CardHeader className="pb-3">
             <CardTitle className="text-lg text-slate-800 flex items-center gap-2">
               <Target className="w-5 h-5 text-violet-500" />
-              2課 ヨミ数字（当月）
+              ヨミ数字（当月）
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -598,12 +909,12 @@ export default function DashboardSummaryPage() {
           </CardContent>
         </Card>
 
-        {/* 2課 ヨミ数字（翌月） */}
+        {/* ヨミ数字（翌月） */}
         <Card className="bg-white border-slate-200 shadow-sm">
           <CardHeader className="pb-3">
             <CardTitle className="text-lg text-slate-800 flex items-center gap-2">
               <Target className="w-5 h-5 text-violet-500" />
-              2課 ヨミ数字（翌月）
+              ヨミ数字（翌月）
             </CardTitle>
           </CardHeader>
           <CardContent>

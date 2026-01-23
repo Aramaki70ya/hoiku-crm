@@ -68,8 +68,8 @@ Hoiku CRMは、**複数のスプレッドシート（CSV）に分散している
 
 ### 技術的制約
 
-1. **フロントエンドのみ**: 現時点ではフロントエンドのみ実装。バックエンドAPIはSupabaseが提供
-2. **認証**: Google OAuth経由でSupabase Authを使用（将来的な実装）
+1. **API層はNext.js内に統合**: Route Handlersで認証/権限APIを提供し、データはSupabaseに保存
+2. **認証**: Supabase Auth（Email/Password + Google OAuth）を使用し、API側でセッション検証
 3. **状態管理**: ReactのuseStateとuseMemoを使用。複雑な状態管理ライブラリは使用しない
 
 ## システムの構成
@@ -77,9 +77,10 @@ Hoiku CRMは、**複数のスプレッドシート（CSV）に分散している
 ### 技術スタック
 
 - **Frontend**: Next.js 14 (App Router) + Tailwind CSS + Shadcn/UI
+- **Backend**: Next.js Route Handlers (Node.js/TypeScript)
 - **Hosting**: Vercel
 - **Database**: Supabase (PostgreSQL)
-- **認証**: Supabase Auth + Google OAuth
+- **認証**: Supabase Auth（Email/Password + Google OAuth）
 
 ### ディレクトリ構造
 
@@ -87,6 +88,7 @@ Hoiku CRMは、**複数のスプレッドシート（CSV）に分散している
 hoiku-crm/
 ├── src/
 │   ├── app/              # ページコンポーネント（Next.js App Router）
+│   ├── app/api/          # APIルート（認証・ユーザー管理）
 │   ├── components/        # 再利用可能なコンポーネント
 │   │   ├── layout/       # レイアウトコンポーネント（サイドバー、ヘッダー）
 │   │   └── ui/           # UIコンポーネント（Shadcn/UI）
