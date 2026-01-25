@@ -159,9 +159,11 @@ export default function DashboardSummaryPage() {
   const periodContracts = useMemo(() => {
     const { startDate, endDate } = getPeriodDates
     return contracts.filter(c => {
-      if (!c.created_at) return false
-      const createdDate = new Date(c.created_at)
-      return createdDate >= startDate && createdDate <= endDate
+      // contracted_at（成約確定日時）、accepted_date（承諾日）、created_at の順で判定
+      const dateStr = c.contracted_at || c.accepted_date || c.created_at
+      if (!dateStr) return false
+      const contractDate = new Date(dateStr)
+      return contractDate >= startDate && contractDate <= endDate
     })
   }, [contracts, periodType, customStartDate, customEndDate])
 
@@ -267,10 +269,18 @@ export default function DashboardSummaryPage() {
     return statusCases
   }, [users, candidates, projects, interviews])
 
+  // 退職者フィルタリング用ヘルパー（選択期間に応じて退職者を含める/除外する）
+  const isUserActiveInPeriod = (user: User) => {
+    if (!user.retired_at) return true // 退職日が設定されていない場合は現役
+    const retiredDate = new Date(user.retired_at)
+    // 選択期間の開始月より前に退職した場合は非表示
+    return retiredDate >= getPeriodDates.startDate
+  }
+
   // 実際のデータから営業進捗を計算（期間対応）
   const salesProgress = useMemo(() => {
     return users
-      .filter((u) => u.role !== 'admin')
+      .filter((u) => u.role !== 'admin' && isUserActiveInPeriod(u))
       .map((user) => {
         // 期間内に登録された求職者（担当件数）
         const userPeriodCandidates = periodCandidates.filter((c) => c.consultant_id === user.id)
@@ -361,22 +371,55 @@ export default function DashboardSummaryPage() {
       )
   }, [])
 
-  // 2課のヨミ数字（当月）
-  const team2YomiCurrent = useMemo(() => {
-    return mockMemberStats
-      .filter((stats) => team2UserIds.includes(stats.userId))
-      .reduce(
-        (acc, stats) => ({
-          yomiA: acc.yomiA + stats.yomiA,
-          yomiB: acc.yomiB + stats.yomiB,
-          yomiC: acc.yomiC + stats.yomiC,
-          yomiD: acc.yomiD + stats.yomiD,
-        }),
-        { yomiA: 0, yomiB: 0, yomiC: 0, yomiD: 0 }
-      )
-  }, [])
+  // 実データからメンバーごとのヨミ金額を計算
+  const memberYomiStats = useMemo(() => {
+    const stats: Record<string, { yomiA: number; yomiB: number; yomiC: number; yomiD: number }> = {}
+    
+    users
+      .filter((u) => u.role !== 'admin' && isUserActiveInPeriod(u))
+      .forEach((user) => {
+        // このユーザーの担当求職者に紐づく案件からヨミ金額を集計
+        const userCandidates = candidates.filter((c) => c.consultant_id === user.id)
+        const userCandidateIds = new Set(userCandidates.map((c) => c.id))
+        
+        const userProjects = projects.filter((p) => userCandidateIds.has(p.candidate_id))
+        
+        stats[user.id] = {
+          yomiA: userProjects
+            .filter((p) => p.probability === 'A' && p.expected_amount)
+            .reduce((sum, p) => sum + (p.expected_amount || 0), 0),
+          yomiB: userProjects
+            .filter((p) => p.probability === 'B' && p.expected_amount)
+            .reduce((sum, p) => sum + (p.expected_amount || 0), 0),
+          yomiC: userProjects
+            .filter((p) => p.probability === 'C' && p.expected_amount)
+            .reduce((sum, p) => sum + (p.expected_amount || 0), 0),
+          yomiD: 0, // Dヨミは現状DBに存在しないため0
+        }
+      })
+    
+    return stats
+  }, [users, candidates, projects, getPeriodDates])
 
-  // 2課のヨミ数字（翌月）
+  // 2課のヨミ数字（当月）- 実データ使用に変更
+  const team2YomiCurrent = useMemo(() => {
+    // mockMemberStatsからではなく、実データから計算
+    const activeUsers = users.filter((u) => u.role !== 'admin' && isUserActiveInPeriod(u))
+    return activeUsers.reduce(
+      (acc, user) => {
+        const userStats = memberYomiStats[user.id] || { yomiA: 0, yomiB: 0, yomiC: 0, yomiD: 0 }
+        return {
+          yomiA: acc.yomiA + userStats.yomiA,
+          yomiB: acc.yomiB + userStats.yomiB,
+          yomiC: acc.yomiC + userStats.yomiC,
+          yomiD: acc.yomiD + userStats.yomiD,
+        }
+      },
+      { yomiA: 0, yomiB: 0, yomiC: 0, yomiD: 0 }
+    )
+  }, [users, memberYomiStats, getPeriodDates])
+
+  // 2課のヨミ数字（翌月）- 翌月は現状計算ロジックがないためモック使用
   const team2YomiNext = useMemo(() => {
     return mockMemberStats
       .filter((stats) => team2UserIds.includes(stats.userId))
@@ -879,14 +922,14 @@ export default function DashboardSummaryPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {mockMemberStats
-                    .filter((stats) => team2UserIds.includes(stats.userId))
-                    .map((stats) => {
-                      const user = mockUsers.find((u) => u.id === stats.userId)
+                  {users
+                    .filter((u) => u.role !== 'admin' && isUserActiveInPeriod(u))
+                    .map((user) => {
+                      const stats = memberYomiStats[user.id] || { yomiA: 0, yomiB: 0, yomiC: 0, yomiD: 0 }
                       return (
-                        <TableRow key={stats.userId} className="hover:bg-slate-50">
+                        <TableRow key={user.id} className="hover:bg-slate-50">
                           <TableCell className="font-medium text-slate-800">
-                            {user?.name || '-'}
+                            {user.name || '-'}
                           </TableCell>
                           <TableCell className="text-right bg-red-50">
                             {stats.yomiA > 0 ? formatAmount(stats.yomiA) : '-'}

@@ -45,20 +45,14 @@ import {
   FileText,
   Link as LinkIcon,
   CalendarCheck,
+  Loader2,
 } from 'lucide-react'
 import {
-  mockCandidates,
-  mockUsers,
-  mockProjects,
-  mockInterviews,
-  mockContracts,
   mockMemos,
-  mockSources,
-  contractCandidateNames,
   statusLabels,
   statusColors,
 } from '@/lib/mock-data'
-import type { Contract, Memo } from '@/types/database'
+import type { Contract, Memo, Candidate, Project, Interview, User, Source } from '@/types/database'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -86,7 +80,73 @@ export default function CandidateDetailPage({ params }: PageProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [candidateStatus, setCandidateStatus] = useState<string | null>(null)
-  const candidate = mockCandidates.find((c) => c.id === id)
+  
+  // Supabaseからデータを取得
+  const [candidate, setCandidate] = useState<Candidate | null>(null)
+  const [users, setUsers] = useState<User[]>([])
+  const [projects, setProjects] = useState<Project[]>([])
+  const [allInterviews, setAllInterviews] = useState<Interview[]>([])
+  const [contract, setContract] = useState<Contract | null>(null)
+  const [sources, setSources] = useState<Source[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        setLoading(true)
+        // 求職者データを取得
+        const candidateRes = await fetch(`/api/candidates/${id}`)
+        if (!candidateRes.ok) {
+          if (candidateRes.status === 404) {
+            setError('求職者が見つかりません')
+          } else {
+            setError('データの取得に失敗しました')
+          }
+          return
+        }
+        const { data: candidateData } = await candidateRes.json()
+        setCandidate(candidateData)
+
+        // 並列でその他のデータを取得
+        const [usersRes, projectsRes, interviewsRes, contractsRes, sourcesRes] = await Promise.all([
+          fetch('/api/users'),
+          fetch('/api/projects'),
+          fetch('/api/interviews'),
+          fetch('/api/contracts'),
+          fetch('/api/sources'),
+        ])
+
+        if (usersRes.ok) {
+          const { data } = await usersRes.json()
+          setUsers(data || [])
+        }
+        if (projectsRes.ok) {
+          const { data } = await projectsRes.json()
+          setProjects((data || []).filter((p: Project) => p.candidate_id === id))
+        }
+        if (interviewsRes.ok) {
+          const { data } = await interviewsRes.json()
+          setAllInterviews(data || [])
+        }
+        if (contractsRes.ok) {
+          const { data } = await contractsRes.json()
+          const candidateContract = (data || []).find((c: Contract) => c.candidate_id === id)
+          setContract(candidateContract || null)
+        }
+        if (sourcesRes.ok) {
+          const { data } = await sourcesRes.json()
+          setSources(data || [])
+        }
+      } catch (err) {
+        console.error('Error fetching data:', err)
+        setError('データの取得に失敗しました')
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchData()
+  }, [id])
   
   // ステータスを初期化（変更されていない場合は元のステータスを使用）
   const currentStatus = candidateStatus || candidate?.status || 'new'
@@ -105,16 +165,16 @@ export default function CandidateDetailPage({ params }: PageProps) {
       router.back()
     }
   }
-  // candidatesテーブルにない成約者もcontractCandidateNamesから名前を取得
-  const candidateName = candidate?.name || contractCandidateNames[id] || '不明'
-  const consultant = mockUsers.find((u) => u.id === candidate?.consultant_id)
-  const projects = mockProjects.filter((p) => p.candidate_id === id)
+  
+  // 担当者を取得
+  const consultant = users.find((u) => u.id === candidate?.consultant_id)
+  
+  // 面接データを取得
   const interviews = projects.flatMap((p) =>
-    mockInterviews.filter((i) => i.project_id === p.id).map((i) => ({ ...i, project: p }))
+    allInterviews.filter((i) => i.project_id === p.id).map((i) => ({ ...i, project: p }))
   )
   
-  // 成約情報を取得
-  const contract = mockContracts.find((c) => c.candidate_id === id)
+  // 成約情報
   const isContracted = currentStatus === 'closed_won' || !!contract
   
   // メモを取得（この求職者に関連するメモ）
@@ -302,11 +362,24 @@ export default function CandidateDetailPage({ params }: PageProps) {
     return '情報を追加・編集します'
   }
 
-  if (!candidate) {
+  // ローディング中
+  if (loading) {
+    return (
+      <AppLayout title="読み込み中...">
+        <div className="flex flex-col items-center justify-center h-96">
+          <Loader2 className="w-8 h-8 animate-spin text-violet-500 mb-4" />
+          <p className="text-slate-500">データを読み込み中...</p>
+        </div>
+      </AppLayout>
+    )
+  }
+
+  // エラー時または求職者が見つからない場合
+  if (error || !candidate) {
     return (
       <AppLayout title="求職者が見つかりません">
         <div className="flex flex-col items-center justify-center h-96">
-          <p className="text-slate-500 mb-4">指定された求職者は存在しません</p>
+          <p className="text-slate-500 mb-4">{error || '指定された求職者は存在しません'}</p>
           <Link href="/candidates">
             <Button variant="outline">一覧に戻る</Button>
           </Link>
@@ -747,7 +820,7 @@ export default function CandidateDetailPage({ params }: PageProps) {
                 </Card>
               ) : (
                 projects.map((project) => {
-                  const projectInterviews = mockInterviews.filter(
+                  const projectInterviews = allInterviews.filter(
                     (i) => i.project_id === project.id
                   )
                   return (
@@ -1147,7 +1220,7 @@ export default function CandidateDetailPage({ params }: PageProps) {
                             <p className="text-slate-800">新規登録</p>
                             {candidate.source_id && (
                               <p className="text-sm text-slate-600 mt-1">
-                                {mockSources?.find(s => s.id === candidate.source_id)?.name || '不明'}経由
+                                {sources?.find(s => s.id === candidate.source_id)?.name || '不明'}経由
                               </p>
                             )}
                           </div>
@@ -1170,7 +1243,7 @@ export default function CandidateDetailPage({ params }: PageProps) {
                   ) : (
                     <div className="space-y-4">
                       {candidateMemos.map((memo, index) => {
-                        const memoUser = mockUsers.find(u => u.id === memo.created_by)
+                        const memoUser = users.find(u => u.id === memo.created_by)
                         const memoDate = new Date(memo.created_at)
                         const isLast = index === candidateMemos.length - 1
                         return (

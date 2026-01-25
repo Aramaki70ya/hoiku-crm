@@ -193,19 +193,18 @@ SELECT 'interviews', COUNT(*) FROM interviews;
 
 ### 5.1 環境変数ファイルの作成
 
-プロジェクトルートに `.env.local` ファイルを作成します。
+`.env.example` をコピーして `.env.local` を作成します。
 
 ```bash
 cd hoiku-crm
-touch .env.local
+cp .env.example .env.local
 ```
 
 ### 5.2 環境変数の設定
 
-`.env.local` ファイルに以下を記述：
+`.env.local` を開き、プレースホルダーを実際の値に置き換えます。
 
 ```env
-# Supabase設定
 NEXT_PUBLIC_SUPABASE_URL=https://xxxxx.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJI...
 ```

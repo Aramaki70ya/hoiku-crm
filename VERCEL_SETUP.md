@@ -55,15 +55,23 @@ Supabaseを使わずに動作確認したい場合：
 
 ## 環境変数の確認方法
 
-ローカルで環境変数を確認する場合：
+### ローカル開発
 
 ```bash
-# .env.local ファイルを作成（存在しない場合）
-cat > .env.local << EOF
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_url_here
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key_here
-EOF
+# .env.example をコピーして .env.local を作成
+cp .env.example .env.local
+
+# .env.local を編集し、Supabase の Project URL と anon key を記入
+# 取得場所: Supabase ダッシュボード → Settings → API
 ```
+
+### 環境変数一覧（.env.example 参照）
+
+| 変数名 | 必須 | 説明 |
+|--------|------|------|
+| `NEXT_PUBLIC_SUPABASE_URL` | ✅ | Supabase プロジェクトの URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | ✅ | anon public key |
+| `DEMO_MODE` | - | `true` でデモモード（Supabase 不使用） |
 
 ---
 

@@ -121,25 +121,31 @@ export default function DashboardPage() {
         return '当月'
     }
   }
-  // 残り営業日（仮）
-  const remainingDays = 2
+  // 残り営業日を計算（平日のみ）
+  const remainingDays = useMemo(() => {
+    const now = new Date()
+    const year = now.getFullYear()
+    const month = now.getMonth()
+    const today = now.getDate()
+    const lastDay = new Date(year, month + 1, 0).getDate()
+    
+    let count = 0
+    for (let day = today; day <= lastDay; day++) {
+      const date = new Date(year, month, day)
+      const dayOfWeek = date.getDay()
+      // 土曜(6)・日曜(0)以外をカウント
+      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+        count++
+      }
+    }
+    return count
+  }, [])
 
   // 全体統計（成約統計は既に計算済み）
 
   // 課別表示は削除（一旦なし）
 
-  // ローディング中の処理
-  if (loading) {
-    return (
-      <AppLayout title="ダッシュボード" description="データを読み込み中...">
-        <div className="flex items-center justify-center h-64">
-          <p>データを読み込み中...</p>
-        </div>
-      </AppLayout>
-    )
-  }
-
-  // 期間の開始日・終了日を計算
+  // 期間の開始日・終了日を計算（Hooksは早期リターンの前に配置）
   const getPeriodDates = useMemo(() => {
     const now = new Date()
     let startDate: Date
@@ -185,9 +191,11 @@ export default function DashboardPage() {
 
   const periodContracts = useMemo(() => {
     return contracts.filter(c => {
-      if (!c.contracted_at) return false
-      const contractedDate = new Date(c.contracted_at)
-      return contractedDate >= getPeriodDates.startDate && contractedDate <= getPeriodDates.endDate
+      // contracted_at（成約確定日時）、accepted_date（承諾日）、created_at の順で判定
+      const dateStr = c.contracted_at || c.accepted_date || c.created_at
+      if (!dateStr) return false
+      const contractDate = new Date(dateStr)
+      return contractDate >= getPeriodDates.startDate && contractDate <= getPeriodDates.endDate
     })
   }, [contracts, getPeriodDates])
 
@@ -287,6 +295,17 @@ export default function DashboardPage() {
   // 流入経路割合の計算（LINEを除く）
   const candidatesWithoutLine = candidates.filter(c => c.source_id !== '1')
   const totalWithoutLine = candidatesWithoutLine.length
+
+  // ローディング中の処理（すべてのHooksの後に配置）
+  if (loading) {
+    return (
+      <AppLayout title="ダッシュボード" description="データを読み込み中...">
+        <div className="flex items-center justify-center h-64">
+          <p>データを読み込み中...</p>
+        </div>
+      </AppLayout>
+    )
+  }
 
   return (
     <AppLayout title="全体サマリー" description="保育事業部 採用管理">

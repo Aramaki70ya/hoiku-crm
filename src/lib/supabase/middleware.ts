@@ -36,7 +36,18 @@ export async function updateSession(request: NextRequest) {
   // セッションの更新（重要：getUser()を呼ぶことでセッションがリフレッシュされる）
   const {
     data: { user },
+    error: userError,
   } = await supabase.auth.getUser()
+
+  // デバッグログ（本番環境では削除）
+  console.log('[DEBUG Middleware]', {
+    path: request.nextUrl.pathname,
+    hasUser: !!user,
+    userId: user?.id,
+    email: user?.email,
+    error: userError?.message,
+    cookies: request.cookies.getAll().map(c => c.name).filter(n => n.includes('supabase')),
+  })
 
   // 未認証ユーザーを/loginにリダイレクト（ただし/loginと/auth系は除外）
   if (
@@ -44,6 +55,7 @@ export async function updateSession(request: NextRequest) {
     !request.nextUrl.pathname.startsWith('/login') &&
     !request.nextUrl.pathname.startsWith('/auth')
   ) {
+    console.log('[DEBUG Middleware] 未認証ユーザーを/loginにリダイレクト')
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)

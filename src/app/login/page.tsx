@@ -15,7 +15,6 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const router = useRouter()
-  const supabase = createClient()
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -23,6 +22,8 @@ export default function LoginPage() {
     setError(null)
 
     try {
+      // createBrowserClient は window 依存のため、イベントハンドラ内で取得（SSR 回避）
+      const supabase = createClient()
       const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -38,6 +39,52 @@ export default function LoginPage() {
       }
 
       // ログイン成功
+      console.log('[DEBUG] ログイン成功 - セッション確認中...')
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+      console.log('[DEBUG] セッション状態:', {
+        hasSession: !!session,
+        userId: session?.user?.id,
+        email: session?.user?.email,
+        error: sessionError?.message,
+      })
+      
+      // getUser()でも確認
+      const { data: { user }, error: userError } = await supabase.auth.getUser()
+      console.log('[DEBUG] getUser()結果:', {
+        hasUser: !!user,
+        userId: user?.id,
+        email: user?.email,
+        error: userError?.message,
+      })
+      
+      // クッキーを確認
+      const cookies = document.cookie.split(';').reduce((acc, cookie) => {
+        const [key, value] = cookie.trim().split('=')
+        acc[key] = value
+        return acc
+      }, {} as Record<string, string>)
+      const supabaseCookies = Object.keys(cookies).filter(k => k.includes('supabase') || k.includes('auth'))
+      console.log('[DEBUG] 認証関連クッキー:', supabaseCookies)
+      console.log('[DEBUG] 全クッキー:', Object.keys(cookies))
+      
+      // 環境変数の確認（クライアント側で確認できるもののみ）
+      console.log('[DEBUG] 環境変数:', {
+        hasUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+        hasKey: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+        urlLength: process.env.NEXT_PUBLIC_SUPABASE_URL?.length || 0,
+        keyLength: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.length || 0,
+      })
+      
+      // セッションがない場合はエラー
+      if (!session && !user) {
+        console.error('[DEBUG] 警告: ログイン成功したがセッションが取得できません')
+        setError('ログインに成功しましたが、セッションの確認に失敗しました。デバッグページ(/debug-auth)で確認してください。')
+        return
+      }
+      
+      // 少し待ってからリダイレクト（クッキーが確実に設定されるまで）
+      await new Promise(resolve => setTimeout(resolve, 100))
+      
       router.push('/')
       router.refresh()
     } catch (err) {

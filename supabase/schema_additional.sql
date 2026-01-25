@@ -359,4 +359,17 @@ CREATE TRIGGER auto_create_contract
   WHEN (NEW.status = 'closed_won' AND OLD.status != 'closed_won')
   EXECUTE FUNCTION create_contract_on_closed_won();
 
+-- ========================================
+-- 18. usersテーブルの拡張（退職者管理用）
+-- ========================================
+-- 退職日カラムを追加（退職者の表示制御に使用）
+ALTER TABLE users ADD COLUMN IF NOT EXISTS retired_at DATE;
+
+-- インデックス追加
+CREATE INDEX IF NOT EXISTS idx_users_retired_at ON users(retired_at);
+
+-- 退職者を取得するためのView（オプション）
+CREATE OR REPLACE VIEW active_users AS
+SELECT * FROM users WHERE retired_at IS NULL OR retired_at > CURRENT_DATE;
+
 

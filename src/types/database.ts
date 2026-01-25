@@ -147,6 +147,7 @@ export interface User {
   email: string
   name: string
   role: 'admin' | 'user'
+  retired_at: string | null // 退職日（nullは現役）
   created_at: string
 }
 
