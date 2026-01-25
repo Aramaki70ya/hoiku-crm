@@ -47,7 +47,7 @@ import {
 } from '@/lib/supabase/queries-client-with-fallback'
 import type { Candidate, Project, User, Contract, Source, Interview } from '@/types/database'
 import {
-  totalBudget,
+  totalBudget as defaultBudget,
   statusLabels,
   statusColors,
   processStatusLabels,
@@ -69,6 +69,11 @@ export default function DashboardPage() {
   const [users, setUsers] = useState<User[]>([])
   const [sources, setSources] = useState<Source[]>([])
   const [loading, setLoading] = useState(true)
+  
+  // 予算（編集可能）
+  const [budget, setBudget] = useState(defaultBudget)
+  const [isEditingBudget, setIsEditingBudget] = useState(false)
+  const [budgetInput, setBudgetInput] = useState('')
 
   useEffect(() => {
     async function fetchData() {
@@ -259,7 +264,8 @@ export default function DashboardPage() {
       .reduce((sum, p) => sum + (p.expected_amount || 0), 0)
   }, [projects])
 
-  const shortfall = totalBudget - periodTotalSales - totalYomiA - totalYomiB
+  // 不足金額 = 予算 - 売上
+  const shortfall = budget - periodTotalSales
 
   // 今月の応募数（表示用、当月固定）
   const now = new Date()
@@ -421,21 +427,23 @@ export default function DashboardPage() {
 
       {/* トップライン情報 */}
       <div className="grid grid-cols-4 gap-4 mb-6">
-        {/* 残り営業日 */}
-        <Card className="bg-gradient-to-br from-slate-700 to-slate-800 text-white border-0 shadow-lg">
-          <CardContent className="pt-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-slate-300">残り営業日</p>
-                <p className="text-4xl font-bold mt-1">{remainingDays}日</p>
+        {/* 残り営業日（当月のみ表示） */}
+        {periodType === 'current_month' && (
+          <Card className="bg-gradient-to-br from-slate-700 to-slate-800 text-white border-0 shadow-lg">
+            <CardContent className="pt-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-slate-300">残り営業日</p>
+                  <p className="text-4xl font-bold mt-1">{remainingDays}日</p>
+                </div>
+                <Clock className="w-12 h-12 text-slate-400" />
               </div>
-              <Clock className="w-12 h-12 text-slate-400" />
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
 
         {/* 予算達成状況 */}
-        <Card className="bg-white border-slate-200 shadow-sm col-span-3">
+        <Card className={`bg-white border-slate-200 shadow-sm ${periodType === 'current_month' ? 'col-span-3' : 'col-span-4'}`}>
           <CardContent className="pt-4">
             <div className="flex gap-4">
               {/* 左側: 予算・売上・ヨミ情報 */}
@@ -443,13 +451,54 @@ export default function DashboardPage() {
                 <div className="flex items-center gap-2 mb-3">
                   <p className="text-sm text-slate-500">予算達成状況（全体）</p>
                   <Badge className="bg-violet-100 text-violet-700 text-base px-3 py-1 font-semibold">
-                    {((periodTotalSales / totalBudget) * 100).toFixed(1)}%
+                    {((periodTotalSales / budget) * 100).toFixed(1)}%
                   </Badge>
                 </div>
                 <div className="flex items-end gap-4">
                   <div>
                     <p className="text-xs text-slate-400">予算</p>
-                    <p className="text-xl font-bold text-slate-800">¥{(totalBudget / 10000).toLocaleString()}万</p>
+                    {isEditingBudget ? (
+                      <div className="flex items-center gap-1">
+                        <span className="text-xl font-bold text-slate-800">¥</span>
+                        <Input
+                          type="number"
+                          value={budgetInput}
+                          onChange={(e) => setBudgetInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              const value = parseInt(budgetInput) * 10000
+                              if (!isNaN(value) && value > 0) {
+                                setBudget(value)
+                              }
+                              setIsEditingBudget(false)
+                            } else if (e.key === 'Escape') {
+                              setIsEditingBudget(false)
+                            }
+                          }}
+                          onBlur={() => {
+                            const value = parseInt(budgetInput) * 10000
+                            if (!isNaN(value) && value > 0) {
+                              setBudget(value)
+                            }
+                            setIsEditingBudget(false)
+                          }}
+                          className="w-24 h-8 text-lg font-bold"
+                          autoFocus
+                        />
+                        <span className="text-xl font-bold text-slate-800">万</span>
+                      </div>
+                    ) : (
+                      <p 
+                        className="text-xl font-bold text-slate-800 cursor-pointer hover:text-violet-600 transition-colors"
+                        onClick={() => {
+                          setBudgetInput(String(budget / 10000))
+                          setIsEditingBudget(true)
+                        }}
+                        title="クリックして編集"
+                      >
+                        ¥{(budget / 10000).toLocaleString()}万
+                      </p>
+                    )}
                   </div>
                   <div>
                     <p className="text-xs text-slate-400">売上</p>
@@ -464,13 +513,13 @@ export default function DashboardPage() {
                     <p className="text-xl font-bold text-orange-600">¥{(totalYomiB / 10000).toLocaleString()}万</p>
                   </div>
                 </div>
-                <Progress value={(periodTotalSales / totalBudget) * 100} className="mt-3 h-2" />
+                <Progress value={(periodTotalSales / budget) * 100} className="mt-3 h-2" />
               </div>
               
               {/* 右側: 不足金額カード */}
               <div className="flex items-center">
                 <div className="bg-gradient-to-br from-rose-100 to-pink-100 rounded-xl px-4 py-3 text-center border border-rose-200">
-                  <p className="text-xs text-slate-600 mb-1">不足金額（推定）</p>
+                  <p className="text-xs text-slate-600 mb-1">不足金額</p>
                   <p className="text-xl font-bold text-slate-800">¥{shortfall > 0 ? (shortfall / 10000).toLocaleString() : 0}万</p>
                 </div>
               </div>
