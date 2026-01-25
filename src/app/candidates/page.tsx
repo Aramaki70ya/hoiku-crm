@@ -1,14 +1,12 @@
 'use client'
 
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
 import { AppLayout } from '@/components/layout/app-layout'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -107,20 +105,10 @@ export default function CandidatesPage() {
     memo: '',
   })
 
-  // ページパスを監視
-  const pathname = usePathname()
-  
   // API経由でデータを取得
-  const { candidates: rawCandidates, isLoading, createCandidate, updateCandidate, refetch } = useCandidates({
+  const { candidates: rawCandidates, isLoading, createCandidate, updateCandidate } = useCandidates({
     search: searchQuery,
   })
-  
-  // pathnameが変わったらデータを再取得（ページに戻ってきた時）
-  useEffect(() => {
-    if (pathname === '/candidates') {
-      refetch()
-    }
-  }, [pathname, refetch])
   const { consultants, users } = useUsers()
   const { sources } = useSources()
 
@@ -153,40 +141,29 @@ export default function CandidatesPage() {
       console.error('タイムラインイベント追加エラー:', err)
     }
     
-    // ステータスが「成約」になった場合、成約データを作成
+    // ステータスが「成約」になった場合、成約データをAPI経由で作成
     if (newStatus === 'closed_won') {
       const existingContract = contracts.find(c => c.candidate_id === candidateId)
       if (!existingContract) {
-        const newContract: Contract = {
-          id: `c${Date.now()}`,
-          candidate_id: candidateId,
-          project_id: null,
-          contracted_at: new Date().toISOString(),
-          accepted_date: new Date().toISOString().split('T')[0],
-          entry_date: null,
-          employment_restriction_until: null,
-          employment_type: null,
-          job_type: null,
-          revenue_excluding_tax: 0,
-          revenue_including_tax: 0,
-          payment_date: null,
-          payment_scheduled_date: null,
-          invoice_sent_date: null,
-          calculation_basis: null,
-          document_url: null,
-          placement_company: null,
-          placement_company_name: null,
-          placement_facility_name: null,
-          note: null,
-          is_cancelled: null,
-          refund_required: null,
-          refund_date: null,
-          refund_amount: null,
-          cancellation_reason: null,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
+        try {
+          const res = await fetch('/api/contracts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              candidate_id: candidateId,
+              accepted_date: new Date().toISOString().split('T')[0],
+            }),
+          })
+          
+          if (res.ok) {
+            const { data: newContract } = await res.json()
+            setContracts(prev => [...prev, newContract])
+          } else {
+            console.error('成約データ作成エラー')
+          }
+        } catch (err) {
+          console.error('成約データ作成エラー:', err)
         }
-        setContracts(prev => [...prev, newContract])
       }
     }
   }, [updateCandidate, contracts, rawCandidates, localStatuses])

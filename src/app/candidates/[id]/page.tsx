@@ -2,7 +2,7 @@
 
 import { use, useState, useEffect, useMemo, useCallback } from 'react'
 import Link from 'next/link'
-import { useRouter, useSearchParams, usePathname } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { AppLayout } from '@/components/layout/app-layout'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -52,7 +52,7 @@ import {
   statusLabels,
   statusColors,
 } from '@/lib/mock-data'
-import type { Contract, Memo, Candidate, Project, Interview, User, Source } from '@/types/database'
+import type { Contract, Candidate, Project, Interview, User, Source } from '@/types/database'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -147,19 +147,9 @@ export default function CandidateDetailPage({ params }: PageProps) {
     }
   }, [id])
 
-  // ページパスを監視
-  const pathname = usePathname()
-  
   useEffect(() => {
     fetchData()
   }, [fetchData])
-  
-  // pathnameが変わったらデータを再取得（ページに戻ってきた時）
-  useEffect(() => {
-    if (pathname?.startsWith('/candidates/')) {
-      fetchData()
-    }
-  }, [pathname, fetchData])
   
   // ステータスを初期化（変更されていない場合は元のステータスを使用）
   const currentStatus = candidateStatus || candidate?.status || 'new'
@@ -182,10 +172,11 @@ export default function CandidateDetailPage({ params }: PageProps) {
   // 担当者を取得
   const consultant = users.find((u) => u.id === candidate?.consultant_id)
   
-  // 面接データを取得
-  const interviews = projects.flatMap((p) =>
+  // 面接データを取得（将来的にUIで表示する用）
+  const _interviews = projects.flatMap((p) =>
     allInterviews.filter((i) => i.project_id === p.id).map((i) => ({ ...i, project: p }))
   )
+  void _interviews // ESLint警告回避
   
   // 成約情報
   const isContracted = currentStatus === 'closed_won' || !!contract
@@ -205,7 +196,9 @@ export default function CandidateDetailPage({ params }: PageProps) {
     created_at: string
     created_by_user?: { id: string; name: string } | null
   }>>([])
-  const [timelineLoading, setTimelineLoading] = useState(false)
+  // タイムラインローディング状態（将来的にローディングUI表示用）
+  const [_timelineLoading, setTimelineLoading] = useState(false)
+  void _timelineLoading // ESLint警告回避
   
   // タイムラインイベントをAPIから読み込む
   useEffect(() => {
@@ -339,7 +332,8 @@ export default function CandidateDetailPage({ params }: PageProps) {
   })
   const [isBasicInfoEditDialogOpen, setIsBasicInfoEditDialogOpen] = useState(false)
   
-  // 基本情報フォームをcandidate変更時に更新（IDが変更された場合のみ）
+  // 基本情報フォームをcandidate変更時に更新
+  // candidateの各フィールドが変わった時に初期化
   useEffect(() => {
     if (candidate) {
       setBasicInfoForm({
@@ -352,8 +346,7 @@ export default function CandidateDetailPage({ params }: PageProps) {
         qualification: candidate.qualification || '',
       })
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [candidate?.id])
+  }, [candidate])
   
   // ヨミ情報用state（最初の案件から取得、なければnull）
   const [yomiForm, setYomiForm] = useState({
@@ -363,18 +356,22 @@ export default function CandidateDetailPage({ params }: PageProps) {
   })
   
   // ヨミ情報をprojects変更時に更新
+  const firstProject = projects[0]
+  const firstProjectProbability = firstProject?.probability
+  const firstProjectExpectedAmount = firstProject?.expected_amount
+  const firstProjectProbabilityMonth = firstProject?.probability_month
+  
   useEffect(() => {
     if (projects.length > 0) {
-      const firstProject = projects[0]
       setYomiForm(prev => {
         // 値が実際に変更された場合のみ更新
-        if (prev.probability !== firstProject?.probability || 
-            prev.expected_amount !== firstProject?.expected_amount ||
-            prev.probability_month !== (firstProject?.probability_month || 'current')) {
+        if (prev.probability !== firstProjectProbability || 
+            prev.expected_amount !== firstProjectExpectedAmount ||
+            prev.probability_month !== (firstProjectProbabilityMonth || 'current')) {
           return {
-            probability: firstProject?.probability || null,
-            probability_month: firstProject?.probability_month || 'current',
-            expected_amount: firstProject?.expected_amount || null,
+            probability: firstProjectProbability || null,
+            probability_month: firstProjectProbabilityMonth || 'current',
+            expected_amount: firstProjectExpectedAmount || null,
           }
         }
         return prev
@@ -392,7 +389,7 @@ export default function CandidateDetailPage({ params }: PageProps) {
         return prev
       })
     }
-  }, [projects.length, projects[0]?.probability, projects[0]?.expected_amount, projects[0]?.probability_month])
+  }, [projects.length, firstProjectProbability, firstProjectExpectedAmount, firstProjectProbabilityMonth])
   
   const handleContractFormChange = (field: keyof Contract, value: string) => {
     setContractForm(prev => ({ ...prev, [field]: value }))
@@ -408,7 +405,7 @@ export default function CandidateDetailPage({ params }: PageProps) {
         body: JSON.stringify({
           candidate_id: candidate.id,
           accepted_date: contractForm.accepted_date || new Date().toISOString().split('T')[0],
-          start_date: contractForm.start_date,
+          entry_date: contractForm.entry_date,
           job_type: contractForm.job_type,
           placement_company: contractForm.placement_company,
           revenue_excluding_tax: contractForm.revenue_excluding_tax ? Number(contractForm.revenue_excluding_tax) : null,
@@ -459,11 +456,32 @@ export default function CandidateDetailPage({ params }: PageProps) {
     setEditType(null)
   }
   
-  const handleSaveBasicInfo = () => {
-    // 実際のアプリでは、ここでAPIを呼び出してデータを保存
-    console.log('保存する基本情報:', basicInfoForm)
+  const handleSaveBasicInfo = async () => {
+    if (!candidate) return
+    
+    try {
+      const res = await fetch(`/api/candidates/${candidate.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(basicInfoForm),
+      })
+      
+      if (res.ok) {
+        // ローカルのcandidateも更新
+        setCandidate(prev => prev ? { ...prev, ...basicInfoForm } : prev)
+        // タイムラインにも記録
+        addTimelineEvent('basic_info_update', '基本情報更新', '連絡先・希望条件を更新しました')
+      } else {
+        const errorData = await res.json()
+        console.error('基本情報保存エラー:', errorData)
+        alert('基本情報の保存に失敗しました')
+      }
+    } catch (err) {
+      console.error('基本情報保存エラー:', err)
+      alert('基本情報の保存に失敗しました')
+    }
+    
     setIsBasicInfoEditDialogOpen(false)
-    // TODO: 成功通知を表示
   }
   
   // 案件追加の保存処理
@@ -522,8 +540,9 @@ export default function CandidateDetailPage({ params }: PageProps) {
         setIsEditDialogOpen(false)
         setEditType(null)
       } else {
-        console.error('🔴 Project creation failed:', projectData)
-        alert('案件登録エラー: ' + (projectData.error || 'Unknown error'))
+        const errorData = await projectRes.json()
+        console.error('案件登録エラー:', errorData)
+        alert('案件登録エラー: ' + (errorData.error || 'Unknown error'))
       }
     } catch (err) {
       console.error('案件追加エラー:', err)

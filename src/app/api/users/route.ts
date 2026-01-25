@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
       name,
       email,
       role,
-    } satisfies Omit<User, 'created_at' | 'id'>)
+    } satisfies Omit<User, 'created_at' | 'id' | 'retired_at'>)
     .select('*')
     .single()
 

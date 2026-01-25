@@ -19,8 +19,11 @@ export async function GET(request: NextRequest) {
 
     const supabase = await createClient()
     
-    // 認証チェック（オプショナル - 開発中は緩める）
-    const { data: { user } } = await supabase.auth.getUser()
+    // 認証チェック
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      return NextResponse.json({ error: '認証が必要です' }, { status: 401 })
+    }
     
     let query = supabase
       .from('timeline_events')
