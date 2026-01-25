@@ -371,7 +371,7 @@ export default function DashboardSummaryPage() {
       )
   }, [])
 
-  // 実データからメンバーごとのヨミ金額を計算
+  // 実データからメンバーごとのヨミ金額を計算（当月）
   const memberYomiStats = useMemo(() => {
     const stats: Record<string, { yomiA: number; yomiB: number; yomiC: number; yomiD: number }> = {}
     
@@ -382,7 +382,45 @@ export default function DashboardSummaryPage() {
         const userCandidates = candidates.filter((c) => c.consultant_id === user.id)
         const userCandidateIds = new Set(userCandidates.map((c) => c.id))
         
-        const userProjects = projects.filter((p) => userCandidateIds.has(p.candidate_id))
+        // 当月のヨミのみ（probability_monthがcurrentまたは未設定）
+        const userProjects = projects.filter((p) => 
+          userCandidateIds.has(p.candidate_id) && 
+          (p.probability_month === 'current' || !p.probability_month)
+        )
+        
+        stats[user.id] = {
+          yomiA: userProjects
+            .filter((p) => p.probability === 'A' && p.expected_amount)
+            .reduce((sum, p) => sum + (p.expected_amount || 0), 0),
+          yomiB: userProjects
+            .filter((p) => p.probability === 'B' && p.expected_amount)
+            .reduce((sum, p) => sum + (p.expected_amount || 0), 0),
+          yomiC: userProjects
+            .filter((p) => p.probability === 'C' && p.expected_amount)
+            .reduce((sum, p) => sum + (p.expected_amount || 0), 0),
+          yomiD: 0, // Dヨミは現状DBに存在しないため0
+        }
+      })
+    
+    return stats
+  }, [users, candidates, projects, getPeriodDates])
+
+  // 実データからメンバーごとのヨミ金額を計算（翌月）
+  const memberYomiStatsNext = useMemo(() => {
+    const stats: Record<string, { yomiA: number; yomiB: number; yomiC: number; yomiD: number }> = {}
+    
+    users
+      .filter((u) => u.role !== 'admin' && isUserActiveInPeriod(u))
+      .forEach((user) => {
+        // このユーザーの担当求職者に紐づく案件からヨミ金額を集計
+        const userCandidates = candidates.filter((c) => c.consultant_id === user.id)
+        const userCandidateIds = new Set(userCandidates.map((c) => c.id))
+        
+        // 翌月のヨミのみ（probability_monthがnext）
+        const userProjects = projects.filter((p) => 
+          userCandidateIds.has(p.candidate_id) && 
+          p.probability_month === 'next'
+        )
         
         stats[user.id] = {
           yomiA: userProjects
@@ -419,20 +457,22 @@ export default function DashboardSummaryPage() {
     )
   }, [users, memberYomiStats, getPeriodDates])
 
-  // 2課のヨミ数字（翌月）- 翌月は現状計算ロジックがないためモック使用
+  // 2課のヨミ数字（翌月）- 実データ使用に変更
   const team2YomiNext = useMemo(() => {
-    return mockMemberStats
-      .filter((stats) => team2UserIds.includes(stats.userId))
-      .reduce(
-        (acc, stats) => ({
-          yomiA: acc.yomiA + stats.yomiANext,
-          yomiB: acc.yomiB + stats.yomiBNext,
-          yomiC: acc.yomiC + stats.yomiCNext,
-          yomiD: acc.yomiD + stats.yomiDNext,
-        }),
-        { yomiA: 0, yomiB: 0, yomiC: 0, yomiD: 0 }
-      )
-  }, [])
+    const activeUsers = users.filter((u) => u.role !== 'admin' && isUserActiveInPeriod(u))
+    return activeUsers.reduce(
+      (acc, user) => {
+        const userStats = memberYomiStatsNext[user.id] || { yomiA: 0, yomiB: 0, yomiC: 0, yomiD: 0 }
+        return {
+          yomiA: acc.yomiA + userStats.yomiA,
+          yomiB: acc.yomiB + userStats.yomiB,
+          yomiC: acc.yomiC + userStats.yomiC,
+          yomiD: acc.yomiD + userStats.yomiD,
+        }
+      },
+      { yomiA: 0, yomiB: 0, yomiC: 0, yomiD: 0 }
+    )
+  }, [users, memberYomiStatsNext, getPeriodDates])
 
   // 転換率の表示用フォーマット
   const formatRate = (rate: number) => {
@@ -819,9 +859,9 @@ export default function DashboardSummaryPage() {
                     <TableHead className="text-slate-700 font-semibold">売上予算</TableHead>
                     <TableHead className="text-slate-700 font-semibold">成約額</TableHead>
                     <TableHead className="text-slate-700 font-semibold">対予算(%)</TableHead>
-                    <TableHead className="text-slate-700 font-semibold">面談設定目標</TableHead>
-                    <TableHead className="text-slate-700 font-semibold">面談設定数</TableHead>
-                    <TableHead className="text-slate-700 font-semibold">対面談設定(%)</TableHead>
+                    <TableHead className="text-slate-700 font-semibold">面接設定目標</TableHead>
+                    <TableHead className="text-slate-700 font-semibold">面接設定数</TableHead>
+                    <TableHead className="text-slate-700 font-semibold">対面接設定(%)</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -835,7 +875,7 @@ export default function DashboardSummaryPage() {
                         })
                         .reduce((sum, c) => sum + (c.revenue_excluding_tax || 0), 0)
                       
-                      // mockから予算と面談設定目標を取得（設定ページができたら実データに変更）
+                      // mockから予算と面接設定目標を取得（設定ページができたら実データに変更）
                       const stats = mockMemberStats.find((s) => s.userId === progress.userId)
                       const budget = stats?.budget || 0
                       const meetingTarget = stats?.meetingTarget || 0
@@ -981,26 +1021,26 @@ export default function DashboardSummaryPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {mockMemberStats
-                    .filter((stats) => team2UserIds.includes(stats.userId))
-                    .map((stats) => {
-                      const user = mockUsers.find((u) => u.id === stats.userId)
+                  {users
+                    .filter((u) => u.role !== 'admin' && isUserActiveInPeriod(u))
+                    .map((user) => {
+                      const yomiStats = memberYomiStatsNext[user.id] || { yomiA: 0, yomiB: 0, yomiC: 0, yomiD: 0 }
                       return (
-                        <TableRow key={stats.userId} className="hover:bg-slate-50">
+                        <TableRow key={user.id} className="hover:bg-slate-50">
                           <TableCell className="font-medium text-slate-800">
-                            {user?.name || '-'}
+                            {user.name}
                           </TableCell>
                           <TableCell className="text-right bg-red-50">
-                            {stats.yomiANext > 0 ? formatAmount(stats.yomiANext) : '-'}
+                            {yomiStats.yomiA > 0 ? formatAmount(yomiStats.yomiA) : '-'}
                           </TableCell>
                           <TableCell className="text-right bg-orange-50">
-                            {stats.yomiBNext > 0 ? formatAmount(stats.yomiBNext) : '-'}
+                            {yomiStats.yomiB > 0 ? formatAmount(yomiStats.yomiB) : '-'}
                           </TableCell>
                           <TableCell className="text-right bg-yellow-50">
-                            {stats.yomiCNext > 0 ? formatAmount(stats.yomiCNext) : '-'}
+                            {yomiStats.yomiC > 0 ? formatAmount(yomiStats.yomiC) : '-'}
                           </TableCell>
                           <TableCell className="text-right bg-slate-50">
-                            {stats.yomiDNext > 0 ? formatAmount(stats.yomiDNext) : '-'}
+                            {yomiStats.yomiD > 0 ? formatAmount(yomiStats.yomiD) : '-'}
                           </TableCell>
                         </TableRow>
                       )

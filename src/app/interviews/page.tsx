@@ -87,6 +87,7 @@ export default function InterviewsPage() {
   const filteredInterviews = enrichedInterviews
 
   // ステータス別集計
+  const reschedulingCount = enrichedInterviews.filter(i => i.status === 'rescheduling').length
   const scheduledCount = enrichedInterviews.filter(i => i.status === 'scheduled').length
   const completedCount = enrichedInterviews.filter(i => i.status === 'completed').length
 
@@ -135,11 +136,24 @@ export default function InterviewsPage() {
         <Card className="bg-white border-slate-200 shadow-sm">
           <CardContent className="pt-4">
             <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
+                <Clock className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-500">調整中</p>
+                <p className="text-2xl font-bold text-slate-800">{reschedulingCount}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="bg-white border-slate-200 shadow-sm">
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
                 <Calendar className="w-5 h-5 text-blue-600" />
               </div>
               <div>
-                <p className="text-xs text-slate-500">予定</p>
+                <p className="text-xs text-slate-500">実施中</p>
                 <p className="text-2xl font-bold text-slate-800">{scheduledCount}</p>
               </div>
             </div>
@@ -152,21 +166,8 @@ export default function InterviewsPage() {
                 <CheckCircle className="w-5 h-5 text-green-600" />
               </div>
               <div>
-                <p className="text-xs text-slate-500">完了</p>
+                <p className="text-xs text-slate-500">実施済</p>
                 <p className="text-2xl font-bold text-slate-800">{completedCount}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="bg-white border-slate-200 shadow-sm">
-          <CardContent className="pt-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
-                <CheckCircle className="w-5 h-5 text-emerald-600" />
-              </div>
-              <div>
-                <p className="text-xs text-slate-500">今月の成約</p>
-                <p className="text-2xl font-bold text-emerald-600">2</p>
               </div>
             </div>
           </CardContent>
@@ -184,18 +185,6 @@ export default function InterviewsPage() {
               <SelectItem key={option.value} value={option.value}>
                 {option.label}
               </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-40 bg-white border-slate-200 shadow-sm">
-            <SelectValue placeholder="ステータス" />
-          </SelectTrigger>
-          <SelectContent className="bg-white">
-            <SelectItem value="all">すべて</SelectItem>
-            {Object.entries(interviewStatusLabels).map(([value, label]) => (
-              <SelectItem key={value} value={value}>{label}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -223,22 +212,36 @@ export default function InterviewsPage() {
             すべて ({filteredInterviews.length})
           </TabsTrigger>
           <TabsTrigger 
+            value="rescheduling"
+            className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-amber-500 data-[state=active]:to-orange-600 data-[state=active]:text-white"
+          >
+            調整中 ({filteredInterviews.filter(i => i.status === 'rescheduling').length})
+          </TabsTrigger>
+          <TabsTrigger 
             value="scheduled"
             className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-500 data-[state=active]:to-cyan-600 data-[state=active]:text-white"
           >
-            予定 ({filteredInterviews.filter(i => i.status === 'scheduled').length})
+            実施中 ({filteredInterviews.filter(i => i.status === 'scheduled').length})
           </TabsTrigger>
           <TabsTrigger 
             value="completed"
             className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-green-500 data-[state=active]:to-emerald-600 data-[state=active]:text-white"
           >
-            完了 ({filteredInterviews.filter(i => i.status === 'completed').length})
+            実施済 ({filteredInterviews.filter(i => i.status === 'completed').length})
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="all">
           <InterviewTable 
             interviews={filteredInterviews}
+            users={users}
+            onStatusChange={handleStatusChange}
+            onConsultantChange={handleConsultantChange}
+          />
+        </TabsContent>
+        <TabsContent value="rescheduling">
+          <InterviewTable 
+            interviews={filteredInterviews.filter(i => i.status === 'rescheduling')}
             users={users}
             onStatusChange={handleStatusChange}
             onConsultantChange={handleConsultantChange}

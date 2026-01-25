@@ -420,7 +420,7 @@ export default function DashboardPage() {
       </div>
 
       {/* トップライン情報 */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-4 gap-4 mb-6">
         {/* 残り営業日 */}
         <Card className="bg-gradient-to-br from-slate-700 to-slate-800 text-white border-0 shadow-lg">
           <CardContent className="pt-4">
@@ -435,7 +435,7 @@ export default function DashboardPage() {
         </Card>
 
         {/* 予算達成状況 */}
-        <Card className="bg-white border-slate-200 shadow-sm col-span-2">
+        <Card className="bg-white border-slate-200 shadow-sm col-span-3">
           <CardContent className="pt-4">
             <div className="flex gap-4">
               {/* 左側: 予算・売上・ヨミ情報 */}

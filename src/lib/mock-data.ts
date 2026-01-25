@@ -777,17 +777,15 @@ export const statusColors: Record<string, string> = {
 
 // 面接ステータスの色
 export const interviewStatusColors: Record<string, string> = {
+  rescheduling: 'bg-amber-100 text-amber-700 border-amber-200',
   scheduled: 'bg-blue-100 text-blue-700 border-blue-200',
   completed: 'bg-green-100 text-green-700 border-green-200',
-  cancelled: 'bg-red-100 text-red-700 border-red-200',
-  rescheduling: 'bg-amber-100 text-amber-700 border-amber-200',
 }
 
 export const interviewStatusLabels: Record<string, string> = {
-  scheduled: '予定',
-  completed: '完了',
-  cancelled: 'キャンセル',
-  rescheduling: 'リスケ中',
+  rescheduling: '調整中',
+  scheduled: '実施中',
+  completed: '実施済',
 }
 
 // メンバー別予算・実績データ
@@ -795,8 +793,8 @@ export interface MemberStats {
   userId: string
   budget: number // 売上予算
   sales: number // 成約額
-  meetingTarget: number // 面談設定目標
-  meetingCount: number // 面談設定数
+  meetingTarget: number // 面接設定目標
+  meetingCount: number // 面接設定数
   yomiA: number // Aヨミ（当月）
   yomiB: number // Bヨミ（当月）
   yomiC: number // Cヨミ（当月）

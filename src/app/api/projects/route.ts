@@ -91,6 +91,7 @@ export async function POST(request: NextRequest) {
         phase: body.phase || 'proposed',
         expected_amount: body.expected_amount || null,
         probability: body.probability || null,
+        probability_month: body.probability_month || 'current',
         expected_entry_date: body.expected_entry_date || null,
         note: body.note || null,
         created_at: now,

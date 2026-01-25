@@ -48,6 +48,11 @@ export interface Database {
         Insert: Omit<EmailLog, 'id' | 'created_at'>
         Update: Partial<Omit<EmailLog, 'id'>>
       }
+      timeline_events: {
+        Row: TimelineEvent
+        Insert: Omit<TimelineEvent, 'id' | 'created_at'>
+        Update: Partial<Omit<TimelineEvent, 'id' | 'created_at'>>
+      }
     }
   }
 }
@@ -98,6 +103,7 @@ export interface Project {
   phase: ProjectPhase
   expected_amount: number | null // ヨミ金額
   probability: 'A' | 'B' | 'C' | null // 確度
+  probability_month: 'current' | 'next' | null // ヨミ対象月（当月/翌月）
   expected_entry_date: string | null // 入職予定時期
   note: string | null
   created_at: string
@@ -212,6 +218,33 @@ export interface Memo {
   content: string
   created_by: string | null // ユーザーID
   created_at: string
+}
+
+// タイムラインイベント
+export interface TimelineEvent {
+  id: string
+  candidate_id: string
+  event_type: TimelineEventType
+  title: string
+  description: string | null
+  created_by: string | null // ユーザーID
+  created_at: string
+}
+
+export type TimelineEventType =
+  | 'memo'              // メモ追加
+  | 'status_change'     // ステータス変更
+  | 'project_add'       // 案件追加
+  | 'yomi_update'       // ヨミ情報更新
+  | 'consultant_change' // 担当者変更
+  | 'interview_add'     // 面接追加
+  | 'interview_status_change' // 面接ステータス変更
+  | 'basic_info_change' // 基本情報変更
+  | 'contract_add'      // 成約追加
+  | 'other'             // その他
+
+export interface TimelineEventWithRelations extends TimelineEvent {
+  created_by_user?: User | null
 }
 
 // ステータス変更履歴（リードタイム分析・タイムライン表示用）

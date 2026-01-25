@@ -11,12 +11,34 @@ interface UseCandidatesOptions {
   offset?: number
 }
 
+interface CreateCandidateInput {
+  name: string
+  kana?: string | null
+  phone?: string | null
+  email?: string | null
+  birth_date?: string | null
+  age?: number | null
+  prefecture?: string | null
+  address?: string | null
+  qualification?: string | null
+  desired_employment_type?: string | null
+  desired_job_type?: string | null
+  status?: string
+  source_id?: string | null
+  registered_at?: string | null
+  consultant_id?: string | null
+  approach_priority?: 'S' | 'A' | 'B' | 'C' | null
+  rank?: 'S' | 'A' | 'B' | 'C' | null
+  memo?: string | null
+}
+
 interface UseCandidatesResult {
   candidates: CandidateWithRelations[]
   isLoading: boolean
   error: string | null
   total: number
   refetch: () => Promise<void>
+  createCandidate: (data: CreateCandidateInput) => Promise<CandidateWithRelations | null>
   updateCandidate: (id: string, updates: Partial<Candidate>) => Promise<boolean>
 }
 
@@ -55,6 +77,31 @@ export function useCandidates(options: UseCandidatesOptions = {}): UseCandidates
     }
   }, [options.status, options.consultantId, options.search, options.limit, options.offset])
 
+  const createCandidate = useCallback(async (data: CreateCandidateInput): Promise<CandidateWithRelations | null> => {
+    try {
+      const res = await fetch('/api/candidates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      })
+
+      if (!res.ok) {
+        const responseData = await res.json()
+        throw new Error(responseData.error || '登録に失敗しました')
+      }
+
+      const { data: newCandidate } = await res.json()
+      
+      // 一覧を再取得して最新状態を反映
+      await fetchCandidates()
+      
+      return newCandidate
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'エラーが発生しました')
+      return null
+    }
+  }, [fetchCandidates])
+
   const updateCandidate = useCallback(async (id: string, updates: Partial<Candidate>): Promise<boolean> => {
     try {
       const res = await fetch(`/api/candidates/${id}`, {
@@ -90,6 +137,7 @@ export function useCandidates(options: UseCandidatesOptions = {}): UseCandidates
     error,
     total,
     refetch: fetchCandidates,
+    createCandidate,
     updateCandidate,
   }
 }

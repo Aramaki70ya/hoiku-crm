@@ -91,6 +91,9 @@ export async function GET(request: NextRequest) {
 // 新規面接登録
 export async function POST(request: NextRequest) {
   try {
+    const body = await request.json()
+    console.log('🟢 [API] POST interviews body:', body)
+    
     if (isDemoMode()) {
       return NextResponse.json({ error: 'デモモードでは登録できません' }, { status: 403 })
     }
@@ -98,11 +101,10 @@ export async function POST(request: NextRequest) {
     const supabase = await createClient()
     
     const { data: { user }, error: authError } = await supabase.auth.getUser()
+    console.log('🟢 [API] Auth check:', { userId: user?.id, authError: authError?.message })
     if (authError || !user) {
       return NextResponse.json({ error: '認証が必要です' }, { status: 401 })
     }
-    
-    const body = await request.json()
     
     if (!body.project_id) {
       return NextResponse.json({ error: 'プロジェクトIDは必須です' }, { status: 400 })
@@ -114,26 +116,34 @@ export async function POST(request: NextRequest) {
     
     const now = new Date().toISOString()
     
+    const insertData = {
+      project_id: body.project_id,
+      type: body.type || 'interview',
+      start_at: body.start_at,
+      end_at: body.end_at || null,
+      location: body.location || null,
+      status: body.status || 'scheduled',
+      feedback: body.feedback || null,
+      created_at: now,
+    }
+    console.log('🟢 [API] Inserting interview:', insertData)
+    
     const { data, error } = await supabase
       .from('interviews')
-      .insert({
-        project_id: body.project_id,
-        type: body.type || 'interview',
-        start_at: body.start_at,
-        end_at: body.end_at || null,
-        location: body.location || null,
-        status: body.status || 'scheduled',
-        feedback: body.feedback || null,
-        created_at: now,
-      })
+      .insert(insertData)
       .select()
       .single()
 
-    if (error) throw error
+    if (error) {
+      console.error('🔴 [API] Interview insert error:', error)
+      return NextResponse.json({ error: 'データベースエラー', details: error.message }, { status: 500 })
+    }
     
+    console.log('🟢 [API] Interview created:', data)
     return NextResponse.json({ data, message: '面接を登録しました' }, { status: 201 })
   } catch (error) {
-    console.error('Error creating interview:', error)
-    return NextResponse.json({ error: 'サーバーエラー' }, { status: 500 })
+    console.error('🔴 [API] Error creating interview:', error)
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+    return NextResponse.json({ error: 'サーバーエラー', details: errorMessage }, { status: 500 })
   }
 }

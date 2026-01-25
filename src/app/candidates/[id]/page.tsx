@@ -1,8 +1,8 @@
 'use client'
 
-import { use, useState, useEffect, useMemo } from 'react'
+import { use, useState, useEffect, useMemo, useCallback } from 'react'
 import Link from 'next/link'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { AppLayout } from '@/components/layout/app-layout'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -91,62 +91,75 @@ export default function CandidateDetailPage({ params }: PageProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    async function fetchData() {
-      try {
-        setLoading(true)
-        // 求職者データを取得
-        const candidateRes = await fetch(`/api/candidates/${id}`)
-        if (!candidateRes.ok) {
-          if (candidateRes.status === 404) {
-            setError('求職者が見つかりません')
-          } else {
-            setError('データの取得に失敗しました')
-          }
-          return
+  const fetchData = useCallback(async () => {
+    try {
+      setLoading(true)
+      // 求職者データを取得
+      const candidateRes = await fetch(`/api/candidates/${id}`)
+      if (!candidateRes.ok) {
+        if (candidateRes.status === 404) {
+          setError('求職者が見つかりません')
+        } else {
+          setError('データの取得に失敗しました')
         }
-        const { data: candidateData } = await candidateRes.json()
-        setCandidate(candidateData)
-
-        // 並列でその他のデータを取得
-        const [usersRes, projectsRes, interviewsRes, contractsRes, sourcesRes] = await Promise.all([
-          fetch('/api/users'),
-          fetch('/api/projects'),
-          fetch('/api/interviews'),
-          fetch('/api/contracts'),
-          fetch('/api/sources'),
-        ])
-
-        if (usersRes.ok) {
-          const { data } = await usersRes.json()
-          setUsers(data || [])
-        }
-        if (projectsRes.ok) {
-          const { data } = await projectsRes.json()
-          setProjects((data || []).filter((p: Project) => p.candidate_id === id))
-        }
-        if (interviewsRes.ok) {
-          const { data } = await interviewsRes.json()
-          setAllInterviews(data || [])
-        }
-        if (contractsRes.ok) {
-          const { data } = await contractsRes.json()
-          const candidateContract = (data || []).find((c: Contract) => c.candidate_id === id)
-          setContract(candidateContract || null)
-        }
-        if (sourcesRes.ok) {
-          const { data } = await sourcesRes.json()
-          setSources(data || [])
-        }
-      } catch (err) {
-        console.error('Error fetching data:', err)
-        setError('データの取得に失敗しました')
-      } finally {
-        setLoading(false)
+        return
       }
+      const { data: candidateData } = await candidateRes.json()
+      setCandidate(candidateData)
+      // candidateのステータスをローカルにも反映
+      setCandidateStatus(candidateData.status)
+
+      // 並列でその他のデータを取得
+      const [usersRes, projectsRes, interviewsRes, contractsRes, sourcesRes] = await Promise.all([
+        fetch('/api/users'),
+        fetch('/api/projects'),
+        fetch('/api/interviews'),
+        fetch('/api/contracts'),
+        fetch('/api/sources'),
+      ])
+
+      if (usersRes.ok) {
+        const { data } = await usersRes.json()
+        setUsers(data || [])
+      }
+      if (projectsRes.ok) {
+        const { data } = await projectsRes.json()
+        setProjects((data || []).filter((p: Project) => p.candidate_id === id))
+      }
+      if (interviewsRes.ok) {
+        const { data } = await interviewsRes.json()
+        setAllInterviews(data || [])
+      }
+      if (contractsRes.ok) {
+        const { data } = await contractsRes.json()
+        const candidateContract = (data || []).find((c: Contract) => c.candidate_id === id)
+        setContract(candidateContract || null)
+      }
+      if (sourcesRes.ok) {
+        const { data } = await sourcesRes.json()
+        setSources(data || [])
+      }
+    } catch (err) {
+      console.error('Error fetching data:', err)
+      setError('データの取得に失敗しました')
+    } finally {
+      setLoading(false)
     }
-    fetchData()
   }, [id])
+
+  // ページパスを監視
+  const pathname = usePathname()
+  
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
+  
+  // pathnameが変わったらデータを再取得（ページに戻ってきた時）
+  useEffect(() => {
+    if (pathname?.startsWith('/candidates/')) {
+      fetchData()
+    }
+  }, [pathname, fetchData])
   
   // ステータスを初期化（変更されていない場合は元のステータスを使用）
   const currentStatus = candidateStatus || candidate?.status || 'new'
@@ -182,26 +195,62 @@ export default function CandidateDetailPage({ params }: PageProps) {
     new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   )
   
-  // タイムラインイベントを取得（localStorageから）
+  // タイムラインイベントを取得（API経由）
   const [timelineEvents, setTimelineEvents] = useState<Array<{
     id: string
     candidate_id: string
     event_type: string
     title: string
-    description: string
+    description: string | null
     created_at: string
+    created_by_user?: { id: string; name: string } | null
   }>>([])
+  const [timelineLoading, setTimelineLoading] = useState(false)
   
+  // タイムラインイベントをAPIから読み込む
   useEffect(() => {
-    // localStorageからタイムラインイベントを読み込み
-    if (typeof window !== 'undefined') {
-      const stored = JSON.parse(localStorage.getItem('timelineEvents') || '[]')
-      const candidateEvents = stored.filter((e: { candidate_id: string }) => e.candidate_id === id)
-      setTimelineEvents(candidateEvents.sort((a: { created_at: string }, b: { created_at: string }) => 
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      ))
+    const loadTimelineEvents = async () => {
+      try {
+        setTimelineLoading(true)
+        const res = await fetch(`/api/timeline-events?candidate_id=${id}&limit=100`)
+        if (res.ok) {
+          const responseData = await res.json()
+          setTimelineEvents(responseData.data || [])
+        }
+      } catch (err) {
+        console.error('タイムラインイベント取得エラー:', err)
+      } finally {
+        setTimelineLoading(false)
+      }
     }
+    loadTimelineEvents()
   }, [id])
+  
+  // タイムラインイベントを追加するヘルパー関数（API経由）
+  const addTimelineEvent = async (eventType: string, title: string, description: string) => {
+    try {
+      const res = await fetch('/api/timeline-events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          candidate_id: id,
+          event_type: eventType,
+          title,
+          description,
+        }),
+      })
+      
+      if (res.ok) {
+        const responseData = await res.json()
+        if (responseData.data) {
+          // ステートを更新（新しいイベントを先頭に追加）
+          setTimelineEvents(prev => [responseData.data, ...prev])
+        }
+      }
+    } catch (err) {
+      console.error('タイムラインイベント追加エラー:', err)
+    }
+  }
   
   // タイムライン表示用のデータを統合
   const allTimelineItems = useMemo(() => {
@@ -216,14 +265,22 @@ export default function CandidateDetailPage({ params }: PageProps) {
     
     // タイムラインイベントを追加
     timelineEvents.forEach(event => {
+      // イベントタイプに応じた色
+      const colorMap: Record<string, string> = {
+        'memo': 'bg-violet-500',
+        'status_change': 'bg-amber-500',
+        'project_add': 'bg-emerald-500',
+        'yomi_update': 'bg-indigo-500',
+        'consultant_change': 'bg-blue-500',
+        'interview_status_change': 'bg-cyan-500',
+      }
       items.push({
         id: event.id,
         date: new Date(event.created_at),
         type: event.event_type,
         title: event.title,
-        description: event.description,
-        color: event.event_type === 'consultant_change' ? 'bg-blue-500' : 
-               event.event_type === 'interview_status_change' ? 'bg-cyan-500' : 'bg-violet-500',
+        description: event.description || '',
+        color: colorMap[event.event_type] || 'bg-slate-500',
       })
     })
     
@@ -260,6 +317,16 @@ export default function CandidateDetailPage({ params }: PageProps) {
   const [editType, setEditType] = useState<'timeline' | 'project' | 'memo' | 'basic' | 'task' | null>(null)
   const [memoContent, setMemoContent] = useState('')
   
+  // 案件追加用state
+  const [projectForm, setProjectForm] = useState({
+    client_name: '',
+    phase: 'interview_scheduled',
+    interview_date: '',
+    probability: '' as '' | 'A' | 'B' | 'C',
+    expected_amount: '',
+  })
+  const [projectSaving, setProjectSaving] = useState(false)
+  
   // 基本情報編集用state
   const [basicInfoForm, setBasicInfoForm] = useState({
     phone: candidate?.phone || '',
@@ -291,6 +358,7 @@ export default function CandidateDetailPage({ params }: PageProps) {
   // ヨミ情報用state（最初の案件から取得、なければnull）
   const [yomiForm, setYomiForm] = useState({
     probability: null as 'A' | 'B' | 'C' | null,
+    probability_month: 'current' as 'current' | 'next',
     expected_amount: null as number | null,
   })
   
@@ -300,9 +368,12 @@ export default function CandidateDetailPage({ params }: PageProps) {
       const firstProject = projects[0]
       setYomiForm(prev => {
         // 値が実際に変更された場合のみ更新
-        if (prev.probability !== firstProject?.probability || prev.expected_amount !== firstProject?.expected_amount) {
+        if (prev.probability !== firstProject?.probability || 
+            prev.expected_amount !== firstProject?.expected_amount ||
+            prev.probability_month !== (firstProject?.probability_month || 'current')) {
           return {
             probability: firstProject?.probability || null,
+            probability_month: firstProject?.probability_month || 'current',
             expected_amount: firstProject?.expected_amount || null,
           }
         }
@@ -314,32 +385,78 @@ export default function CandidateDetailPage({ params }: PageProps) {
         if (prev.probability !== null || prev.expected_amount !== null) {
           return {
             probability: null,
+            probability_month: 'current',
             expected_amount: null,
           }
         }
         return prev
       })
     }
-  }, [projects.length, projects[0]?.probability, projects[0]?.expected_amount])
+  }, [projects.length, projects[0]?.probability, projects[0]?.expected_amount, projects[0]?.probability_month])
   
   const handleContractFormChange = (field: keyof Contract, value: string) => {
     setContractForm(prev => ({ ...prev, [field]: value }))
   }
   
-  const handleSaveContract = () => {
-    // 実際のアプリでは、ここでAPIを呼び出してデータを保存
-    console.log('保存するデータ:', contractForm)
-    setIsContractEditDialogOpen(false)
-    // TODO: 成功通知を表示
+  const handleSaveContract = async () => {
+    if (!candidate) return
+    
+    try {
+      const res = await fetch('/api/contracts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          candidate_id: candidate.id,
+          accepted_date: contractForm.accepted_date || new Date().toISOString().split('T')[0],
+          start_date: contractForm.start_date,
+          job_type: contractForm.job_type,
+          placement_company: contractForm.placement_company,
+          revenue_excluding_tax: contractForm.revenue_excluding_tax ? Number(contractForm.revenue_excluding_tax) : null,
+          revenue_including_tax: contractForm.revenue_including_tax ? Number(contractForm.revenue_including_tax) : null,
+          document_url: contractForm.document_url,
+        }),
+      })
+      
+      if (res.ok) {
+        const { data: newContract } = await res.json()
+        setContract(newContract)
+        addTimelineEvent('contract_add', '成約登録', `${contractForm.placement_company || '入職先未設定'}`)
+        setIsContractEditDialogOpen(false)
+      } else {
+        const errorData = await res.json()
+        console.error('成約登録エラー:', errorData)
+        alert('成約登録エラー: ' + (errorData.error || 'Unknown error'))
+      }
+    } catch (err) {
+      console.error('成約登録エラー:', err)
+      alert('成約登録エラー: ' + (err instanceof Error ? err.message : 'Unknown error'))
+    }
   }
   
-  const handleSaveMemo = () => {
-    // 実際のアプリでは、ここでAPIを呼び出してメモを保存
-    console.log('保存するメモ:', memoContent)
+  const handleSaveMemo = async () => {
+    if (!memoContent.trim() || !candidate) return
+    
+    // タイムラインにメモを追加
+    addTimelineEvent('memo', 'メモ追加', memoContent)
+    
+    // candidatesテーブルのmemoフィールドも更新（一覧画面で表示される）
+    try {
+      const res = await fetch(`/api/candidates/${candidate.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ memo: memoContent }),
+      })
+      if (res.ok) {
+        // ローカルのcandidateも更新
+        setCandidate(prev => prev ? { ...prev, memo: memoContent } : prev)
+      }
+    } catch (err) {
+      console.error('メモ保存エラー:', err)
+    }
+    
     setMemoContent('')
     setIsEditDialogOpen(false)
     setEditType(null)
-    // TODO: 成功通知を表示
   }
   
   const handleSaveBasicInfo = () => {
@@ -349,16 +466,148 @@ export default function CandidateDetailPage({ params }: PageProps) {
     // TODO: 成功通知を表示
   }
   
-  const handleSaveYomi = () => {
-    // 実際のアプリでは、ここでAPIを呼び出してヨミ情報を保存
-    console.log('保存するヨミ情報:', yomiForm)
-    // TODO: 成功通知を表示
+  // 案件追加の保存処理
+  const handleSaveProject = async () => {
+    if (!candidate || !projectForm.client_name.trim() || !projectForm.interview_date) return
+    
+    setProjectSaving(true)
+    try {
+      // 案件を作成（フェーズは面接予定で固定）
+      const projectRes = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          candidate_id: candidate.id,
+          client_name: projectForm.client_name,
+          phase: 'interview_scheduled',
+        }),
+      })
+      
+      if (projectRes.ok) {
+        const projectData = await projectRes.json()
+        const newProject = projectData.data
+        setProjects(prev => [...prev, newProject])
+        
+        // 面接データも作成
+        const interviewRes = await fetch('/api/interviews', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            project_id: newProject.id,
+            type: 'interview',
+            start_at: projectForm.interview_date,
+            location: projectForm.client_name,
+            status: 'rescheduling',
+          }),
+        })
+        
+        if (interviewRes.ok) {
+          const interviewData = await interviewRes.json()
+          setAllInterviews(prev => [...prev, interviewData.data])
+        }
+        
+        // タイムラインにイベントを追加
+        const interviewDate = new Date(projectForm.interview_date)
+        const description = `${projectForm.client_name}（${interviewDate.toLocaleDateString('ja-JP')} ${interviewDate.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}）`
+        addTimelineEvent('project_add', '面接追加', description)
+        
+        // フォームをリセット
+        setProjectForm({
+          client_name: '',
+          phase: 'interview_scheduled',
+          interview_date: '',
+          probability: '',
+          expected_amount: '',
+        })
+        setIsEditDialogOpen(false)
+        setEditType(null)
+      } else {
+        console.error('🔴 Project creation failed:', projectData)
+        alert('案件登録エラー: ' + (projectData.error || 'Unknown error'))
+      }
+    } catch (err) {
+      console.error('案件追加エラー:', err)
+      alert('案件追加エラー: ' + (err instanceof Error ? err.message : 'Unknown error'))
+    } finally {
+      setProjectSaving(false)
+    }
+  }
+  
+  const [yomiSaving, setYomiSaving] = useState(false)
+  
+  const handleSaveYomi = async () => {
+    if (!candidate) return
+    
+    setYomiSaving(true)
+    try {
+      // 既存のプロジェクトがあれば更新、なければ新規作成
+      const existingProject = projects.find((p) => p.candidate_id === candidate.id)
+      
+      if (existingProject) {
+        // 既存プロジェクトを更新
+        const res = await fetch(`/api/projects/${existingProject.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            probability: yomiForm.probability,
+            probability_month: yomiForm.probability_month,
+            expected_amount: yomiForm.expected_amount,
+          }),
+        })
+        if (res.ok) {
+          const { data } = await res.json()
+          setProjects((prev) => prev.map((p) => (p.id === existingProject.id ? data : p)))
+          
+          // タイムラインにイベントを追加
+          const monthLabel = yomiForm.probability_month === 'next' 
+            ? `${new Date().getMonth() === 11 ? new Date().getFullYear() + 1 : new Date().getFullYear()}年${new Date().getMonth() === 11 ? 1 : new Date().getMonth() + 2}月`
+            : `${new Date().getFullYear()}年${new Date().getMonth() + 1}月`
+          addTimelineEvent(
+            'yomi_update',
+            'ヨミ情報更新',
+            `${yomiForm.probability}ヨミ / ${monthLabel} / ${formatCurrency(yomiForm.expected_amount || 0)}`
+          )
+        }
+      } else if (yomiForm.probability && yomiForm.expected_amount) {
+        // 新規プロジェクト作成
+        const res = await fetch('/api/projects', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            candidate_id: candidate.id,
+            client_name: '未設定',
+            phase: 'proposed',
+            probability: yomiForm.probability,
+            probability_month: yomiForm.probability_month,
+            expected_amount: yomiForm.expected_amount,
+          }),
+        })
+        if (res.ok) {
+          const { data } = await res.json()
+          setProjects((prev) => [...prev, data])
+          
+          // タイムラインにイベントを追加
+          const monthLabel = yomiForm.probability_month === 'next' 
+            ? `${new Date().getMonth() === 11 ? new Date().getFullYear() + 1 : new Date().getFullYear()}年${new Date().getMonth() === 11 ? 1 : new Date().getMonth() + 2}月`
+            : `${new Date().getFullYear()}年${new Date().getMonth() + 1}月`
+          addTimelineEvent(
+            'yomi_update',
+            'ヨミ情報登録',
+            `${yomiForm.probability}ヨミ / ${monthLabel} / ${formatCurrency(yomiForm.expected_amount || 0)}`
+          )
+        }
+      }
+    } catch (err) {
+      console.error('ヨミ保存エラー:', err)
+    } finally {
+      setYomiSaving(false)
+    }
   }
 
   const getDialogDescription = () => {
     if (editType === 'timeline') return 'タイムラインに履歴を追加します'
-    if (editType === 'project') return '新しい案件や選考情報を追加します'
-    if (editType === 'memo') return 'メモや備考を追加・編集します'
+    if (editType === 'project') return '面接予定を登録します'
+    if (editType === 'memo') return 'メモを追加します'
     return '情報を追加・編集します'
   }
 
@@ -406,8 +655,33 @@ export default function CandidateDetailPage({ params }: PageProps) {
               <h1 className="text-2xl font-bold text-slate-800">{candidate.name}</h1>
               <Select
                 value={currentStatus}
-                onValueChange={(value) => {
+                onValueChange={async (value) => {
+                  const oldStatus = currentStatus
                   setCandidateStatus(value)
+                  
+                  // ステータスをAPIで保存
+                  if (oldStatus !== value && candidate) {
+                    try {
+                      await fetch(`/api/candidates/${candidate.id}`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ status: value }),
+                      })
+                    } catch (err) {
+                      console.error('ステータス更新エラー:', err)
+                    }
+                    
+                    // ステータス変更をタイムラインに追加
+                    addTimelineEvent(
+                      'status_change',
+                      'ステータス変更',
+                      `${statusLabels[oldStatus] || oldStatus} → ${statusLabels[value] || value}`
+                    )
+                    // 成約ステータスに変更した場合、成約登録ダイアログを自動で開く
+                    if (value === 'closed_won' && !contract) {
+                      setIsContractEditDialogOpen(true)
+                    }
+                  }
                 }}
               >
                 <SelectTrigger className="w-32 h-8 p-0 border-0 bg-transparent hover:bg-slate-100">
@@ -457,7 +731,7 @@ export default function CandidateDetailPage({ params }: PageProps) {
                   onValueChange={(value) => {
                     if (value === 'none') {
                       // 確度が未設定の場合、金額も自動的にクリア
-                      setYomiForm({ probability: null, expected_amount: null })
+                      setYomiForm(prev => ({ ...prev, probability: null, expected_amount: null }))
                     } else {
                       setYomiForm(prev => ({ ...prev, probability: value as 'A' | 'B' | 'C' }))
                     }
@@ -482,6 +756,26 @@ export default function CandidateDetailPage({ params }: PageProps) {
                     {yomiForm.probability === 'C' && '確度: 30%'}
                   </p>
                 )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="yomi-month" className="text-slate-700 font-medium">対象月</Label>
+                <Select
+                  value={yomiForm.probability_month}
+                  onValueChange={(value) => setYomiForm(prev => ({ ...prev, probability_month: value as 'current' | 'next' }))}
+                >
+                  <SelectTrigger id="yomi-month" className="bg-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="current">当月（{new Date().getFullYear()}年{new Date().getMonth() + 1}月）</SelectItem>
+                    <SelectItem value="next">翌月（{new Date().getMonth() === 11 ? new Date().getFullYear() + 1 : new Date().getFullYear()}年{new Date().getMonth() === 11 ? 1 : new Date().getMonth() + 2}月）</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-slate-500">
+                  {yomiForm.probability_month === 'next' 
+                    ? `${new Date().getMonth() === 11 ? new Date().getFullYear() + 1 : new Date().getFullYear()}年${new Date().getMonth() === 11 ? 1 : new Date().getMonth() + 2}月のヨミとして登録`
+                    : `${new Date().getFullYear()}年${new Date().getMonth() + 1}月のヨミとして登録`}
+                </p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="yomi-amount" className="text-slate-700 font-medium">ヨミ金額</Label>
@@ -514,7 +808,9 @@ export default function CandidateDetailPage({ params }: PageProps) {
                       : 'text-slate-400'
                   }`}>
                     {yomiForm.probability 
-                      ? `${yomiForm.probability}ヨミ` 
+                      ? `${yomiForm.probability}ヨミ / ${yomiForm.probability_month === 'next' 
+                          ? `${new Date().getMonth() === 11 ? new Date().getFullYear() + 1 : new Date().getFullYear()}年${new Date().getMonth() === 11 ? 1 : new Date().getMonth() + 2}月` 
+                          : `${new Date().getFullYear()}年${new Date().getMonth() + 1}月`}` 
                       : '確度未設定'}
                     {yomiForm.expected_amount 
                       ? ` / ${formatCurrency(yomiForm.expected_amount)}` 
@@ -523,9 +819,15 @@ export default function CandidateDetailPage({ params }: PageProps) {
                 </div>
                 <Button 
                   onClick={handleSaveYomi}
+                  disabled={yomiSaving}
                   className="w-full bg-gradient-to-r from-violet-500 to-indigo-600 hover:from-violet-600 hover:to-indigo-700 text-white shadow-md"
                 >
-                  保存
+                  {yomiSaving ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      保存中...
+                    </>
+                  ) : '保存'}
                 </Button>
               </div>
             </CardContent>
@@ -752,6 +1054,13 @@ export default function CandidateDetailPage({ params }: PageProps) {
                 // ダイアログを閉じる際に選択状態をリセット
                 setEditType(null)
                 setMemoContent('')
+                setProjectForm({
+                  client_name: '',
+                  phase: 'interview_scheduled',
+                  interview_date: '',
+                  probability: '',
+                  expected_amount: '',
+                })
               }
             }}
           >
@@ -794,7 +1103,7 @@ export default function CandidateDetailPage({ params }: PageProps) {
                     }}
                   >
                     <Plus className="w-4 h-4 mr-2" />
-                    案件追加
+                    面接追加
                   </Button>
                 </DialogTrigger>
               </div>
@@ -930,35 +1239,6 @@ export default function CandidateDetailPage({ params }: PageProps) {
                             placeholder="例: ○○保育園"
                             value={contractForm.placement_company || ''}
                             onChange={(e) => handleContractFormChange('placement_company', e.target.value)}
-                          />
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="payment_date">入金日</Label>
-                            <Input
-                              id="payment_date"
-                              type="date"
-                              value={contractForm.payment_date || ''}
-                              onChange={(e) => handleContractFormChange('payment_date', e.target.value)}
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="invoice_sent_date">請求書発送日</Label>
-                            <Input
-                              id="invoice_sent_date"
-                              type="date"
-                              value={contractForm.invoice_sent_date || ''}
-                              onChange={(e) => handleContractFormChange('invoice_sent_date', e.target.value)}
-                            />
-                          </div>
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="calculation_basis">算出根拠</Label>
-                          <Input
-                            id="calculation_basis"
-                            placeholder="例: 3,438,000円×20%"
-                            value={contractForm.calculation_basis || ''}
-                            onChange={(e) => handleContractFormChange('calculation_basis', e.target.value)}
                           />
                         </div>
                         <div className="space-y-2">
@@ -1335,43 +1615,23 @@ export default function CandidateDetailPage({ params }: PageProps) {
               ) : editType === 'project' ? (
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="project-name">案件名</Label>
-                    <Input id="project-name" placeholder="案件名を入力してください..." />
+                    <Label htmlFor="project-name">面接先（園名）<span className="text-red-500">*</span></Label>
+                    <Input 
+                      id="project-name" 
+                      placeholder="例: さくら保育園" 
+                      value={projectForm.client_name}
+                      onChange={(e) => setProjectForm(prev => ({ ...prev, client_name: e.target.value }))}
+                    />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="project-phase">フェーズ</Label>
-                    <Select defaultValue="interview_scheduled">
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="interview_scheduled">面接予定</SelectItem>
-                        <SelectItem value="interviewed">面接済み</SelectItem>
-                        <SelectItem value="offer">内定</SelectItem>
-                        <SelectItem value="accepted">入社確定</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="project-date">日時</Label>
-                    <Input id="project-date" type="datetime-local" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="project-yomi-probability">ヨミ確度</Label>
-                    <Select defaultValue="">
-                      <SelectTrigger id="project-yomi-probability">
-                        <SelectValue placeholder="確度を選択..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="A">Aヨミ（80%）</SelectItem>
-                        <SelectItem value="B">Bヨミ（50%）</SelectItem>
-                        <SelectItem value="C">Cヨミ（30%）</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="project-yomi">ヨミ金額</Label>
-                    <Input id="project-yomi" type="number" placeholder="金額を入力してください..." />
+                    <Label htmlFor="project-date">面接日時<span className="text-red-500">*</span></Label>
+                    <Input 
+                      id="project-date" 
+                      type="datetime-local" 
+                      value={projectForm.interview_date}
+                      onChange={(e) => setProjectForm(prev => ({ ...prev, interview_date: e.target.value }))}
+                    />
+                    <p className="text-xs text-slate-500">面接一覧に自動登録されます</p>
                   </div>
                 </div>
               ) : null}
@@ -1389,17 +1649,20 @@ export default function CandidateDetailPage({ params }: PageProps) {
                   onClick={() => {
                     if (editType === 'memo') {
                       handleSaveMemo()
+                    } else if (editType === 'project') {
+                      handleSaveProject()
                     } else {
-                      // TODO: タイムラインや選考状況の保存処理
-                      console.log(`保存: ${editType}`)
                       setIsEditDialogOpen(false)
                       setEditType(null)
                     }
                   }}
                   className="bg-gradient-to-r from-violet-500 to-indigo-600 hover:from-violet-600 hover:to-indigo-700 text-white"
-                  disabled={editType === 'memo' && !memoContent.trim()}
+                  disabled={
+                    (editType === 'memo' && !memoContent.trim()) ||
+                    (editType === 'project' && (!projectForm.client_name.trim() || !projectForm.interview_date || projectSaving))
+                  }
                 >
-                  保存
+                  {projectSaving ? '保存中...' : '保存'}
                 </Button>
               )}
             </DialogFooter>
