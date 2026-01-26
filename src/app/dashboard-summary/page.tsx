@@ -167,13 +167,13 @@ export default function DashboardSummaryPage() {
     })
   }, [contracts, periodType, customStartDate, customEndDate])
 
-  // 期間内に面接を設定した数（created_atで判定）
+  // 期間内に面接を設定した数（start_atで判定）
   const periodInterviews = useMemo(() => {
     const { startDate, endDate } = getPeriodDates
     return interviews.filter(i => {
-      if (!i.created_at) return false
-      const createdDate = new Date(i.created_at)
-      return createdDate >= startDate && createdDate <= endDate
+      if (!i.start_at) return false
+      const interviewDate = new Date(i.start_at)
+      return interviewDate >= startDate && interviewDate <= endDate
     })
   }, [interviews, periodType, customStartDate, customEndDate])
 
@@ -273,13 +273,16 @@ export default function DashboardSummaryPage() {
   const isUserActiveInPeriod = (user: User) => {
     if (!user.retired_at) return true // 退職日が設定されていない場合は現役
     const retiredDate = new Date(user.retired_at)
-    // 選択期間の開始月より前に退職した場合は非表示
-    return retiredDate >= getPeriodDates.startDate
+    retiredDate.setHours(0, 0, 0, 0)
+    const periodStart = new Date(getPeriodDates.startDate)
+    periodStart.setHours(0, 0, 0, 0)
+    // 選択期間の開始日より前に退職した場合は非表示（退職日が期間開始日より前なら非表示）
+    return retiredDate >= periodStart
   }
 
   // 実際のデータから営業進捗を計算（期間対応）
   const salesProgress = useMemo(() => {
-    return users
+    const progress = users
       .filter((u) => u.role !== 'admin' && isUserActiveInPeriod(u))
       .map((user) => {
         // 期間内に登録された求職者（担当件数）
@@ -291,7 +294,7 @@ export default function DashboardSummaryPage() {
           (c) => !['new', 'contacting'].includes(c.status)
         ).length
 
-        // 期間内に面接を設定したユニークな求職者数（created_atで判定）
+        // 期間内に面接を設定したユニークな求職者数（start_atで判定）
         const interviewCandidateIds = new Set<string>()
         periodInterviews.forEach((i) => {
           const project = projects.find((p) => p.id === i.project_id)
@@ -304,13 +307,13 @@ export default function DashboardSummaryPage() {
         })
         const interviewCount = interviewCandidateIds.size
 
-        // 期間内に成約を設定した数（created_atで判定）
+        // 期間内に成約を設定した数（contracted_at/accepted_dateで判定）
         const closedCount = periodContracts.filter((c) => {
           const candidate = candidates.find((ca) => ca.id === c.candidate_id)
           return candidate && candidate.consultant_id === user.id
         }).length
 
-        return {
+        const result = {
           userId: user.id,
           userName: user.name,
           totalCount,
@@ -318,8 +321,31 @@ export default function DashboardSummaryPage() {
           interviewCount,
           closedCount,
         }
+        
+        // デバッグ用（開発環境のみ）
+        if (process.env.NODE_ENV === 'development' && user.name === '吉田') {
+          console.log('営業進捗計算（吉田）:', {
+            userName: user.name,
+            periodType,
+            periodCandidatesCount: periodCandidates.length,
+            userPeriodCandidatesCount: userPeriodCandidates.length,
+            totalCount,
+            firstContactCount,
+            interviewCount,
+            closedCount,
+            periodInterviewsCount: periodInterviews.length,
+            periodContractsCount: periodContracts.length,
+            candidateStatuses: userPeriodCandidates.map(c => ({ id: c.id, status: c.status })),
+            interviewCandidates: Array.from(interviewCandidateIds)
+          })
+        }
+        
+        return result
       })
-  }, [users, periodCandidates, periodInterviews, periodContracts, projects, candidates])
+    
+    // 担当が多い順（totalCount降順）でソート
+    return progress.sort((a, b) => b.totalCount - a.totalCount)
+  }, [users, periodCandidates, periodInterviews, periodContracts, projects, candidates, periodType])
 
   // 全体集計
   const totalProgress = useMemo(() => {
@@ -622,7 +648,7 @@ export default function DashboardSummaryPage() {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-slate-50">
-                    <TableHead className="text-slate-700 font-semibold">担当</TableHead>
+                    <TableHead className="text-slate-700 font-semibold">担当者</TableHead>
                     <TableHead className="text-slate-700 font-semibold">担当</TableHead>
                     <TableHead className="text-slate-700 font-semibold">初回</TableHead>
                     <TableHead className="text-slate-700 font-semibold">面接</TableHead>
@@ -676,6 +702,23 @@ export default function DashboardSummaryPage() {
                       progress.interviewCount > 0
                         ? (progress.closedCount / progress.interviewCount) * 100
                         : NaN
+
+                    // デバッグ用（開発環境のみ、吉田の場合）
+                    if (process.env.NODE_ENV === 'development' && progress.userName === '吉田') {
+                      console.log('営業進捗表示（吉田）:', {
+                        userName: progress.userName,
+                        totalCount: progress.totalCount,
+                        firstContactCount: progress.firstContactCount,
+                        interviewCount: progress.interviewCount,
+                        closedCount: progress.closedCount,
+                        firstContactRate,
+                        interviewRate,
+                        closedRate,
+                        calculatedFirstContactRate: progress.totalCount > 0 ? (progress.firstContactCount / progress.totalCount) * 100 : NaN,
+                        calculatedInterviewRate: progress.firstContactCount > 0 ? (progress.interviewCount / progress.firstContactCount) * 100 : NaN,
+                        calculatedClosedRate: progress.interviewCount > 0 ? (progress.closedCount / progress.interviewCount) * 100 : NaN
+                      })
+                    }
 
                     return (
                       <TableRow key={progress.userId} className="hover:bg-slate-50">
@@ -965,6 +1008,12 @@ export default function DashboardSummaryPage() {
                   {users
                     .filter((u) => u.role !== 'admin' && isUserActiveInPeriod(u))
                     .map((user) => {
+                      const progress = salesProgress.find((p) => p.userId === user.id)
+                      const totalCount = progress?.totalCount || 0
+                      return { user, totalCount }
+                    })
+                    .sort((a, b) => b.totalCount - a.totalCount)
+                    .map(({ user }) => {
                       const stats = memberYomiStats[user.id] || { yomiA: 0, yomiB: 0, yomiC: 0, yomiD: 0 }
                       return (
                         <TableRow key={user.id} className="hover:bg-slate-50">
@@ -1024,6 +1073,12 @@ export default function DashboardSummaryPage() {
                   {users
                     .filter((u) => u.role !== 'admin' && isUserActiveInPeriod(u))
                     .map((user) => {
+                      const progress = salesProgress.find((p) => p.userId === user.id)
+                      const totalCount = progress?.totalCount || 0
+                      return { user, totalCount }
+                    })
+                    .sort((a, b) => b.totalCount - a.totalCount)
+                    .map(({ user }) => {
                       const yomiStats = memberYomiStatsNext[user.id] || { yomiA: 0, yomiB: 0, yomiC: 0, yomiD: 0 }
                       return (
                         <TableRow key={user.id} className="hover:bg-slate-50">

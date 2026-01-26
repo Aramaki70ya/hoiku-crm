@@ -1,10 +1,16 @@
 -- ========================================
--- 月次データからprojectsテーブルに10月、11月、12月、1月のデータを追加
+-- 1月分（2026_01）のデータをprojectsテーブルに追加
 -- Supabase Dashboard → SQL Editor で実行してください
 -- ========================================
--- 10月（2025_10）、11月（2025_11）、12月（2025_12）、1月（2026_01）のデータをprojectsテーブルに追加
--- 既存のプロジェクトは更新、新規は追加
+-- 前提: CSVデータがstg_member_monthlyテーブルにインポート済みであること
+-- CSVインポート手順:
+--   1. Supabase Dashboard → Table Editor → stg_member_monthly
+--   2. Import CSV をクリック
+--   3. 「【保育】数値管理シート_最新版 のコピー - 全メンバーマージシート1月分.csv」をアップロード
+--   4. カラムマッピングを確認してインポート実行
+-- ========================================
 
+-- 1月分（2026_01）のデータをprojectsテーブルに追加
 -- 注意: 月次マージシートには園名・法人名の情報がないため、client_nameは'未設定'になります
 WITH monthly_data AS (
   SELECT DISTINCT ON (candidate_id, month_text)
@@ -16,7 +22,7 @@ WITH monthly_data AS (
     prob_next,
     month_text
   FROM stg_member_monthly
-  WHERE month_text IN ('2025_10', '2025_11', '2025_12', '2026_01')
+  WHERE month_text = '2026_01'
     AND candidate_id IS NOT NULL 
     AND candidate_id != ''
   ORDER BY candidate_id, month_text DESC
@@ -36,7 +42,7 @@ SELECT
     WHEN l.status LIKE '%承諾確認中%' THEN 'offer'
     ELSE 'proposed'
   END,
-  NULLIF(l.expected_amount, '')::integer,
+  NULLIF(REPLACE(REPLACE(l.expected_amount, ',', ''), '"', ''), '')::integer,
   CASE
     WHEN l.prob_current LIKE '%A%' THEN 'A'
     WHEN l.prob_current LIKE '%B%' THEN 'B'
@@ -45,7 +51,7 @@ SELECT
     ELSE NULL
   END,
   'current', -- prob_current（当月のヨミ）が設定されている場合は'current'
-  l.month_text -- 月情報を保存（'2025_10', '2025_11', '2025_12', '2026_01'など）
+  l.month_text -- 月情報を保存（'2026_01'）
 FROM monthly_data l
 WHERE EXISTS (SELECT 1 FROM candidates c WHERE c.id = l.candidate_id)
   AND NOT EXISTS (
@@ -54,13 +60,22 @@ WHERE EXISTS (SELECT 1 FROM candidates c WHERE c.id = l.candidate_id)
       AND p.month_text = l.month_text
   );
 
--- 結果確認（月別）
+-- 結果確認（1月分）
 SELECT 
-  '月別データ追加結果' as info,
+  '1月分データ追加結果' as info,
   COUNT(*) as total_projects,
   COUNT(*) FILTER (WHERE expected_amount IS NOT NULL AND expected_amount > 0) as with_yomi,
   COUNT(*) FILTER (WHERE probability = 'A') as yomi_a,
   COUNT(*) FILTER (WHERE probability = 'B') as yomi_b,
   COUNT(*) FILTER (WHERE probability = 'C') as yomi_c
 FROM projects
-WHERE probability_month = 'current';
+WHERE month_text = '2026_01';
+
+-- 月別データ件数確認
+SELECT 
+  month_text,
+  COUNT(*) as project_count
+FROM projects
+WHERE month_text IS NOT NULL
+GROUP BY month_text
+ORDER BY month_text DESC;
