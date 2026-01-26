@@ -94,11 +94,22 @@ export default function ContractsPage() {
   const [localContracts, setLocalContracts] = useState<Contract[]>([])
   
   // APIから取得したデータをローカル状態にマージ
+  // 同じ求職者の重複を防ぐ（最新の1件のみ表示）
   const contracts = useMemo(() => {
     const contractMap = new Map<string, Contract>()
     apiContracts.forEach(c => contractMap.set(c.id, c))
     localContracts.forEach(c => contractMap.set(c.id, c))
-    return Array.from(contractMap.values())
+    
+    // candidate_idごとに最新の1件だけを残す
+    const candidateMap = new Map<string, Contract>()
+    Array.from(contractMap.values()).forEach(contract => {
+      const existing = candidateMap.get(contract.candidate_id)
+      if (!existing || new Date(contract.created_at) > new Date(existing.created_at)) {
+        candidateMap.set(contract.candidate_id, contract)
+      }
+    })
+    
+    return Array.from(candidateMap.values())
   }, [apiContracts, localContracts])
   const [editingContractId, setEditingContractId] = useState<string | null>(null)
   const [editData, setEditData] = useState<Partial<Contract>>({})

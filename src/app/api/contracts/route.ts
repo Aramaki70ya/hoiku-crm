@@ -106,6 +106,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '候補者IDは必須です' }, { status: 400 })
     }
     
+    // 既にこの求職者の成約が存在するかチェック
+    const { data: existingContracts, error: checkError } = await supabase
+      .from('contracts')
+      .select('id')
+      .eq('candidate_id', body.candidate_id)
+      .is('is_cancelled', null)
+      .or('is_cancelled.eq.false')
+    
+    if (checkError) throw checkError
+    
+    if (existingContracts && existingContracts.length > 0) {
+      return NextResponse.json({ 
+        error: 'この求職者には既に成約が登録されています。成約管理画面で編集してください。' 
+      }, { status: 400 })
+    }
+    
     const now = new Date().toISOString()
     
     const { data, error } = await supabase

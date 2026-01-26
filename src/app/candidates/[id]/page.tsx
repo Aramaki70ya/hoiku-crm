@@ -40,7 +40,6 @@ import {
   Plus,
   Building,
   Clock,
-  Trophy,
   Banknote,
   FileText,
   Link as LinkIcon,
@@ -192,9 +191,6 @@ export default function CandidateDetailPage({ params }: PageProps) {
   )
   void _interviews // ESLint警告回避
   
-  // 成約情報
-  const isContracted = currentStatus === 'closed_won' || !!contract
-  
   // メモを取得（この求職者に関連するメモ）
   const candidateMemos = mockMemos.filter(m => m.candidate_id === id).sort((a, b) => 
     new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
@@ -307,18 +303,6 @@ export default function CandidateDetailPage({ params }: PageProps) {
     return items.sort((a, b) => b.date.getTime() - a.date.getTime())
   }, [timelineEvents, candidateMemos])
   
-  // 成約情報編集用state
-  const [contractForm, setContractForm] = useState<Partial<Contract>>({
-    employment_type: contract?.employment_type || '',
-    job_type: contract?.job_type || '',
-    payment_date: contract?.payment_date || '',
-    invoice_sent_date: contract?.invoice_sent_date || '',
-    calculation_basis: contract?.calculation_basis || '',
-    document_url: contract?.document_url || '',
-    placement_company: contract?.placement_company || '',
-  })
-  const [isContractEditDialogOpen, setIsContractEditDialogOpen] = useState(false)
-  
   // 編集ダイアログ用state
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [editType, setEditType] = useState<'timeline' | 'project' | 'memo' | 'basic' | 'task' | null>(null)
@@ -404,45 +388,6 @@ export default function CandidateDetailPage({ params }: PageProps) {
       })
     }
   }, [projects.length, firstProjectProbability, firstProjectExpectedAmount, firstProjectProbabilityMonth])
-  
-  const handleContractFormChange = (field: keyof Contract, value: string) => {
-    setContractForm(prev => ({ ...prev, [field]: value }))
-  }
-  
-  const handleSaveContract = async () => {
-    if (!candidate) return
-    
-    try {
-      const res = await fetch('/api/contracts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          candidate_id: candidate.id,
-          accepted_date: contractForm.accepted_date || new Date().toISOString().split('T')[0],
-          entry_date: contractForm.entry_date,
-          job_type: contractForm.job_type,
-          placement_company: contractForm.placement_company,
-          revenue_excluding_tax: contractForm.revenue_excluding_tax ? Number(contractForm.revenue_excluding_tax) : null,
-          revenue_including_tax: contractForm.revenue_including_tax ? Number(contractForm.revenue_including_tax) : null,
-          document_url: contractForm.document_url,
-        }),
-      })
-      
-      if (res.ok) {
-        const { data: newContract } = await res.json()
-        setContract(newContract)
-        addTimelineEvent('contract_add', '成約登録', `${contractForm.placement_company || '入職先未設定'}`)
-        setIsContractEditDialogOpen(false)
-      } else {
-        const errorData = await res.json()
-        console.error('成約登録エラー:', errorData)
-        alert('成約登録エラー: ' + (errorData.error || 'Unknown error'))
-      }
-    } catch (err) {
-      console.error('成約登録エラー:', err)
-      alert('成約登録エラー: ' + (err instanceof Error ? err.message : 'Unknown error'))
-    }
-  }
   
   const handleSaveMemo = async () => {
     if (!memoContent.trim() || !candidate) return
@@ -710,10 +655,6 @@ export default function CandidateDetailPage({ params }: PageProps) {
                       'ステータス変更',
                       `${statusLabels[oldStatus] || oldStatus} → ${statusLabels[value] || value}`
                     )
-                    // 成約ステータスに変更した場合、成約登録ダイアログを自動で開く
-                    if (value === 'closed_won' && !contract) {
-                      setIsContractEditDialogOpen(true)
-                    }
                   }
                 }}
               >
@@ -1106,12 +1047,6 @@ export default function CandidateDetailPage({ params }: PageProps) {
                 <TabsTrigger value="projects" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-indigo-600 data-[state=active]:text-white">
                   選考状況 ({projects.length})
                 </TabsTrigger>
-                {isContracted && (
-                  <TabsTrigger value="contract" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-indigo-600 data-[state=active]:text-white">
-                    <Trophy className="w-4 h-4 mr-1" />
-                    成約情報
-                  </TabsTrigger>
-                )}
                 <TabsTrigger value="memo" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-indigo-600 data-[state=active]:text-white">
                   メモ
                 </TabsTrigger>
@@ -1226,261 +1161,6 @@ export default function CandidateDetailPage({ params }: PageProps) {
               )}
             </TabsContent>
 
-            {/* 成約情報タブ */}
-            {isContracted && (
-              <TabsContent value="contract" className="mt-4 space-y-4">
-                <div className="flex justify-end">
-                  <Dialog open={isContractEditDialogOpen} onOpenChange={setIsContractEditDialogOpen}>
-                    <DialogTrigger asChild>
-                      <Button size="sm" className="bg-gradient-to-r from-violet-500 to-indigo-600 hover:from-violet-600 hover:to-indigo-700 text-white shadow-md">
-                        <Edit className="w-4 h-4 mr-2" />
-                        成約情報を編集
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="sm:max-w-[500px]">
-                      <DialogHeader>
-                        <DialogTitle>成約情報の編集</DialogTitle>
-                        <DialogDescription>
-                          成約後に入力する情報を更新できます
-                        </DialogDescription>
-                      </DialogHeader>
-                      <div className="grid gap-4 py-4">
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="employment_type">雇用形態</Label>
-                            <Input
-                              id="employment_type"
-                              placeholder="例: 正社員"
-                              value={contractForm.employment_type || ''}
-                              onChange={(e) => handleContractFormChange('employment_type', e.target.value)}
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="job_type">職種</Label>
-                            <Input
-                              id="job_type"
-                              placeholder="例: 保育士"
-                              value={contractForm.job_type || ''}
-                              onChange={(e) => handleContractFormChange('job_type', e.target.value)}
-                            />
-                          </div>
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="placement_company">入職先</Label>
-                          <Input
-                            id="placement_company"
-                            placeholder="例: ○○保育園"
-                            value={contractForm.placement_company || ''}
-                            onChange={(e) => handleContractFormChange('placement_company', e.target.value)}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="document_url">格納先URL</Label>
-                          <Input
-                            id="document_url"
-                            type="url"
-                            placeholder="https://..."
-                            value={contractForm.document_url || ''}
-                            onChange={(e) => handleContractFormChange('document_url', e.target.value)}
-                          />
-                        </div>
-                      </div>
-                      <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsContractEditDialogOpen(false)}>
-                          キャンセル
-                        </Button>
-                        <Button 
-                          onClick={handleSaveContract}
-                          className="bg-gradient-to-r from-violet-500 to-indigo-600 hover:from-violet-600 hover:to-indigo-700 text-white"
-                        >
-                          保存
-                        </Button>
-                      </DialogFooter>
-                    </DialogContent>
-                  </Dialog>
-                </div>
-
-                {/* 成約サマリーカード */}
-                {contract && (
-                  <Card className="bg-gradient-to-r from-green-50 to-emerald-50 border-green-200">
-                    <CardContent className="pt-6">
-                      <div className="flex items-center gap-3 mb-4">
-                        <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
-                          <Trophy className="w-5 h-5 text-green-600" />
-                        </div>
-                        <div>
-                          <p className="text-sm text-green-600 font-medium">成約済み</p>
-                          <p className="text-lg font-bold text-green-800">
-                            {formatDate(contract.accepted_date)}
-                          </p>
-                        </div>
-                        <div className="ml-auto text-right">
-                          <p className="text-sm text-slate-500">売上（税抜）</p>
-                          <p className="text-2xl font-bold text-green-700">
-                            {formatCurrency(contract.revenue_excluding_tax)}
-                          </p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* 成約詳細情報 */}
-                <Card className="bg-white border-slate-200 shadow-sm">
-                  <CardHeader>
-                    <CardTitle className="text-lg text-slate-800">成約詳細</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-2 gap-6">
-                      {/* 雇用形態 */}
-                      <div className="flex items-start gap-3">
-                        <div className="w-9 h-9 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0">
-                          <Briefcase className="w-4 h-4 text-indigo-600" />
-                        </div>
-                        <div>
-                          <p className="text-xs text-slate-500">雇用形態</p>
-                          <p className="text-slate-800 font-medium">
-                            {contract?.employment_type || contractForm.employment_type || 
-                              <span className="text-slate-400 text-sm">未入力</span>}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* 職種 */}
-                      <div className="flex items-start gap-3">
-                        <div className="w-9 h-9 rounded-lg bg-purple-100 flex items-center justify-center flex-shrink-0">
-                          <GraduationCap className="w-4 h-4 text-purple-600" />
-                        </div>
-                        <div>
-                          <p className="text-xs text-slate-500">職種</p>
-                          <p className="text-slate-800 font-medium">
-                            {contract?.job_type || contractForm.job_type || 
-                              <span className="text-slate-400 text-sm">未入力</span>}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* 入職先 */}
-                      <div className="flex items-start gap-3 col-span-2">
-                        <div className="w-9 h-9 rounded-lg bg-rose-100 flex items-center justify-center flex-shrink-0">
-                          <Building className="w-4 h-4 text-rose-600" />
-                        </div>
-                        <div>
-                          <p className="text-xs text-slate-500">入職先</p>
-                          <p className="text-slate-800 font-medium">
-                            {contract?.placement_company || contractForm.placement_company || 
-                              <span className="text-slate-400 text-sm">未入力</span>}
-                          </p>
-                        </div>
-                      </div>
-
-                      <Separator className="col-span-2 bg-slate-100" />
-
-                      {/* 入金日 */}
-                      <div className="flex items-start gap-3">
-                        <div className="w-9 h-9 rounded-lg bg-emerald-100 flex items-center justify-center flex-shrink-0">
-                          <Banknote className="w-4 h-4 text-emerald-600" />
-                        </div>
-                        <div>
-                          <p className="text-xs text-slate-500">入金日</p>
-                          <p className="text-slate-800 font-medium">
-                            {contract?.payment_date ? formatDate(contract.payment_date) :
-                              contractForm.payment_date ? formatDate(contractForm.payment_date) :
-                              <span className="text-slate-400 text-sm">未入力</span>}
-                          </p>
-                          {(contract?.payment_date || contractForm.payment_date) && (
-                            <Badge className="mt-1 bg-green-100 text-green-700 border-green-200">
-                              入金済み
-                            </Badge>
-                          )}
-                          {!contract?.payment_date && !contractForm.payment_date && (
-                            <Badge className="mt-1 bg-amber-100 text-amber-700 border-amber-200">
-                              入金待ち
-                            </Badge>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* 請求書発送日 */}
-                      <div className="flex items-start gap-3">
-                        <div className="w-9 h-9 rounded-lg bg-cyan-100 flex items-center justify-center flex-shrink-0">
-                          <FileText className="w-4 h-4 text-cyan-600" />
-                        </div>
-                        <div>
-                          <p className="text-xs text-slate-500">請求書発送日</p>
-                          <p className="text-slate-800 font-medium">
-                            {contract?.invoice_sent_date ? formatDate(contract.invoice_sent_date) :
-                              contractForm.invoice_sent_date ? formatDate(contractForm.invoice_sent_date) :
-                              <span className="text-slate-400 text-sm">未発送</span>}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* 算出根拠 */}
-                      <div className="flex items-start gap-3">
-                        <div className="w-9 h-9 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
-                          <CalendarCheck className="w-4 h-4 text-amber-600" />
-                        </div>
-                        <div>
-                          <p className="text-xs text-slate-500">算出根拠</p>
-                          <p className="text-slate-800 font-medium">
-                            {contract?.calculation_basis || contractForm.calculation_basis || 
-                              <span className="text-slate-400 text-sm">未入力</span>}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* 格納先URL */}
-                      <div className="flex items-start gap-3">
-                        <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
-                          <LinkIcon className="w-4 h-4 text-slate-600" />
-                        </div>
-                        <div>
-                          <p className="text-xs text-slate-500">格納先URL</p>
-                          {(contract?.document_url || contractForm.document_url) ? (
-                            <a 
-                              href={contract?.document_url || contractForm.document_url || '#'}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-indigo-600 hover:text-indigo-800 hover:underline text-sm"
-                            >
-                              ドキュメントを開く
-                            </a>
-                          ) : (
-                            <p className="text-slate-400 text-sm">未設定</p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* 売上情報カード */}
-                {contract && (
-                  <Card className="bg-white border-slate-200 shadow-sm">
-                    <CardHeader>
-                      <CardTitle className="text-lg text-slate-800">売上情報</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="grid grid-cols-2 gap-6">
-                        <div className="text-center p-4 bg-slate-50 rounded-lg">
-                          <p className="text-sm text-slate-500 mb-1">売上（税抜）</p>
-                          <p className="text-2xl font-bold text-slate-800">
-                            {formatCurrency(contract.revenue_excluding_tax)}
-                          </p>
-                        </div>
-                        <div className="text-center p-4 bg-slate-50 rounded-lg">
-                          <p className="text-sm text-slate-500 mb-1">売上（税込）</p>
-                          <p className="text-2xl font-bold text-slate-800">
-                            {formatCurrency(contract.revenue_including_tax)}
-                          </p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-              </TabsContent>
-            )}
 
             {/* タイムラインタブ */}
             <TabsContent value="timeline" className="mt-4 space-y-4">
@@ -1489,7 +1169,7 @@ export default function CandidateDetailPage({ params }: PageProps) {
                 <CardHeader>
                   <CardTitle className="text-lg text-slate-800">タイムライン</CardTitle>
                 </CardHeader>
-                <CardContent className="py-6">
+                <CardContent className="py-6 max-h-[600px] overflow-y-auto">
                   {allTimelineItems.length === 0 ? (
                     <div className="text-center py-8 text-slate-500">
                       <p>タイムラインイベントがありません</p>
