@@ -300,3 +300,31 @@ export interface EmailLogWithRelations extends EmailLog {
   sent_by_user?: User
 }
 
+// 月次目標（全体）
+export interface MonthlyTarget {
+  id: string
+  year_month: string // 例: '2026-01'
+  total_sales_budget: number // 全体売上予算（円）
+  registration_to_first_contact_rate: number // 登録→初回率
+  first_contact_to_interview_rate: number // 初回→面接率
+  interview_to_closed_rate: number // 面接→成約率
+  closed_unit_price: number // 成約単価（円）
+  created_at: string
+  updated_at: string
+}
+
+// 個人別月次目標
+export interface UserMonthlyTarget {
+  id: string
+  year_month: string // 例: '2026-01'
+  user_id: string
+  sales_budget: number // 売上予算（円）
+  interview_target: number // 面接設定目標
+  created_at: string
+  updated_at: string
+}
+
+export interface UserMonthlyTargetWithRelations extends UserMonthlyTarget {
+  user?: User
+}
+

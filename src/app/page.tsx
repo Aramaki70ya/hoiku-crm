@@ -28,6 +28,7 @@ import {
   Users,
   Briefcase,
   Clock,
+  Edit,
   ArrowUpRight,
   AlertCircle,
   Percent,
@@ -51,8 +52,9 @@ import {
   statusLabels,
   statusColors,
   processStatusLabels,
-  kpiAssumptions,
+  kpiAssumptions as defaultKpiAssumptions,
 } from '@/lib/mock-data'
+import type { MonthlyTarget } from '@/types/database'
 
 type PeriodType = 'current_month' | 'previous_month' | 'custom'
 
@@ -70,10 +72,26 @@ export default function DashboardPage() {
   const [sources, setSources] = useState<Source[]>([])
   const [loading, setLoading] = useState(true)
   
-  // 予算（編集可能）
+  // 予算・目標（編集可能）
   const [budget, setBudget] = useState(defaultBudget)
   const [isEditingBudget, setIsEditingBudget] = useState(false)
   const [budgetInput, setBudgetInput] = useState('')
+  
+  // KPI目標
+  const [kpiAssumptions, setKpiAssumptions] = useState(defaultKpiAssumptions)
+  const [isEditingKpi, setIsEditingKpi] = useState(false)
+  const [kpiForm, setKpiForm] = useState({
+    registrationToFirstContactRate: defaultKpiAssumptions.registrationToFirstContactRate * 100,
+    firstContactToInterviewRate: defaultKpiAssumptions.firstContactToInterviewRate * 100,
+    interviewToClosedRate: defaultKpiAssumptions.interviewToClosedRate * 100,
+    revenuePerClosed: defaultKpiAssumptions.revenuePerClosed,
+  })
+
+  // 現在の年月を取得
+  const getCurrentYearMonth = () => {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  }
 
   useEffect(() => {
     async function fetchData() {
@@ -92,6 +110,32 @@ export default function DashboardPage() {
         setInterviews(interviewsData)
         setUsers(usersData)
         setSources(sourcesData)
+        
+        // 月次目標を取得
+        try {
+          const yearMonth = getCurrentYearMonth()
+          const targetsRes = await fetch(`/api/targets?year_month=${yearMonth}`)
+          if (targetsRes.ok) {
+            const { data: targetsData } = await targetsRes.json()
+            if (targetsData) {
+              setBudget(targetsData.total_sales_budget || defaultBudget)
+              setKpiAssumptions({
+                registrationToFirstContactRate: Number(targetsData.registration_to_first_contact_rate) || defaultKpiAssumptions.registrationToFirstContactRate,
+                firstContactToInterviewRate: Number(targetsData.first_contact_to_interview_rate) || defaultKpiAssumptions.firstContactToInterviewRate,
+                interviewToClosedRate: Number(targetsData.interview_to_closed_rate) || defaultKpiAssumptions.interviewToClosedRate,
+                revenuePerClosed: targetsData.closed_unit_price || defaultKpiAssumptions.revenuePerClosed,
+              })
+              setKpiForm({
+                registrationToFirstContactRate: Number(targetsData.registration_to_first_contact_rate) * 100 || defaultKpiAssumptions.registrationToFirstContactRate * 100,
+                firstContactToInterviewRate: Number(targetsData.first_contact_to_interview_rate) * 100 || defaultKpiAssumptions.firstContactToInterviewRate * 100,
+                interviewToClosedRate: Number(targetsData.interview_to_closed_rate) * 100 || defaultKpiAssumptions.interviewToClosedRate * 100,
+                revenuePerClosed: targetsData.closed_unit_price || defaultKpiAssumptions.revenuePerClosed,
+              })
+            }
+          }
+        } catch (err) {
+          console.error('目標データ取得エラー:', err)
+        }
       } catch (error) {
         console.error('Error fetching data:', error)
         // エラー時は空配列を設定（既存の動作を維持）
@@ -107,6 +151,27 @@ export default function DashboardPage() {
     }
     fetchData()
   }, [])
+
+  // 目標データを保存する関数
+  const saveTargets = async (newBudget?: number, newKpi?: typeof kpiAssumptions) => {
+    try {
+      const yearMonth = getCurrentYearMonth()
+      await fetch('/api/targets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          year_month: yearMonth,
+          total_sales_budget: newBudget ?? budget,
+          registration_to_first_contact_rate: (newKpi ?? kpiAssumptions).registrationToFirstContactRate,
+          first_contact_to_interview_rate: (newKpi ?? kpiAssumptions).firstContactToInterviewRate,
+          interview_to_closed_rate: (newKpi ?? kpiAssumptions).interviewToClosedRate,
+          closed_unit_price: (newKpi ?? kpiAssumptions).revenuePerClosed,
+        }),
+      })
+    } catch (err) {
+      console.error('目標保存エラー:', err)
+    }
+  }
 
   // 期間表示用テキスト
   const getPeriodLabel = () => {
@@ -469,6 +534,7 @@ export default function DashboardPage() {
                               const value = parseInt(budgetInput) * 10000
                               if (!isNaN(value) && value > 0) {
                                 setBudget(value)
+                                saveTargets(value)
                               }
                               setIsEditingBudget(false)
                             } else if (e.key === 'Escape') {
@@ -479,6 +545,7 @@ export default function DashboardPage() {
                             const value = parseInt(budgetInput) * 10000
                             if (!isNaN(value) && value > 0) {
                               setBudget(value)
+                              saveTargets(value)
                             }
                             setIsEditingBudget(false)
                           }}
@@ -531,10 +598,34 @@ export default function DashboardPage() {
       {/* 目標数値の前提条件 */}
       <Card className="bg-white border-slate-200 shadow-sm mb-6">
         <CardHeader className="pb-2">
-          <CardTitle className="text-lg text-slate-800 flex items-center gap-2">
-            <Target className="w-5 h-5 text-violet-500" />
-            目標数値の前提条件
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-lg text-slate-800 flex items-center gap-2">
+              <Target className="w-5 h-5 text-violet-500" />
+              目標数値の前提条件
+            </CardTitle>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                if (isEditingKpi) {
+                  // 保存
+                  const newKpi = {
+                    registrationToFirstContactRate: kpiForm.registrationToFirstContactRate / 100,
+                    firstContactToInterviewRate: kpiForm.firstContactToInterviewRate / 100,
+                    interviewToClosedRate: kpiForm.interviewToClosedRate / 100,
+                    revenuePerClosed: kpiForm.revenuePerClosed,
+                  }
+                  setKpiAssumptions(newKpi)
+                  saveTargets(undefined, newKpi)
+                }
+                setIsEditingKpi(!isEditingKpi)
+              }}
+              className="text-violet-600 hover:text-violet-700"
+            >
+              <Edit className="w-4 h-4 mr-1" />
+              {isEditingKpi ? '保存' : '編集'}
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-4 gap-4">
@@ -545,7 +636,19 @@ export default function DashboardPage() {
                 <p className="text-sm font-medium text-purple-700">登録→初回率</p>
               </div>
               <div className="flex items-end gap-2">
-                <p className="text-2xl font-bold text-purple-600">{(kpiAssumptions.registrationToFirstContactRate * 100).toFixed(0)}%</p>
+                {isEditingKpi ? (
+                  <div className="flex items-center gap-1">
+                    <Input
+                      type="number"
+                      value={kpiForm.registrationToFirstContactRate}
+                      onChange={(e) => setKpiForm(prev => ({ ...prev, registrationToFirstContactRate: Number(e.target.value) }))}
+                      className="w-16 h-8 text-lg font-bold"
+                    />
+                    <span className="text-2xl font-bold text-purple-600">%</span>
+                  </div>
+                ) : (
+                  <p className="text-2xl font-bold text-purple-600">{(kpiAssumptions.registrationToFirstContactRate * 100).toFixed(0)}%</p>
+                )}
                 <p className="text-sm text-slate-500 mb-1">目標</p>
               </div>
               <div className="mt-2 pt-2 border-t border-purple-200">
@@ -570,7 +673,19 @@ export default function DashboardPage() {
                 <p className="text-sm font-medium text-cyan-700">初回→面接率</p>
               </div>
               <div className="flex items-end gap-2">
-                <p className="text-2xl font-bold text-cyan-600">{(kpiAssumptions.firstContactToInterviewRate * 100).toFixed(0)}%</p>
+                {isEditingKpi ? (
+                  <div className="flex items-center gap-1">
+                    <Input
+                      type="number"
+                      value={kpiForm.firstContactToInterviewRate}
+                      onChange={(e) => setKpiForm(prev => ({ ...prev, firstContactToInterviewRate: Number(e.target.value) }))}
+                      className="w-16 h-8 text-lg font-bold"
+                    />
+                    <span className="text-2xl font-bold text-cyan-600">%</span>
+                  </div>
+                ) : (
+                  <p className="text-2xl font-bold text-cyan-600">{(kpiAssumptions.firstContactToInterviewRate * 100).toFixed(0)}%</p>
+                )}
                 <p className="text-sm text-slate-500 mb-1">目標</p>
               </div>
               <div className="mt-2 pt-2 border-t border-cyan-200">
@@ -595,7 +710,19 @@ export default function DashboardPage() {
                 <p className="text-sm font-medium text-emerald-700">面接→成約率</p>
               </div>
               <div className="flex items-end gap-2">
-                <p className="text-2xl font-bold text-emerald-600">{(kpiAssumptions.interviewToClosedRate * 100).toFixed(0)}%</p>
+                {isEditingKpi ? (
+                  <div className="flex items-center gap-1">
+                    <Input
+                      type="number"
+                      value={kpiForm.interviewToClosedRate}
+                      onChange={(e) => setKpiForm(prev => ({ ...prev, interviewToClosedRate: Number(e.target.value) }))}
+                      className="w-16 h-8 text-lg font-bold"
+                    />
+                    <span className="text-2xl font-bold text-emerald-600">%</span>
+                  </div>
+                ) : (
+                  <p className="text-2xl font-bold text-emerald-600">{(kpiAssumptions.interviewToClosedRate * 100).toFixed(0)}%</p>
+                )}
                 <p className="text-sm text-slate-500 mb-1">目標</p>
               </div>
               <div className="mt-2 pt-2 border-t border-emerald-200">
@@ -620,7 +747,20 @@ export default function DashboardPage() {
                 <p className="text-sm font-medium text-amber-700">成約単価</p>
               </div>
               <div className="flex items-end gap-2">
-                <p className="text-2xl font-bold text-amber-600">¥{(kpiAssumptions.revenuePerClosed / 10000).toFixed(0)}万</p>
+                {isEditingKpi ? (
+                  <div className="flex items-center gap-1">
+                    <span className="text-2xl font-bold text-amber-600">¥</span>
+                    <Input
+                      type="number"
+                      value={kpiForm.revenuePerClosed / 10000}
+                      onChange={(e) => setKpiForm(prev => ({ ...prev, revenuePerClosed: Number(e.target.value) * 10000 }))}
+                      className="w-16 h-8 text-lg font-bold"
+                    />
+                    <span className="text-2xl font-bold text-amber-600">万</span>
+                  </div>
+                ) : (
+                  <p className="text-2xl font-bold text-amber-600">¥{(kpiAssumptions.revenuePerClosed / 10000).toFixed(0)}万</p>
+                )}
                 <p className="text-sm text-slate-500 mb-1">/人</p>
               </div>
               <div className="mt-2 pt-2 border-t border-amber-200">
