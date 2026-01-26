@@ -277,6 +277,15 @@ export default function DashboardPage() {
     })
   }, [interviews, getPeriodDates])
 
+  const periodProjects = useMemo(() => {
+    return projects.filter(p => {
+      const dateStr = p.updated_at || p.created_at
+      if (!dateStr) return false
+      const projectDate = new Date(dateStr)
+      return projectDate >= getPeriodDates.startDate && projectDate <= getPeriodDates.endDate
+    })
+  }, [projects, getPeriodDates])
+
   // プロセス別集計（選択期間内、project.phaseも考慮）
   const processCounts = useMemo(() => {
     const counts: Record<string, number> = {}
@@ -395,18 +404,28 @@ export default function DashboardPage() {
   // 実績の成約単価（期間内のデータを使用）
   const actualRevenuePerClosed = periodClosedWonCount > 0 ? periodTotalSales / periodClosedWonCount : 0
 
-  // A/Bヨミの計算（projectsから）
+  // A/Bヨミの計算（projectsから、期間に応じたフィルタリング）
   const totalYomiA = useMemo(() => {
-    return projects
-      .filter(p => p.probability === 'A' && p.expected_amount)
+    return periodProjects
+      .filter(p => {
+        if (p.probability !== 'A' || !p.expected_amount) return false
+        
+        // その月時点のヨミのみ（probability_monthが'current'またはnull）
+        return p.probability_month === 'current' || p.probability_month === null
+      })
       .reduce((sum, p) => sum + (p.expected_amount || 0), 0)
-  }, [projects])
+  }, [periodProjects])
 
   const totalYomiB = useMemo(() => {
-    return projects
-      .filter(p => p.probability === 'B' && p.expected_amount)
+    return periodProjects
+      .filter(p => {
+        if (p.probability !== 'B' || !p.expected_amount) return false
+        
+        // その月時点のヨミのみ（probability_monthが'current'またはnull）
+        return p.probability_month === 'current' || p.probability_month === null
+      })
       .reduce((sum, p) => sum + (p.expected_amount || 0), 0)
-  }, [projects])
+  }, [periodProjects])
 
   // 不足金額 = 予算 - 売上
   const shortfall = budget - periodTotalSales
@@ -632,21 +651,21 @@ export default function DashboardPage() {
                         }}
                         title="クリックして編集"
                       >
-                        ¥{(budget / 10000).toLocaleString()}万
+                        ¥{Math.round(budget / 10000).toLocaleString()}万
                       </p>
                     )}
                   </div>
                   <div>
                     <p className="text-xs text-slate-400">売上</p>
-                    <p className="text-xl font-bold text-emerald-600">¥{(periodTotalSales / 10000).toLocaleString()}万</p>
+                    <p className="text-xl font-bold text-emerald-600">¥{Math.round(periodTotalSales / 10000).toLocaleString()}万</p>
                   </div>
                   <div>
                     <p className="text-xs text-slate-400">Aヨミ</p>
-                    <p className="text-xl font-bold text-red-600">¥{(totalYomiA / 10000).toLocaleString()}万</p>
+                    <p className="text-xl font-bold text-red-600">¥{Math.round(totalYomiA / 10000).toLocaleString()}万</p>
                   </div>
                   <div>
                     <p className="text-xs text-slate-400">Bヨミ</p>
-                    <p className="text-xl font-bold text-orange-600">¥{(totalYomiB / 10000).toLocaleString()}万</p>
+                    <p className="text-xl font-bold text-orange-600">¥{Math.round(totalYomiB / 10000).toLocaleString()}万</p>
                   </div>
                 </div>
                 <Progress value={(periodTotalSales / budget) * 100} className="mt-3 h-2" />
@@ -656,7 +675,7 @@ export default function DashboardPage() {
               <div className="flex items-center">
                 <div className="bg-gradient-to-br from-rose-100 to-pink-100 rounded-xl px-4 py-3 text-center border border-rose-200">
                   <p className="text-xs text-slate-600 mb-1">不足金額</p>
-                  <p className="text-xl font-bold text-slate-800">¥{shortfall > 0 ? (shortfall / 10000).toLocaleString() : 0}万</p>
+                  <p className="text-xl font-bold text-slate-800">¥{shortfall > 0 ? Math.round(shortfall / 10000).toLocaleString() : 0}万</p>
                 </div>
               </div>
             </div>

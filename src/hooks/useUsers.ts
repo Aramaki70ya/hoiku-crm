@@ -11,6 +11,19 @@ interface UseUsersResult {
   refetch: () => Promise<void>
 }
 
+const hiddenUserNames = new Set(['笹嶋', '笹島'])
+
+const normalizeName = (name: string) => name.replace(/\s+/g, '')
+
+const isActiveUser = (user: User) => {
+  if (!user.retired_at) return true
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const retiredAt = new Date(user.retired_at)
+  retiredAt.setHours(0, 0, 0, 0)
+  return retiredAt >= today
+}
+
 export function useUsers(): UseUsersResult {
   const [users, setUsers] = useState<User[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -28,7 +41,10 @@ export function useUsers(): UseUsersResult {
       }
 
       const { users: usersData } = await res.json()
-      setUsers(usersData || [])
+      const activeUsers = (usersData || [])
+        .filter(isActiveUser)
+        .filter((user) => !hiddenUserNames.has(normalizeName(user.name)))
+      setUsers(activeUsers)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'エラーが発生しました')
       setUsers([])

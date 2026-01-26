@@ -320,6 +320,7 @@ export default function CandidateDetailPage({ params }: PageProps) {
   
   // 基本情報編集用state
   const [basicInfoForm, setBasicInfoForm] = useState({
+    name: candidate?.name || '',
     phone: candidate?.phone || '',
     email: candidate?.email || '',
     prefecture: candidate?.prefecture || '',
@@ -335,6 +336,7 @@ export default function CandidateDetailPage({ params }: PageProps) {
   useEffect(() => {
     if (candidate) {
       setBasicInfoForm({
+        name: candidate.name || '',
         phone: candidate.phone || '',
         email: candidate.email || '',
         prefecture: candidate.prefecture || '',
@@ -829,6 +831,15 @@ export default function CandidateDetailPage({ params }: PageProps) {
                     </DialogDescription>
                   </DialogHeader>
                   <div className="grid gap-4 py-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-name">氏名</Label>
+                      <Input
+                        id="edit-name"
+                        placeholder="氏名を入力..."
+                        value={basicInfoForm.name}
+                        onChange={(e) => setBasicInfoForm(prev => ({ ...prev, name: e.target.value }))}
+                      />
+                    </div>
                     <div className="space-y-2">
                       <Label htmlFor="edit-phone">電話番号</Label>
                       <Input
