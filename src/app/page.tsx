@@ -277,13 +277,13 @@ export default function DashboardPage() {
     })
   }, [interviews, getPeriodDates])
 
-  // プロセス別集計（全期間）
+  // プロセス別集計（選択期間内）
   const processCounts: Record<string, number> = {}
-  candidates.forEach(c => {
+  periodCandidates.forEach(c => {
     const process = processStatusLabels[c.status] || c.status
     processCounts[process] = (processCounts[process] || 0) + 1
   })
-  const totalCandidates = candidates.length
+  const totalCandidates = periodCandidates.length
 
   // 期間内の実績計算
   const periodRegistrations = periodCandidates.length
@@ -332,39 +332,29 @@ export default function DashboardPage() {
   // 不足金額 = 予算 - 売上
   const shortfall = budget - periodTotalSales
 
-  // 今月の応募数（表示用、当月固定）
+  // 選択期間内の応募数
   const now = new Date()
-  const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-  const currentMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0)
-  const thisMonthCandidates = candidates.filter(c => {
-    if (!c.registered_at) return false
-    const registeredDate = new Date(c.registered_at)
-    return registeredDate >= currentMonthStart && registeredDate <= currentMonthEnd
-  })
 
-  // 流入経路ごとの集計（LINEを除く）
-  const sourceStats: Record<string, { count: number; thisMonthCount: number }> = {}
-  candidates.forEach(c => {
+  // 流入経路ごとの集計（LINEを除く、選択期間内）
+  const sourceStats: Record<string, { count: number }> = {}
+  periodCandidates.forEach(c => {
     if (c.source_id && c.source_id !== '1') { // LINEを除く（source_id: '1'）
       const sourceName = sources.find(s => s.id === c.source_id)?.name || '不明'
       if (!sourceStats[sourceName]) {
-        sourceStats[sourceName] = { count: 0, thisMonthCount: 0 }
+        sourceStats[sourceName] = { count: 0 }
       }
       sourceStats[sourceName].count++
-      if (c.registered_at) {
-        const registeredDate = new Date(c.registered_at)
-        if (registeredDate >= currentMonthStart && registeredDate <= currentMonthEnd) {
-          sourceStats[sourceName].thisMonthCount++
-        }
-      }
     }
   })
 
-  // 全体の人数
-  const totalCandidatesCount = candidates.length
+  // LINEの集計（選択期間内）
+  const lineCount = periodCandidates.filter(c => c.source_id === '1').length
 
-  // 流入経路割合の計算（LINEを除く）
-  const candidatesWithoutLine = candidates.filter(c => c.source_id !== '1')
+  // 選択期間内の人数
+  const totalCandidatesCount = periodCandidates.length
+
+  // 流入経路割合の計算（LINEを除く、選択期間内）
+  const candidatesWithoutLine = periodCandidates.filter(c => c.source_id !== '1')
   const totalWithoutLine = candidatesWithoutLine.length
 
   // ローディング中の処理（すべてのHooksの後に配置）
@@ -826,43 +816,49 @@ export default function DashboardPage() {
           <CardTitle className="text-lg text-slate-800 flex items-center gap-2">
             <Users className="w-5 h-5 text-violet-500" />
             登録者数サマリー
+            <Badge className="ml-2 bg-slate-100 text-slate-600">{getPeriodLabel()}</Badge>
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-6">
-            {/* 今月の応募数と全体の人数 */}
-            <div className="grid grid-cols-2 gap-4">
+            {/* 選択期間の応募数 */}
+            <div className="grid grid-cols-3 gap-4">
               <div className="p-4 rounded-xl bg-gradient-to-br from-violet-50 to-indigo-50 border border-violet-100">
                 <div className="flex items-center gap-2 mb-2">
                   <TrendingUp className="w-5 h-5 text-violet-600" />
-                  <p className="text-sm font-medium text-violet-700">今月の応募</p>
+                  <p className="text-sm font-medium text-violet-700">期間内の応募</p>
                 </div>
-                <p className="text-3xl font-bold text-violet-600">{thisMonthCandidates.length}人</p>
+                <p className="text-3xl font-bold text-violet-600">{totalCandidatesCount}人</p>
+              </div>
+              <div className="p-4 rounded-xl bg-gradient-to-br from-emerald-50 to-green-50 border border-emerald-100">
+                <div className="flex items-center gap-2 mb-2">
+                  <Users className="w-5 h-5 text-emerald-600" />
+                  <p className="text-sm font-medium text-emerald-700">LINE登録</p>
+                </div>
+                <p className="text-3xl font-bold text-emerald-600">{lineCount}人</p>
               </div>
               <div className="p-4 rounded-xl bg-gradient-to-br from-slate-50 to-slate-100 border border-slate-200">
                 <div className="flex items-center gap-2 mb-2">
                   <Users className="w-5 h-5 text-slate-600" />
-                  <p className="text-sm font-medium text-slate-700">全体の人数</p>
+                  <p className="text-sm font-medium text-slate-700">その他流入</p>
                 </div>
-                <p className="text-3xl font-bold text-slate-800">{totalCandidatesCount}人</p>
+                <p className="text-3xl font-bold text-slate-800">{totalWithoutLine}人</p>
               </div>
             </div>
 
-            {/* 流入経路ごとの新規人数（LINEを除く） */}
+            {/* 流入経路ごとの人数（LINEを除く） */}
             <div>
-              <h3 className="text-sm font-semibold text-slate-700 mb-3">流入経路ごとの新規人数（LINE除く）</h3>
+              <h3 className="text-sm font-semibold text-slate-700 mb-3">流入経路ごとの人数（LINE除く）</h3>
               <div className="grid grid-cols-2 gap-3">
                 {Object.entries(sourceStats)
-                  .sort((a, b) => b[1].thisMonthCount - a[1].thisMonthCount)
+                  .sort((a, b) => b[1].count - a[1].count)
                   .map(([sourceName, stats]) => (
                     <div key={sourceName} className="p-3 rounded-lg bg-slate-50 border border-slate-200">
                       <div className="flex items-center justify-between mb-1">
                         <p className="text-sm font-medium text-slate-700">{sourceName}</p>
-                        <p className="text-xs text-slate-500">今月: {stats.thisMonthCount}人</p>
                       </div>
                       <div className="flex items-end gap-2">
                         <p className="text-2xl font-bold text-slate-800">{stats.count}人</p>
-                        <p className="text-xs text-slate-500 mb-1">全体</p>
                       </div>
                     </div>
                   ))}
