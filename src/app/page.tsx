@@ -111,6 +111,23 @@ export default function DashboardPage() {
         setUsers(usersData)
         setSources(sourcesData)
         
+        // デバッグ用（開発環境のみ）
+        if (process.env.NODE_ENV === 'development') {
+          console.log('データ取得結果:', {
+            candidates: candidatesData.length,
+            projects: projectsData.length,
+            contracts: contractsData.length,
+            interviews: interviewsData.length,
+            projectsSample: projectsData.slice(0, 5).map(p => ({
+              candidate_id: p.candidate_id,
+              expected_amount: p.expected_amount,
+              probability: p.probability,
+              probability_month: p.probability_month,
+              created_at: p.created_at
+            }))
+          })
+        }
+        
         // 月次目標を取得
         try {
           const yearMonth = getCurrentYearMonth()
@@ -277,14 +294,63 @@ export default function DashboardPage() {
     })
   }, [interviews, getPeriodDates])
 
+  // 期間時点で存在していたプロジェクト（その月時点のヨミを見るため）
+  // month_textで月ごとのデータをフィルタリング
   const periodProjects = useMemo(() => {
-    return projects.filter(p => {
-      const dateStr = p.updated_at || p.created_at
-      if (!dateStr) return false
-      const projectDate = new Date(dateStr)
-      return projectDate >= getPeriodDates.startDate && projectDate <= getPeriodDates.endDate
+    // 選択期間に対応するmonth_textを生成
+    const now = new Date()
+    let targetMonthText: string
+    
+    switch (periodType) {
+      case 'current_month':
+        targetMonthText = `${now.getFullYear()}_${String(now.getMonth() + 1).padStart(2, '0')}`
+        break
+      case 'previous_month':
+        const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+        targetMonthText = `${prev.getFullYear()}_${String(prev.getMonth() + 1).padStart(2, '0')}`
+        break
+      case 'custom':
+        if (customStartDate) {
+          const customDate = new Date(customStartDate)
+          targetMonthText = `${customDate.getFullYear()}_${String(customDate.getMonth() + 1).padStart(2, '0')}`
+        } else {
+          targetMonthText = `${now.getFullYear()}_${String(now.getMonth() + 1).padStart(2, '0')}`
+        }
+        break
+      default:
+        targetMonthText = `${now.getFullYear()}_${String(now.getMonth() + 1).padStart(2, '0')}`
+    }
+    
+    // month_textでフィルタリング（その月のデータのみ）
+    const filtered = projects.filter(p => {
+      // month_textが一致するもの、またはmonth_textがnullでprobability_monthが'current'のもの（後方互換性）
+      return p.month_text === targetMonthText || 
+             (p.month_text === null && p.probability_month === 'current')
     })
-  }, [projects, getPeriodDates])
+    
+    // デバッグ用（開発環境のみ）
+    if (process.env.NODE_ENV === 'development') {
+      console.log('periodProjects:', {
+        periodType,
+        targetMonthText,
+        startDate: getPeriodDates.startDate.toISOString(),
+        endDate: getPeriodDates.endDate.toISOString(),
+        allProjectsCount: projects.length,
+        filteredCount: filtered.length,
+        withYomi: filtered.filter(p => p.expected_amount && p.probability).length,
+        sample: filtered.slice(0, 5).map(p => ({
+          candidate_id: p.candidate_id,
+          expected_amount: p.expected_amount,
+          probability: p.probability,
+          probability_month: p.probability_month,
+          month_text: p.month_text,
+          created_at: p.created_at
+        }))
+      })
+    }
+    
+    return filtered
+  }, [projects, getPeriodDates, periodType, customStartDate])
 
   // プロセス別集計（選択期間内、project.phaseも考慮）
   const processCounts = useMemo(() => {
@@ -406,26 +472,58 @@ export default function DashboardPage() {
 
   // A/Bヨミの計算（projectsから、期間に応じたフィルタリング）
   const totalYomiA = useMemo(() => {
-    return periodProjects
-      .filter(p => {
-        if (p.probability !== 'A' || !p.expected_amount) return false
-        
-        // その月時点のヨミのみ（probability_monthが'current'またはnull）
-        return p.probability_month === 'current' || p.probability_month === null
+    const filtered = periodProjects.filter(p => {
+      if (p.probability !== 'A' || !p.expected_amount) return false
+      // その月時点のヨミのみ（probability_monthが'current'またはnull）
+      return p.probability_month === 'current' || p.probability_month === null
+    })
+    
+    // デバッグ用（開発環境のみ）
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Aヨミ計算:', {
+        periodType,
+        periodProjectsCount: periodProjects.length,
+        filteredCount: filtered.length,
+        total: filtered.reduce((sum, p) => sum + (p.expected_amount || 0), 0),
+        projects: filtered.map(p => ({
+          candidate_id: p.candidate_id,
+          expected_amount: p.expected_amount,
+          probability: p.probability,
+          probability_month: p.probability_month,
+          created_at: p.created_at
+        }))
       })
-      .reduce((sum, p) => sum + (p.expected_amount || 0), 0)
-  }, [periodProjects])
+    }
+    
+    return filtered.reduce((sum, p) => sum + (p.expected_amount || 0), 0)
+  }, [periodProjects, periodType])
 
   const totalYomiB = useMemo(() => {
-    return periodProjects
-      .filter(p => {
-        if (p.probability !== 'B' || !p.expected_amount) return false
-        
-        // その月時点のヨミのみ（probability_monthが'current'またはnull）
-        return p.probability_month === 'current' || p.probability_month === null
+    const filtered = periodProjects.filter(p => {
+      if (p.probability !== 'B' || !p.expected_amount) return false
+      // その月時点のヨミのみ（probability_monthが'current'またはnull）
+      return p.probability_month === 'current' || p.probability_month === null
+    })
+    
+    // デバッグ用（開発環境のみ）
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Bヨミ計算:', {
+        periodType,
+        periodProjectsCount: periodProjects.length,
+        filteredCount: filtered.length,
+        total: filtered.reduce((sum, p) => sum + (p.expected_amount || 0), 0),
+        projects: filtered.map(p => ({
+          candidate_id: p.candidate_id,
+          expected_amount: p.expected_amount,
+          probability: p.probability,
+          probability_month: p.probability_month,
+          created_at: p.created_at
+        }))
       })
-      .reduce((sum, p) => sum + (p.expected_amount || 0), 0)
-  }, [periodProjects])
+    }
+    
+    return filtered.reduce((sum, p) => sum + (p.expected_amount || 0), 0)
+  }, [periodProjects, periodType])
 
   // 不足金額 = 予算 - 売上
   const shortfall = budget - periodTotalSales

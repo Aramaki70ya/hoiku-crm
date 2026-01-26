@@ -10,7 +10,7 @@ UPDATE public.users
 SET retired_at = '2025-12-31'
 WHERE name IN ('笹嶋', '笹島');
 
--- 大塚は2026年1月末で退職
+-- 大塚は2026年1月から非表示（1月1日から非表示）
 UPDATE public.users
-SET retired_at = '2026-01-31'
+SET retired_at = '2025-12-31'
 WHERE name = '大塚';

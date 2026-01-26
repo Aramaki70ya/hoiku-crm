@@ -104,6 +104,7 @@ export interface Project {
   expected_amount: number | null // ヨミ金額
   probability: 'A' | 'B' | 'C' | null // 確度
   probability_month: 'current' | 'next' | null // ヨミ対象月（当月/翌月）
+  month_text: string | null // 月情報（'2025_10', '2025_11', '2025_12'など）
   expected_entry_date: string | null // 入職予定時期
   note: string | null
   created_at: string

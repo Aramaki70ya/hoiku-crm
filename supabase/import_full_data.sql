@@ -304,7 +304,7 @@ client_names AS (
   WHERE candidate_id IS NOT NULL AND candidate_id != ''
   ORDER BY candidate_id, interview_date DESC, assigned_date DESC
 )
-INSERT INTO projects (candidate_id, client_name, phase, expected_amount, probability)
+INSERT INTO projects (candidate_id, client_name, phase, expected_amount, probability, probability_month)
 SELECT
   l.candidate_id,
   COALESCE(cn.client_name, '未設定'),
@@ -326,7 +326,8 @@ SELECT
     WHEN l.prob_current LIKE '%C%' THEN 'C'
     WHEN l.prob_current LIKE '%D%' THEN 'C'
     ELSE NULL
-  END
+  END,
+  'current' -- prob_current（当月のヨミ）が設定されている場合は'current'
 FROM latest_monthly l
 LEFT JOIN client_names cn ON cn.candidate_id = l.candidate_id
 WHERE EXISTS (SELECT 1 FROM candidates c WHERE c.id = l.candidate_id)
