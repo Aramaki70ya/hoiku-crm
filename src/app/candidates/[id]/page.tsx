@@ -94,7 +94,8 @@ export default function CandidateDetailPage({ params }: PageProps) {
   const fetchData = useCallback(async () => {
     try {
       setLoading(true)
-      // 求職者データを取得
+      
+      // まず求職者データを取得（最優先）
       const candidateRes = await fetch(`/api/candidates/${id}`)
       if (!candidateRes.ok) {
         if (candidateRes.status === 404) {
@@ -102,38 +103,52 @@ export default function CandidateDetailPage({ params }: PageProps) {
         } else {
           setError('データの取得に失敗しました')
         }
+        setLoading(false)
         return
       }
       const { data: candidateData } = await candidateRes.json()
       setCandidate(candidateData)
-      // candidateのステータスをローカルにも反映
       setCandidateStatus(candidateData.status)
+      
+      // 求職者情報が取得できたら、すぐにローディングを解除（段階的ローディング）
+      setLoading(false)
 
-      // 並列でその他のデータを取得
-      const [usersRes, projectsRes, interviewsRes, contractsRes, sourcesRes] = await Promise.all([
+      // 並列でその他のデータを取得（バックグラウンドで）
+      const [usersRes, projectsRes, contractsRes, sourcesRes, interviewsRes] = await Promise.all([
         fetch('/api/users'),
-        fetch('/api/projects'),
-        fetch('/api/interviews'),
-        fetch('/api/contracts'),
+        fetch(`/api/projects?candidate_id=${id}`), // フィルタ済みで取得
+        fetch(`/api/contracts?candidate_id=${id}`), // フィルタ済みで取得
         fetch('/api/sources'),
+        fetch('/api/interviews'), // 全件取得（プロジェクトが少ないので問題ない）
       ])
 
       if (usersRes.ok) {
         const { data } = await usersRes.json()
         setUsers(data || [])
       }
+      
+      let projectIds: string[] = []
       if (projectsRes.ok) {
         const { data } = await projectsRes.json()
-        setProjects((data || []).filter((p: Project) => p.candidate_id === id))
+        setProjects(data || [])
+        projectIds = (data || []).map((p: Project) => p.id)
       }
+      
       if (interviewsRes.ok) {
-        const { data } = await interviewsRes.json()
-        setAllInterviews(data || [])
+        const { data: interviewsData } = await interviewsRes.json()
+        // この求職者のプロジェクトに関連する面接のみフィルタ
+        setAllInterviews((interviewsData || []).filter((i: Interview) => 
+          projectIds.includes(i.project_id)
+        ))
       }
       if (contractsRes.ok) {
         const { data } = await contractsRes.json()
-        const candidateContract = (data || []).find((c: Contract) => c.candidate_id === id)
-        setContract(candidateContract || null)
+        // candidate_idでフィルタ済みなので、最初の1件を取得
+        if (Array.isArray(data) && data.length > 0) {
+          setContract(data[0])
+        } else {
+          setContract(null)
+        }
       }
       if (sourcesRes.ok) {
         const { data } = await sourcesRes.json()
@@ -142,7 +157,6 @@ export default function CandidateDetailPage({ params }: PageProps) {
     } catch (err) {
       console.error('Error fetching data:', err)
       setError('データの取得に失敗しました')
-    } finally {
       setLoading(false)
     }
   }, [id])
@@ -630,8 +644,8 @@ export default function CandidateDetailPage({ params }: PageProps) {
     return '情報を追加・編集します'
   }
 
-  // ローディング中
-  if (loading) {
+  // ローディング中（candidateがまだ取得できていない場合）
+  if (loading && !candidate) {
     return (
       <AppLayout title="読み込み中...">
         <div className="flex flex-col items-center justify-center h-96">

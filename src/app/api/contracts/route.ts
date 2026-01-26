@@ -38,6 +38,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const month = searchParams.get('month') // YYYY-MM形式
     const consultantId = searchParams.get('consultant_id') || 'all'
+    const candidateId = searchParams.get('candidate_id')
     
     let query = supabase
       .from('contracts')
@@ -49,6 +50,11 @@ export async function GET(request: NextRequest) {
           source:sources(id, name)
         )
       `, { count: 'exact' })
+
+    // 求職者IDでフィルタ（最優先）
+    if (candidateId) {
+      query = query.eq('candidate_id', candidateId)
+    }
 
     // 月でフィルタ
     if (month) {
