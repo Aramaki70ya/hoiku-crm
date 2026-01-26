@@ -43,7 +43,7 @@ export function useUsers(): UseUsersResult {
       const { users: usersData } = await res.json()
       const activeUsers = (usersData || [])
         .filter(isActiveUser)
-        .filter((user) => !hiddenUserNames.has(normalizeName(user.name)))
+        .filter((user: User) => !hiddenUserNames.has(normalizeName(user.name)))
       setUsers(activeUsers)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'エラーが発生しました')
@@ -59,7 +59,7 @@ export function useUsers(): UseUsersResult {
 
   return {
     users,
-    consultants: users.filter(u => u.role !== 'admin'),
+    consultants: users.filter((u: User) => u.role !== 'admin'),
     isLoading,
     error,
     refetch: fetchUsers,
