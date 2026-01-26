@@ -32,9 +32,6 @@ export async function GET() {
   if (!authUser) {
     return NextResponse.json({ message: '認証が必要です' }, { status: 401 })
   }
-  if (!isAdminUser(appUser)) {
-    return NextResponse.json({ message: '権限がありません' }, { status: 403 })
-  }
 
   const supabase = await createClient()
   const { data, error } = await supabase

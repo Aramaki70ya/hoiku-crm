@@ -193,13 +193,13 @@ export default function DebugAuthPage() {
                 }}
                 className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
               >
-                /api/users をテスト（403エラーの原因確認）
+                /api/users をテスト（ユーザー一覧）
               </button>
             </div>
             <div className="text-sm text-slate-600">
               <p>• <code>/api/auth/me</code>: 現在の認証状態とappUserを取得</p>
-              <p>• <code>/api/users</code>: ユーザー一覧（admin権限が必要）</p>
-              <p className="mt-2 text-red-600">403エラーが出る場合、appUserがnullか、roleがadminではありません</p>
+              <p>• <code>/api/users</code>: ユーザー一覧（認証必須）</p>
+              <p className="mt-2 text-red-600">401エラーが出る場合、セッション切れか未ログインの可能性があります</p>
             </div>
           </CardContent>
         </Card>
