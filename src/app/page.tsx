@@ -277,12 +277,91 @@ export default function DashboardPage() {
     })
   }, [interviews, getPeriodDates])
 
-  // プロセス別集計（選択期間内）
-  const processCounts: Record<string, number> = {}
-  periodCandidates.forEach(c => {
-    const process = processStatusLabels[c.status] || c.status
-    processCounts[process] = (processCounts[process] || 0) + 1
-  })
+  // プロセス別集計（選択期間内、project.phaseも考慮）
+  const processCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    
+    // 成約（contracts）に存在する求職者IDのセットを作成
+    const contractedCandidateIds = new Set(contracts.map(c => c.candidate_id))
+    
+    periodCandidates.forEach(c => {
+      // 成約（contracts）に存在する求職者は「内定承諾」としてカウント
+      if (contractedCandidateIds.has(c.id)) {
+        counts['内定承諾'] = (counts['内定承諾'] || 0) + 1
+        return
+      }
+      
+      // candidate.statusが確定状態（NG、追客中、意向回収）の場合は、それを優先
+      if (['closed_lost', 'pending', 'on_hold'].includes(c.status)) {
+        const process = processStatusLabels[c.status] || c.status
+        counts[process] = (counts[process] || 0) + 1
+        return
+      }
+      
+      // candidate.statusがclosed_wonでもcontractsに存在しない場合は、プロジェクトのフェーズを確認
+      // （データ不整合の可能性があるため）
+      
+      // この求職者に関連するプロジェクトを取得
+      const candidateProjects = projects.filter(p => p.candidate_id === c.id)
+      
+      let process: string
+      
+      // プロジェクトがある場合は、最も進んでいるプロジェクトのフェーズを基準にする
+      if (candidateProjects.length > 0) {
+        // プロジェクトのフェーズを優先度順に並べる
+        const phasePriority: Record<string, number> = {
+          'accepted': 7,
+          'offer': 6,
+          'interviewing': 5,
+          'interview_scheduled': 4,
+          'document_screening': 3,
+          'proposed': 2,
+          'rejected': 1,
+          'withdrawn': 1,
+        }
+        
+        // 最も進んでいるプロジェクトを取得
+        const mostAdvancedProject = candidateProjects.reduce((prev, curr) => {
+          const prevPriority = phasePriority[prev.phase] || 0
+          const currPriority = phasePriority[curr.phase] || 0
+          return currPriority > prevPriority ? curr : prev
+        })
+        
+        // プロジェクトのフェーズに基づいてプロセスを決定
+        switch (mostAdvancedProject.phase) {
+          case 'proposed':
+          case 'document_screening':
+            process = '提案フェーズ'
+            break
+          case 'interview_scheduled':
+          case 'interviewing':
+            process = '面接フェーズ'
+            break
+          case 'offer':
+            process = '内定確認中'
+            break
+          case 'accepted':
+            // project.phase === 'accepted'は「入社確定」だが、contractsに存在しない場合は「内定確認中」として扱う
+            // （実際の成約管理ではcontractsテーブルが基準）
+            process = '内定確認中'
+            break
+          case 'rejected':
+          case 'withdrawn':
+            process = '内定辞退'
+            break
+          default:
+            // プロジェクトのフェーズが不明な場合は、candidate.statusを基準にする
+            process = processStatusLabels[c.status] || c.status
+        }
+      } else {
+        // プロジェクトがない場合は、candidate.statusを基準にする
+        process = processStatusLabels[c.status] || c.status
+      }
+      
+      counts[process] = (counts[process] || 0) + 1
+    })
+    return counts
+  }, [periodCandidates, projects, contracts])
   const totalCandidates = periodCandidates.length
 
   // 期間内の実績計算

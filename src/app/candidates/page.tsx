@@ -1020,46 +1020,6 @@ export default function CandidatesPage() {
                   </Select>
                 </div>
               </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="approach_priority" className="text-slate-700">アプローチ優先度</Label>
-                <Select
-                  value={newCandidate.approach_priority}
-                  onValueChange={(value: 'S' | 'A' | 'B' | 'C') => setNewCandidate(prev => ({ ...prev, approach_priority: value }))}
-                >
-                  <SelectTrigger className="border-slate-200">
-                    <SelectValue placeholder="選択してください" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-white border-slate-200">
-                    <SelectItem value="S">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className={priorityColors['S']}>
-                          <Star className="w-3 h-3 mr-1 fill-current" />S
-                        </Badge>
-                        <span>最優先</span>
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="A">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className={priorityColors['A']}>A</Badge>
-                        <span>高</span>
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="B">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className={priorityColors['B']}>B</Badge>
-                        <span>中</span>
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="C">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className={priorityColors['C']}>C</Badge>
-                        <span>低</span>
-                      </div>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
             </div>
 
             {/* メモ */}
