@@ -38,6 +38,9 @@ import {
   AlertTriangle,
   Clock,
   CheckCircle2,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react'
 import { 
   priorityColors, 
@@ -99,6 +102,8 @@ function CandidatesPageContent() {
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [priorityFilter, setPriorityFilter] = useState<string>('all')
   const [activeTab, setActiveTab] = useState<'all' | 'tasks'>('all')
+  const [sortBy, setSortBy] = useState<'registered_at' | 'priority' | 'name' | 'status'>('registered_at')
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc')
   const [localConsultants, setLocalConsultants] = useState<Record<string, string>>({})
   const [localPriorities, setLocalPriorities] = useState<Record<string, 'S' | 'A' | 'B' | 'C'>>({})
   const [localEmploymentTypes, setLocalEmploymentTypes] = useState<Record<string, string>>({})
@@ -300,14 +305,33 @@ function CandidatesPageContent() {
       }
     })
 
-    // タスクタブの場合は優先度でソート
-    if (activeTab === 'tasks') {
-      filtered = filtered.sort((a, b) => {
-        return priorityOrder[a.approach_priority || 'B'] - priorityOrder[b.approach_priority || 'B']
-      })
-    }
+    // 並び替え
+    filtered = filtered.sort((a, b) => {
+      let compare = 0
+      
+      if (sortBy === 'registered_at') {
+        const dateA = a.registered_at ? new Date(a.registered_at).getTime() : 0
+        const dateB = b.registered_at ? new Date(b.registered_at).getTime() : 0
+        compare = dateA - dateB
+      } else if (sortBy === 'priority') {
+        const priorityA = priorityOrder[a.approach_priority || 'B']
+        const priorityB = priorityOrder[b.approach_priority || 'B']
+        compare = priorityA - priorityB
+      } else if (sortBy === 'name') {
+        const nameA = (a.kana || a.name || '').toLowerCase()
+        const nameB = (b.kana || b.name || '').toLowerCase()
+        compare = nameA.localeCompare(nameB, 'ja')
+      } else if (sortBy === 'status') {
+        const statusA = mapLegacyStatusToNewStatus(a.status)
+        const statusB = mapLegacyStatusToNewStatus(b.status)
+        compare = statusA.localeCompare(statusB, 'ja')
+      }
+      
+      return sortOrder === 'asc' ? compare : -compare
+    })
+    
     return filtered
-  }, [rawCandidates, statusFilter, consultantFilter, priorityFilter, activeTab, localConsultants, localPriorities])
+  }, [rawCandidates, statusFilter, consultantFilter, priorityFilter, activeTab, sortBy, sortOrder, localConsultants, localPriorities])
 
   const allCount = rawCandidates.length
   const taskCount = rawCandidates.filter(c => {
@@ -466,6 +490,35 @@ function CandidatesPageContent() {
               ))}
             </SelectContent>
           </Select>
+        </div>
+
+        {/* 並び替え */}
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-slate-600 font-medium">並び替え:</span>
+          <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
+            <SelectTrigger className="w-36 bg-white border-slate-200 text-slate-700 shadow-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="bg-white border-slate-200">
+              <SelectItem value="registered_at">登録日</SelectItem>
+              <SelectItem value="priority">優先度</SelectItem>
+              <SelectItem value="name">名前</SelectItem>
+              <SelectItem value="status">ステータス</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+            className="bg-white border-slate-200 text-slate-700 shadow-sm"
+            title={sortOrder === 'asc' ? '昇順' : '降順'}
+          >
+            {sortOrder === 'asc' ? (
+              <ArrowUp className="w-4 h-4" />
+            ) : (
+              <ArrowDown className="w-4 h-4" />
+            )}
+          </Button>
         </div>
 
         <Button 
