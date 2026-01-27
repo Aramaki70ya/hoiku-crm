@@ -54,6 +54,11 @@ export async function GET(request: NextRequest) {
   const parseDate = (dateStr: string | null | undefined): Date | null => {
     if (!dateStr || dateStr.trim() === '') return null
     
+    // Excelのエラー値（#N/A等）を除外
+    if (dateStr.trim().startsWith('#') || dateStr.trim().toUpperCase() === '#N/A') {
+      return null
+    }
+    
     // スラッシュ区切りの日付をハイフン区切りに変換（例: '2026/1/15' → '2026-1-15'）
     const normalized = dateStr.replace(/\//g, '-')
     

@@ -16,6 +16,7 @@ GROUP BY candidate_id, member_name, assigned_date, status, month_text
 ORDER BY candidate_id, assigned_date;
 
 -- 2. 担当の計算（割り振り日が2026年1月のユニークなcandidate_id数）
+-- #N/Aなどの無効な値を除外
 SELECT 
   COUNT(DISTINCT candidate_id) as 担当数,
   COUNT(*) as 総行数
@@ -24,13 +25,17 @@ WHERE month_text = '2026_01'
   AND member_name = '鈴木'
   AND assigned_date IS NOT NULL
   AND assigned_date != ''
+  AND assigned_date != '#N/A'
+  AND assigned_date NOT LIKE '#%'
   AND (
     -- 日付形式のパターンを考慮
     assigned_date LIKE '2026/1/%' OR
     assigned_date LIKE '2026/01/%' OR
     assigned_date LIKE '2026-1-%' OR
     assigned_date LIKE '2026-01-%' OR
-    (TO_DATE(assigned_date, 'YYYY/MM/DD') >= '2026-01-01'::DATE
+    -- TO_DATEでパース可能な場合のみ
+    (assigned_date ~ '^\d{4}[/-]\d{1,2}[/-]\d{1,2}$' 
+     AND TO_DATE(assigned_date, 'YYYY/MM/DD') >= '2026-01-01'::DATE
      AND TO_DATE(assigned_date, 'YYYY/MM/DD') < '2026-02-01'::DATE)
   );
 
@@ -48,6 +53,8 @@ WHERE month_text = '2026_01'
   AND member_name = '鈴木'
   AND assigned_date IS NOT NULL
   AND assigned_date != ''
+  AND assigned_date != '#N/A'
+  AND assigned_date NOT LIKE '#%'
   AND status IS NOT NULL
   AND status != ''
   AND (
@@ -56,7 +63,9 @@ WHERE month_text = '2026_01'
     assigned_date LIKE '2026/01/%' OR
     assigned_date LIKE '2026-1-%' OR
     assigned_date LIKE '2026-01-%' OR
-    (TO_DATE(assigned_date, 'YYYY/MM/DD') >= '2026-01-01'::DATE
+    -- TO_DATEでパース可能な場合のみ
+    (assigned_date ~ '^\d{4}[/-]\d{1,2}[/-]\d{1,2}$' 
+     AND TO_DATE(assigned_date, 'YYYY/MM/DD') >= '2026-01-01'::DATE
      AND TO_DATE(assigned_date, 'YYYY/MM/DD') < '2026-02-01'::DATE)
   )
   AND (
@@ -81,12 +90,16 @@ SELECT
   status,
   CASE 
     WHEN assigned_date IS NULL OR assigned_date = '' THEN 'assigned_dateが空'
+    WHEN assigned_date = '#N/A' OR assigned_date LIKE '#%' THEN '無効な値(#N/A等)'
     WHEN assigned_date NOT LIKE '2026/1/%' 
          AND assigned_date NOT LIKE '2026/01/%'
          AND assigned_date NOT LIKE '2026-1-%'
          AND assigned_date NOT LIKE '2026-01-%'
-         AND NOT (TO_DATE(assigned_date, 'YYYY/MM/DD') >= '2026-01-01'::DATE
-                  AND TO_DATE(assigned_date, 'YYYY/MM/DD') < '2026-02-01'::DATE)
+         AND NOT (
+           assigned_date ~ '^\d{4}[/-]\d{1,2}[/-]\d{1,2}$' 
+           AND TO_DATE(assigned_date, 'YYYY/MM/DD') >= '2026-01-01'::DATE
+           AND TO_DATE(assigned_date, 'YYYY/MM/DD') < '2026-02-01'::DATE
+         )
     THEN 'assigned_dateが当月でない'
     ELSE 'OK'
   END as date_check,
