@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { AppLayout } from '@/components/layout/app-layout'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -61,6 +61,19 @@ export default function DashboardSummaryPage() {
   const [interviews, setInterviews] = useState<Interview[]>([])
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
+  
+  // 月次マージシートから計算した営業進捗指標
+  const [monthlyMetrics, setMonthlyMetrics] = useState<{
+    consultant: string
+    assigned: number
+    firstContact: number
+    interview: number
+    closed: number
+    firstContactRate: number
+    interviewRate: number
+    closedRate: number
+  }[]>([])
+  const [monthlyMetricsLoading, setMonthlyMetricsLoading] = useState(false)
 
   useEffect(() => {
     async function fetchData() {
@@ -91,6 +104,48 @@ export default function DashboardSummaryPage() {
     }
     fetchData()
   }, [])
+  
+  // 期間に応じて月次マージシートから営業進捗指標を取得
+  useEffect(() => {
+    async function fetchMonthlyMetrics() {
+      setMonthlyMetricsLoading(true)
+      try {
+        // 期間からmonth_textを計算
+        let monthText = ''
+        const now = new Date()
+        switch (periodType) {
+          case 'current_month':
+            monthText = `${now.getFullYear()}_${String(now.getMonth() + 1).padStart(2, '0')}`
+            break
+          case 'previous_month':
+            const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+            monthText = `${prev.getFullYear()}_${String(prev.getMonth() + 1).padStart(2, '0')}`
+            break
+          case 'custom':
+            if (customStartDate) {
+              const start = new Date(customStartDate)
+              monthText = `${start.getFullYear()}_${String(start.getMonth() + 1).padStart(2, '0')}`
+            } else {
+              monthText = `${now.getFullYear()}_${String(now.getMonth() + 1).padStart(2, '0')}`
+            }
+            break
+        }
+        
+        const response = await fetch(`/api/metrics?month=${monthText}`)
+        if (!response.ok) {
+          throw new Error('営業進捗指標の取得に失敗しました')
+        }
+        const data = await response.json()
+        setMonthlyMetrics(data.metrics || [])
+      } catch (error) {
+        console.error('Error fetching monthly metrics:', error)
+        setMonthlyMetrics([])
+      } finally {
+        setMonthlyMetricsLoading(false)
+      }
+    }
+    fetchMonthlyMetrics()
+  }, [periodType, customStartDate])
 
   // 期間表示用テキスト
   const getPeriodLabel = () => {
@@ -270,7 +325,7 @@ export default function DashboardSummaryPage() {
   }, [users, candidates, projects, interviews])
 
   // 退職者フィルタリング用ヘルパー（選択期間に応じて退職者を含める/除外する）
-  const isUserActiveInPeriod = (user: User) => {
+  const isUserActiveInPeriod = useCallback((user: User) => {
     if (!user.retired_at) return true // 退職日が設定されていない場合は現役
     const retiredDate = new Date(user.retired_at)
     retiredDate.setHours(0, 0, 0, 0)
@@ -278,10 +333,44 @@ export default function DashboardSummaryPage() {
     periodStart.setHours(0, 0, 0, 0)
     // 選択期間の開始日より前に退職した場合は非表示（退職日が期間開始日より前なら非表示）
     return retiredDate >= periodStart
-  }
+  }, [getPeriodDates])
 
-  // 実際のデータから営業進捗を計算（期間対応）
+  // 月次マージシートから営業進捗を計算（期間対応）
+  // 月次マージシートのデータが利用可能な場合はそれを使用、そうでない場合は従来のロジックにフォールバック
   const salesProgress = useMemo(() => {
+    // 月次マージシートのデータが利用可能な場合
+    if (monthlyMetrics.length > 0 && !monthlyMetricsLoading) {
+      return users
+        .filter((u) => u.role !== 'admin' && isUserActiveInPeriod(u))
+        .map((user) => {
+          // 月次マージシートから該当ユーザーのデータを取得
+          const metric = monthlyMetrics.find((m) => m.consultant === user.name)
+          
+          if (metric) {
+            return {
+              userId: user.id,
+              userName: user.name,
+              totalCount: metric.assigned,
+              firstContactCount: metric.firstContact,
+              interviewCount: metric.interview,
+              closedCount: metric.closed,
+            }
+          }
+          
+          // 月次マージシートにデータがない場合は0を返す
+          return {
+            userId: user.id,
+            userName: user.name,
+            totalCount: 0,
+            firstContactCount: 0,
+            interviewCount: 0,
+            closedCount: 0,
+          }
+        })
+        .sort((a, b) => b.totalCount - a.totalCount)
+    }
+    
+    // フォールバック: 従来のロジック（月次マージシートのデータが利用できない場合）
     const progress = users
       .filter((u) => u.role !== 'admin' && isUserActiveInPeriod(u))
       .map((user) => {
@@ -313,7 +402,7 @@ export default function DashboardSummaryPage() {
           return candidate && candidate.consultant_id === user.id
         }).length
 
-        const result = {
+        return {
           userId: user.id,
           userName: user.name,
           totalCount,
@@ -321,31 +410,11 @@ export default function DashboardSummaryPage() {
           interviewCount,
           closedCount,
         }
-        
-        // デバッグ用（開発環境のみ）
-        if (process.env.NODE_ENV === 'development' && user.name === '吉田') {
-          console.log('営業進捗計算（吉田）:', {
-            userName: user.name,
-            periodType,
-            periodCandidatesCount: periodCandidates.length,
-            userPeriodCandidatesCount: userPeriodCandidates.length,
-            totalCount,
-            firstContactCount,
-            interviewCount,
-            closedCount,
-            periodInterviewsCount: periodInterviews.length,
-            periodContractsCount: periodContracts.length,
-            candidateStatuses: userPeriodCandidates.map(c => ({ id: c.id, status: c.status })),
-            interviewCandidates: Array.from(interviewCandidateIds)
-          })
-        }
-        
-        return result
       })
     
     // 担当が多い順（totalCount降順）でソート
     return progress.sort((a, b) => b.totalCount - a.totalCount)
-  }, [users, periodCandidates, periodInterviews, periodContracts, projects, candidates, periodType])
+  }, [users, periodCandidates, periodInterviews, periodContracts, projects, candidates, periodType, monthlyMetrics, monthlyMetricsLoading, isUserActiveInPeriod])
 
   // 全体集計
   const totalProgress = useMemo(() => {
@@ -879,6 +948,109 @@ export default function DashboardSummaryPage() {
                     </TableCell>
                     <TableCell colSpan={4}></TableCell>
                   </TableRow>
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* 面接状況 */}
+        <Card className="bg-white border-slate-200 shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg text-slate-800 flex items-center gap-2">
+              <Calendar className="w-5 h-5 text-violet-500" />
+              面接状況
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-slate-50">
+                    <TableHead className="text-slate-700 font-semibold">担当者</TableHead>
+                    <TableHead className="text-slate-700 font-semibold bg-orange-50">
+                      調整中
+                    </TableHead>
+                    <TableHead className="text-slate-700 font-semibold bg-orange-50">
+                      面接前
+                    </TableHead>
+                    <TableHead className="text-slate-700 font-semibold bg-orange-50">
+                      結果待ち
+                    </TableHead>
+                    <TableHead className="text-slate-700 font-semibold bg-orange-50">
+                      本人返事待ち
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {salesProgress.map((progress) => {
+                    const cases = getStatusCases[progress.userId] || {
+                      adjusting: [],
+                      beforeInterview: [],
+                      waitingResult: [],
+                      waitingReply: [],
+                    }
+
+                    return (
+                      <TableRow key={progress.userId} className="hover:bg-slate-50">
+                        <TableCell className="font-medium text-slate-800">
+                          {progress.userName}
+                        </TableCell>
+                        <TableCell className="text-sm text-slate-600">
+                          {cases.adjusting.length > 0 ? (
+                            <div className="space-y-1">
+                              {cases.adjusting.map((case_, idx) => (
+                                <div key={idx}>
+                                  {case_.name} {case_.yomi} {formatAmount(case_.amount)}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            '-'
+                          )}
+                        </TableCell>
+                        <TableCell className="text-sm text-slate-600">
+                          {cases.beforeInterview.length > 0 ? (
+                            <div className="space-y-1">
+                              {cases.beforeInterview.map((case_, idx) => (
+                                <div key={idx}>
+                                  {case_.name} {case_.yomi} {formatAmount(case_.amount)}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            '-'
+                          )}
+                        </TableCell>
+                        <TableCell className="text-sm text-slate-600">
+                          {cases.waitingResult.length > 0 ? (
+                            <div className="space-y-1">
+                              {cases.waitingResult.map((case_, idx) => (
+                                <div key={idx}>
+                                  {case_.name} {case_.yomi} {formatAmount(case_.amount)}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            '-'
+                          )}
+                        </TableCell>
+                        <TableCell className="text-sm text-slate-600">
+                          {cases.waitingReply.length > 0 ? (
+                            <div className="space-y-1">
+                              {cases.waitingReply.map((case_, idx) => (
+                                <div key={idx}>
+                                  {case_.name} {case_.yomi} {formatAmount(case_.amount)}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            '-'
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
                 </TableBody>
               </Table>
             </div>
