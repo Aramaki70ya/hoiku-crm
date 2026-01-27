@@ -59,6 +59,13 @@ export async function GET(request: NextRequest) {
       return null
     }
     
+    // 日付形式でない文字列（担当者名など）を除外
+    // 日付形式のパターン: YYYY/MM/DD または YYYY-MM-DD
+    const datePattern = /^\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}$/
+    if (!datePattern.test(dateStr.trim())) {
+      return null
+    }
+    
     // スラッシュ区切りの日付をハイフン区切りに変換（例: '2026/1/15' → '2026-1-15'）
     const normalized = dateStr.replace(/\//g, '-')
     
@@ -90,7 +97,7 @@ export async function GET(request: NextRequest) {
       const date = parseDate(d.assigned_date)
       if (!date) return
       
-      // 当月に含まれるかチェック
+      // 当月に含まれるかチェック（厳密に）
       if (date >= monthStart && date <= monthEnd) {
         assignedCandidateIds.add(d.candidate_id)
       }
@@ -105,13 +112,21 @@ export async function GET(request: NextRequest) {
       if (!d.assigned_date || !d.status || !d.candidate_id) return
       
       const date = parseDate(d.assigned_date)
-      if (!date) return
+      if (!date) {
+        // 日付としてパースできない場合は確実にスキップ
+        return
+      }
       
-      // 必ず当月に含まれることを確認
-      if (date < monthStart || date > monthEnd) return
+      // 必ず当月に含まれることを確認（厳密に）
+      if (date < monthStart || date > monthEnd) {
+        return
+      }
       
       // 担当に含まれているcandidate_idのみを対象とする（安全性のため）
-      if (!assignedCandidateIds.has(d.candidate_id)) return
+      // これにより、初回が担当を超えることを防ぐ
+      if (!assignedCandidateIds.has(d.candidate_id)) {
+        return
+      }
       
       // ステータスをシステム内のステータスに変換して判定
       const systemStatus = mapMonthlyStatusToSystemStatus(d.status)
