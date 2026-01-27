@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getAuthContext } from '@/lib/auth/server'
+import { 
+  mapMonthlyStatusToSystemStatus, 
+  FIRST_CONTACT_STATUSES,
+  INTERVIEW_SET_STATUSES
+} from '@/lib/status-mapping'
 
 /**
  * 月次マージシートから営業進捗指標を計算するAPI
@@ -65,36 +70,6 @@ export async function GET(request: NextRequest) {
     ).size
 
     // 2. 初回: 割り振り日が当月かつ、ステータスが初回連絡済み以降
-    // ステータス一覧:
-    // 🟡 初回連絡中
-    // ⚪ 連絡つかず（初回未接触）
-    // 🟣 提案求人選定中
-    // 🟤 求人提案済（返信待ち）
-    // 🟢 書類選考中
-    // 🟢 面接日程調整中
-    // 🟢 面接確定済
-    // 🟠 面接実施済（結果待ち）
-    // 🟣 内定獲得（承諾確認中）
-    // 🟢 内定承諾（成約）
-    // 🔴 内定辞退
-    // ⚪ 音信不通
-    // ⚪ 追客中（中長期フォロー）
-    // ⚫ クローズ（終了）
-    const firstContactStatuses = [
-      '🟣 提案求人選定中',
-      '🟤 求人提案済（返信待ち）',
-      '🟢 書類選考中',
-      '🟢 面接日程調整中',
-      '🟢 面接確定済',
-      '🟠 面接実施済（結果待ち）',
-      '🟣 内定獲得（承諾確認中）',
-      '🟢 内定承諾（成約）',
-      '🔴 内定辞退',
-      '⚪ 音信不通',
-      '⚪ 追客中（中長期フォロー）',
-      '⚫ クローズ（終了）'
-    ]
-    
     const firstContactCount = new Set(
       memberData
         .filter(d => {
@@ -102,32 +77,26 @@ export async function GET(request: NextRequest) {
           const date = new Date(d.assigned_date.replace(/\//g, '-'))
           const monthStart = new Date(month.replace('_', '-') + '-01')
           const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0)
-          return date >= monthStart && date <= monthEnd && firstContactStatuses.includes(d.status)
+          if (date < monthStart || date > monthEnd) return false
+          
+          // ステータスをシステム内のステータスに変換して判定
+          const systemStatus = mapMonthlyStatusToSystemStatus(d.status)
+          return systemStatus && FIRST_CONTACT_STATUSES.includes(systemStatus)
         })
         .map(d => d.candidate_id)
     ).size
 
     // 3. 面接: 面接フラグ=TRUEかつ、ステータスが面接確定以降
-    // 面接確定以降のステータス:
-    // 🟢 面接確定済
-    // 🟠 面接実施済（結果待ち）
-    // 🟣 内定獲得（承諾確認中）
-    // 🟢 内定承諾（成約）
-    // 🔴 内定辞退
-    const interviewStatuses = [
-      '🟢 面接確定済',
-      '🟠 面接実施済（結果待ち）',
-      '🟣 内定獲得（承諾確認中）',
-      '🟢 内定承諾（成約）',
-      '🔴 内定辞退'
-    ]
-    
     const interviewCount = new Set(
       memberData
         .filter(d => {
           if (!d.interview_flag || !d.status) return false
-          return d.interview_flag.toString().toUpperCase() === 'TRUE' && 
-                 interviewStatuses.includes(d.status)
+          const flagStr = d.interview_flag.toString().toUpperCase().trim()
+          if (flagStr !== 'TRUE' && flagStr !== '1' && flagStr !== 'YES') return false
+          
+          // ステータスをシステム内のステータスに変換して判定
+          const systemStatus = mapMonthlyStatusToSystemStatus(d.status)
+          return systemStatus && INTERVIEW_SET_STATUSES.includes(systemStatus)
         })
         .map(d => d.candidate_id)
     ).size
@@ -137,8 +106,12 @@ export async function GET(request: NextRequest) {
       memberData
         .filter(d => {
           if (!d.interview_flag || !d.status) return false
-          return d.interview_flag.toString().toUpperCase() === 'TRUE' && 
-                 d.status === '🟢 内定承諾（成約）'
+          const flagStr = d.interview_flag.toString().toUpperCase().trim()
+          if (flagStr !== 'TRUE' && flagStr !== '1' && flagStr !== 'YES') return false
+          
+          // ステータスをシステム内のステータスに変換して判定
+          const systemStatus = mapMonthlyStatusToSystemStatus(d.status)
+          return systemStatus === '内定承諾（成約）'
         })
         .map(d => d.candidate_id)
     ).size

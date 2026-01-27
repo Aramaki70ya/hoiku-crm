@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getAuthContext } from '@/lib/auth/server'
+import { 
+  mapMonthlyStatusToSystemStatus, 
+  INTERVIEW_STATUS_CATEGORIES 
+} from '@/lib/status-mapping'
 
 /**
  * 月次マージシートから面接状況を取得するAPI
@@ -118,20 +122,25 @@ export async function GET(request: NextRequest) {
         amount,
       }
 
-      // ステータスに応じて分類（完全一致で判定）
-      // 注意: ステータスの値は絵文字とスペースを含めて完全一致する必要がある
-      const status = d.status?.trim() || ''
-      
-      if (status === '🟢 面接日程調整中') {
+      // ステータスに応じて分類（マッピングを使用）
+      const systemStatus = mapMonthlyStatusToSystemStatus(d.status)
+      if (!systemStatus) {
+        // マッピングされていないステータスはスキップ（デバッグ用にログ出力）
+        if (process.env.NODE_ENV === 'development') {
+          console.warn(`[DEBUG] 未マッピングのステータス: ${d.status}`)
+        }
+        return
+      }
+
+      if (INTERVIEW_STATUS_CATEGORIES.adjusting.includes(systemStatus)) {
         adjusting.push(caseInfo)
-      } else if (status === '🟢 面接確定済') {
+      } else if (INTERVIEW_STATUS_CATEGORIES.beforeInterview.includes(systemStatus)) {
         beforeInterview.push(caseInfo)
-      } else if (status === '🟠 面接実施済（結果待ち）') {
+      } else if (INTERVIEW_STATUS_CATEGORIES.waitingResult.includes(systemStatus)) {
         waitingResult.push(caseInfo)
-      } else if (status === '🟣 内定獲得（承諾確認中）') {
+      } else if (INTERVIEW_STATUS_CATEGORIES.waitingReply.includes(systemStatus)) {
         waitingReply.push(caseInfo)
       }
-      // その他のステータスは面接状況カードには表示しない
     })
 
     statusCases[memberName] = {
