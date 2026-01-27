@@ -29,6 +29,8 @@ import {
   CalendarDays,
   AlertCircle,
   ChevronDown,
+  PhoneCall,
+  UserCheck,
 } from 'lucide-react'
 import {
   mockMemberStats,
@@ -37,6 +39,7 @@ import {
   mockProjects,
   mockInterviews,
   targetRates,
+  kpiAssumptions,
 } from '@/lib/mock-data'
 import {
   getCandidatesClient as getCandidates,
@@ -310,6 +313,14 @@ export default function DashboardSummaryPage() {
     })
   }, [contracts, periodType, customStartDate, customEndDate])
 
+  // 期間内成約の売上合計（目標数値・成約単価実績用）
+  const periodTotalSales = useMemo(() => {
+    return periodContracts.reduce(
+      (sum, c) => sum + (c.revenue_including_tax ?? c.revenue_excluding_tax ?? 0),
+      0
+    )
+  }, [periodContracts])
+
   // 期間内に面接を設定した数（start_atで判定）
   const periodInterviews = useMemo(() => {
     const { startDate, endDate } = getPeriodDates
@@ -538,6 +549,10 @@ export default function DashboardSummaryPage() {
     totalProgress.interviewCount > 0
       ? (totalProgress.closedCount / totalProgress.interviewCount) * 100
       : 0
+
+  // 成約単価実績（営業進捗の成約数ベースで集計）
+  const actualRevenuePerClosed =
+    totalProgress.closedCount > 0 ? periodTotalSales / totalProgress.closedCount : 0
 
   // 2課のメンバーID（画像から読み取れる内容に基づく）
   const team2UserIds = ['3', '4', '7', '8', '9'] // 西田、鈴木、後藤、小畦、吉田
@@ -799,6 +814,150 @@ export default function DashboardSummaryPage() {
             </Badge>
           </div>
         </div>
+
+        {/* 目標数値の前提条件（実績＝営業進捗の集計から算出） */}
+        <Card className="bg-white border-slate-200 shadow-sm mb-6">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg text-slate-800 flex items-center gap-2">
+              <Target className="w-5 h-5 text-violet-500" />
+              目標数値の前提条件
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-4 gap-4">
+              {/* 担当→初回（登録→初回） */}
+              <div className="p-4 rounded-xl bg-gradient-to-br from-purple-50 to-violet-50 border border-purple-100">
+                <div className="flex items-center gap-2 mb-2">
+                  <PhoneCall className="w-5 h-5 text-purple-600" />
+                  <p className="text-sm font-medium text-purple-700">担当→初回率</p>
+                </div>
+                <div className="flex items-end gap-2">
+                  <p className="text-2xl font-bold text-purple-600">
+                    {(targetRates.firstContactRate * 100).toFixed(0)}%
+                  </p>
+                  <p className="text-sm text-slate-500 mb-1">目標</p>
+                </div>
+                <div className="mt-2 pt-2 border-t border-purple-200">
+                  <div className="flex items-end gap-2">
+                    <p
+                      className={`text-2xl font-bold ${
+                        totalFirstContactRate >= targetRates.firstContactRate * 100
+                          ? 'text-emerald-600'
+                          : 'text-amber-600'
+                      }`}
+                    >
+                      {totalProgress.totalCount > 0 ? totalFirstContactRate.toFixed(1) : '-'}%
+                    </p>
+                    <p className="text-sm text-slate-500 mb-1">実績</p>
+                  </div>
+                  <p className="text-lg text-slate-500 mt-1">
+                    {totalProgress.totalCount > 0
+                      ? `${totalProgress.firstContactCount}件 / ${totalProgress.totalCount}件`
+                      : '-'}
+                  </p>
+                </div>
+              </div>
+              {/* 初回→面接 */}
+              <div className="p-4 rounded-xl bg-gradient-to-br from-cyan-50 to-blue-50 border border-cyan-100">
+                <div className="flex items-center gap-2 mb-2">
+                  <Calendar className="w-5 h-5 text-cyan-600" />
+                  <p className="text-sm font-medium text-cyan-700">初回→面接率</p>
+                </div>
+                <div className="flex items-end gap-2">
+                  <p className="text-2xl font-bold text-cyan-600">
+                    {(targetRates.interviewRate * 100).toFixed(0)}%
+                  </p>
+                  <p className="text-sm text-slate-500 mb-1">目標</p>
+                </div>
+                <div className="mt-2 pt-2 border-t border-cyan-200">
+                  <div className="flex items-end gap-2">
+                    <p
+                      className={`text-2xl font-bold ${
+                        totalInterviewRate >= targetRates.interviewRate * 100
+                          ? 'text-emerald-600'
+                          : 'text-amber-600'
+                      }`}
+                    >
+                      {totalProgress.firstContactCount > 0 ? totalInterviewRate.toFixed(1) : '-'}%
+                    </p>
+                    <p className="text-sm text-slate-500 mb-1">実績</p>
+                  </div>
+                  <p className="text-lg text-slate-500 mt-1">
+                    {totalProgress.firstContactCount > 0
+                      ? `${totalProgress.interviewCount}件 / ${totalProgress.firstContactCount}件`
+                      : '-'}
+                  </p>
+                </div>
+              </div>
+              {/* 面接→成約 */}
+              <div className="p-4 rounded-xl bg-gradient-to-br from-emerald-50 to-green-50 border border-emerald-100">
+                <div className="flex items-center gap-2 mb-2">
+                  <UserCheck className="w-5 h-5 text-emerald-600" />
+                  <p className="text-sm font-medium text-emerald-700">面接→成約率</p>
+                </div>
+                <div className="flex items-end gap-2">
+                  <p className="text-2xl font-bold text-emerald-600">
+                    {(targetRates.closedRate * 100).toFixed(0)}%
+                  </p>
+                  <p className="text-sm text-slate-500 mb-1">目標</p>
+                </div>
+                <div className="mt-2 pt-2 border-t border-emerald-200">
+                  <div className="flex items-end gap-2">
+                    <p
+                      className={`text-2xl font-bold ${
+                        totalClosedRate >= targetRates.closedRate * 100
+                          ? 'text-emerald-600'
+                          : 'text-amber-600'
+                      }`}
+                    >
+                      {totalProgress.interviewCount > 0 ? totalClosedRate.toFixed(1) : '-'}%
+                    </p>
+                    <p className="text-sm text-slate-500 mb-1">実績</p>
+                  </div>
+                  <p className="text-lg text-slate-500 mt-1">
+                    {totalProgress.interviewCount > 0
+                      ? `${totalProgress.closedCount}件 / ${totalProgress.interviewCount}件`
+                      : '-'}
+                  </p>
+                </div>
+              </div>
+              {/* 成約単価 */}
+              <div className="p-4 rounded-xl bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-100">
+                <div className="flex items-center gap-2 mb-2">
+                  <DollarSign className="w-5 h-5 text-amber-600" />
+                  <p className="text-sm font-medium text-amber-700">成約単価</p>
+                </div>
+                <div className="flex items-end gap-2">
+                  <p className="text-2xl font-bold text-amber-600">
+                    ¥{(kpiAssumptions.revenuePerClosed / 10000).toFixed(0)}万
+                  </p>
+                  <p className="text-sm text-slate-500 mb-1">/人</p>
+                </div>
+                <div className="mt-2 pt-2 border-t border-amber-200">
+                  <div className="flex items-end gap-2">
+                    <p
+                      className={`text-2xl font-bold ${
+                        actualRevenuePerClosed >= kpiAssumptions.revenuePerClosed
+                          ? 'text-emerald-600'
+                          : 'text-amber-600'
+                      }`}
+                    >
+                      {totalProgress.closedCount > 0
+                        ? `¥${(actualRevenuePerClosed / 10000).toFixed(0)}万`
+                        : '-'}
+                    </p>
+                    <p className="text-sm text-slate-500 mb-1">実績</p>
+                  </div>
+                  <p className="text-lg text-slate-500 mt-1">
+                    {totalProgress.closedCount > 0
+                      ? `${totalProgress.closedCount}件`
+                      : '-'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* 営業進捗状況 */}
         <Card className="bg-white border-slate-200 shadow-sm">

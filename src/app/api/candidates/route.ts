@@ -2,13 +2,17 @@ import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { isDemoMode } from '@/lib/supabase/config'
 
+// Next.js サーバーレベルのキャッシュを完全に無効化
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 // 求職者一覧取得
 export async function GET(request: NextRequest) {
   try {
     // デモモードの場合はモックデータを返す
     if (isDemoMode()) {
       const { mockCandidates, mockUsers, mockSources } = await import('@/lib/mock-data')
-      return NextResponse.json({
+      const res = NextResponse.json({
         data: mockCandidates.map(candidate => ({
           ...candidate,
           consultant: mockUsers.find(u => u.id === candidate.consultant_id) || null,
@@ -16,6 +20,8 @@ export async function GET(request: NextRequest) {
         })),
         total: mockCandidates.length,
       })
+      res.headers.set('Cache-Control', 'no-store, max-age=0')
+      return res
     }
 
     const supabase = await createClient()
@@ -63,12 +69,14 @@ export async function GET(request: NextRequest) {
 
     const { data, error, count } = await query
     if (error) throw error
-    
-    return NextResponse.json({
+
+    const res = NextResponse.json({
       data,
       total: count,
       pagination: { total: count, limit, offset, hasMore: (offset + limit) < (count || 0) }
     })
+    res.headers.set('Cache-Control', 'no-store, max-age=0')
+    return res
   } catch (error) {
     console.error('Error fetching candidates:', error)
     return NextResponse.json({ error: 'サーバーエラー' }, { status: 500 })

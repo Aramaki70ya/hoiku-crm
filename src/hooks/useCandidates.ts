@@ -59,8 +59,12 @@ export function useCandidates(options: UseCandidatesOptions = {}): UseCandidates
       if (options.search) params.set('search', options.search)
       if (options.limit) params.set('limit', options.limit.toString())
       if (options.offset) params.set('offset', options.offset.toString())
+      // キャッシュを完全に回避するためタイムスタンプを付与
+      params.set('_t', Date.now().toString())
 
-      const res = await fetch(`/api/candidates?${params.toString()}`)
+      const res = await fetch(`/api/candidates?${params.toString()}`, {
+        cache: 'no-store',
+      })
       if (!res.ok) {
         const data = await res.json()
         throw new Error(data.error || 'データ取得に失敗しました')

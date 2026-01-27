@@ -214,6 +214,45 @@ export function mapLegacyStatusToNewStatus(legacyStatus: string): StatusType {
   return LEGACY_STATUS_MAP[legacyStatus] || (legacyStatus as StatusType) || '初回連絡中'
 }
 
+/** DBのCHECK制約で許可されているレガシー値 */
+export const LEGACY_STATUS_VALUES = [
+  'new', 'contacting', 'first_contact_done', 'proposing',
+  'interviewing', 'offer', 'closed_won', 'closed_lost', 'pending', 'on_hold',
+] as const
+
+export type LegacyStatusType = typeof LEGACY_STATUS_VALUES[number]
+
+/**
+ * 新しいステータス体系 → DB用レガシー値への逆マッピング
+ * PATCHでDBを更新するときに使用（CHECK制約対応）
+ */
+export const NEW_TO_LEGACY_MAP: Record<StatusType, LegacyStatusType> = {
+  '初回連絡中': 'new',
+  '連絡つかず（初回未接触）': 'contacting',
+  '提案求人選定中': 'proposing',
+  '求人提案済（返信待ち）': 'proposing',
+  '書類選考中': 'interviewing',
+  '面接日程調整中': 'interviewing',
+  '面接確定済': 'interviewing',
+  '面接実施済（結果待ち）': 'interviewing',
+  '内定獲得（承諾確認中）': 'offer',
+  '内定承諾（成約）': 'closed_won',
+  '内定辞退': 'closed_lost',
+  '音信不通': 'on_hold',
+  '追客中（中長期フォロー）': 'pending',
+  'クローズ（終了）': 'closed_lost',
+  '見学提案~設定': 'proposing',
+  '再ヒアリング・条件変更あり': 'pending',
+  '初回ヒアリング実施済': 'first_contact_done',
+}
+
+export function mapNewStatusToLegacy(newStatus: string): LegacyStatusType {
+  if (LEGACY_STATUS_VALUES.includes(newStatus as LegacyStatusType)) {
+    return newStatus as LegacyStatusType
+  }
+  return NEW_TO_LEGACY_MAP[newStatus as StatusType] ?? 'new'
+}
+
 /**
  * ステータスの表示用色（求職者管理画面のプルダウン用）
  */

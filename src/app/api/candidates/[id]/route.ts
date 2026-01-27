@@ -1,6 +1,11 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { isDemoMode } from '@/lib/supabase/config'
+import { mapNewStatusToLegacy } from '@/lib/status-mapping'
+
+// Next.js サーバーレベルのキャッシュを完全に無効化
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
 
 // 求職者詳細取得
 export async function GET(
@@ -16,7 +21,7 @@ export async function GET(
       if (!candidate) {
         return NextResponse.json({ error: '求職者が見つかりません' }, { status: 404 })
       }
-      return NextResponse.json({
+      const res = NextResponse.json({
         data: {
           ...candidate,
           consultant: mockUsers.find(u => u.id === candidate.consultant_id) || null,
@@ -24,6 +29,8 @@ export async function GET(
           projects: mockProjects.filter(p => p.candidate_id === id),
         }
       })
+      res.headers.set('Cache-Control', 'no-store, max-age=0')
+      return res
     }
 
     const supabase = await createClient()
@@ -50,8 +57,10 @@ export async function GET(
       }
       throw error
     }
-    
-    return NextResponse.json({ data })
+
+    const res = NextResponse.json({ data })
+    res.headers.set('Cache-Control', 'no-store, max-age=0')
+    return res
   } catch (error) {
     console.error('Error fetching candidate:', error)
     return NextResponse.json({ error: 'サーバーエラー' }, { status: 500 })
@@ -82,14 +91,40 @@ export async function PATCH(
       return NextResponse.json({ error: '認証が必要です' }, { status: 401 })
     }
     
-    const body = await request.json()
-    
+    const body = (await request.json()) as Record<string, unknown>
+
+    const ALLOWED_KEYS = [
+      'status',
+      'memo',
+      'consultant_id',
+      'approach_priority',
+      'desired_employment_type',
+      'name',
+      'kana',
+      'phone',
+      'email',
+      'birth_date',
+      'age',
+      'prefecture',
+      'address',
+      'qualification',
+      'desired_job_type',
+      'source_id',
+      'registered_at',
+      'rank',
+    ] as const
+
+    const updatePayload: Record<string, unknown> = { updated_at: new Date().toISOString() }
+    for (const k of ALLOWED_KEYS) {
+      if (body[k] !== undefined) updatePayload[k] = body[k]
+    }
+    if (typeof updatePayload.status === 'string') {
+      updatePayload.status = mapNewStatusToLegacy(updatePayload.status)
+    }
+
     const { data, error } = await supabase
       .from('candidates')
-      .update({
-        ...body,
-        updated_at: new Date().toISOString()
-      })
+      .update(updatePayload)
       .eq('id', id)
       .select()
       .single()
@@ -98,6 +133,7 @@ export async function PATCH(
       if (error.code === 'PGRST116') {
         return NextResponse.json({ error: '求職者が見つかりません' }, { status: 404 })
       }
+      console.error('PATCH candidates error:', error.message, error.details)
       throw error
     }
     

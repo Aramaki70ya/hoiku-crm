@@ -170,14 +170,52 @@ export default function DebugAuthPage() {
             <CardTitle>API確認</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div>
+            <div className="space-y-2">
               <button
                 onClick={async () => {
-                  const res = await fetch('/api/auth/me')
-                  const data = await res.json()
-                  console.log('API /api/auth/me レスポンス:', data)
-                  console.log('API /api/auth/me 詳細:', JSON.stringify(data, null, 2))
-                  alert(`ステータス: ${res.status}\n\nレスポンス:\n${JSON.stringify(data, null, 2)}`)
+                  try {
+                    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '未設定'
+                    const testUrl = `${supabaseUrl}/rest/v1/`
+                    console.log('[テスト] Supabase接続:', testUrl)
+                    const res = await fetch(testUrl, {
+                      headers: {
+                        apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
+                      },
+                    })
+                    const status = res.status
+                    const statusText = res.statusText
+                    console.log('[テスト結果]', { status, statusText })
+                    alert(
+                      `Supabase接続テスト\n\nURL: ${supabaseUrl}\nステータス: ${status} ${statusText}\n\n${
+                        status === 200 || status === 401
+                          ? '✅ 接続成功（401は認証エラーだが接続はOK）'
+                          : status === 0 || status === 404
+                          ? '❌ 接続失敗（URLが間違っている可能性）'
+                          : '⚠️ 予期しないステータス'
+                      }`
+                    )
+                  } catch (error: any) {
+                    console.error('[テストエラー]', error)
+                    alert(
+                      `❌ Supabase接続失敗\n\nエラー: ${error.message}\n\n考えられる原因:\n• 環境変数 NEXT_PUBLIC_SUPABASE_URL が間違っている\n• Supabaseプロジェクトが停止している\n• ネットワーク接続の問題\n• 開発サーバーを再起動していない`
+                    )
+                  }
+                }}
+                className="px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600 mr-2"
+              >
+                Supabase接続テスト
+              </button>
+              <button
+                onClick={async () => {
+                  try {
+                    const res = await fetch('/api/auth/me')
+                    const data = await res.json()
+                    console.log('API /api/auth/me レスポンス:', data)
+                    console.log('API /api/auth/me 詳細:', JSON.stringify(data, null, 2))
+                    alert(`ステータス: ${res.status}\n\nレスポンス:\n${JSON.stringify(data, null, 2)}`)
+                  } catch (error: any) {
+                    alert(`❌ エラー: ${error.message}`)
+                  }
                 }}
                 className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 mr-2"
               >
@@ -185,11 +223,15 @@ export default function DebugAuthPage() {
               </button>
               <button
                 onClick={async () => {
-                  const res = await fetch('/api/users')
-                  const data = await res.json()
-                  console.log('API /api/users レスポンス:', data)
-                  console.log('API /api/users 詳細:', JSON.stringify(data, null, 2))
-                  alert(`ステータス: ${res.status}\n\nレスポンス:\n${JSON.stringify(data, null, 2)}`)
+                  try {
+                    const res = await fetch('/api/users')
+                    const data = await res.json()
+                    console.log('API /api/users レスポンス:', data)
+                    console.log('API /api/users 詳細:', JSON.stringify(data, null, 2))
+                    alert(`ステータス: ${res.status}\n\nレスポンス:\n${JSON.stringify(data, null, 2)}`)
+                  } catch (error: any) {
+                    alert(`❌ エラー: ${error.message}`)
+                  }
                 }}
                 className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
               >
@@ -197,9 +239,11 @@ export default function DebugAuthPage() {
               </button>
             </div>
             <div className="text-sm text-slate-600">
+              <p>• <strong>Supabase接続テスト</strong>: Supabase URL への直接接続を確認（Failed to fetch エラーの原因特定に有用）</p>
               <p>• <code>/api/auth/me</code>: 現在の認証状態とappUserを取得</p>
               <p>• <code>/api/users</code>: ユーザー一覧（認証必須）</p>
               <p className="mt-2 text-red-600">401エラーが出る場合、セッション切れか未ログインの可能性があります</p>
+              <p className="mt-2 text-red-600 font-semibold">「Failed to fetch」エラーの場合、まず「Supabase接続テスト」を実行してください</p>
             </div>
           </CardContent>
         </Card>

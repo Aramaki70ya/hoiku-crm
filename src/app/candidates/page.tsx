@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect, Suspense } from 'react'
 import Link from 'next/link'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { AppLayout } from '@/components/layout/app-layout'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -52,7 +53,7 @@ import {
 import { useCandidates } from '@/hooks/useCandidates'
 import { useUsers } from '@/hooks/useUsers'
 import { useSources } from '@/hooks/useSources'
-import type { Contract, CandidateWithRelations } from '@/types/database'
+import type { CandidateWithRelations } from '@/types/database'
 
 // アプローチ優先度を取得する関数（タスク画面用）
 const getApproachPriority = (candidate: CandidateWithRelations) => {
@@ -91,17 +92,16 @@ const activeStatuses: StatusType[] = [
   '初回ヒアリング実施済',
 ]
 
-export default function CandidatesPage() {
+function CandidatesPageContent() {
+  const searchParams = useSearchParams()
+  const router = useRouter()
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
-  const [consultantFilter, setConsultantFilter] = useState<string>('all')
   const [priorityFilter, setPriorityFilter] = useState<string>('all')
   const [activeTab, setActiveTab] = useState<'all' | 'tasks'>('all')
-  const [localStatuses, setLocalStatuses] = useState<Record<string, string>>({})
   const [localConsultants, setLocalConsultants] = useState<Record<string, string>>({})
   const [localPriorities, setLocalPriorities] = useState<Record<string, 'S' | 'A' | 'B' | 'C'>>({})
   const [localEmploymentTypes, setLocalEmploymentTypes] = useState<Record<string, string>>({})
-  const [contracts, setContracts] = useState<Contract[]>([])
 
   // 新規登録ダイアログ
   const [isNewDialogOpen, setIsNewDialogOpen] = useState(false)
@@ -123,68 +123,34 @@ export default function CandidatesPage() {
     memo: '',
   })
 
-  // API経由でデータを取得
-  const { candidates: rawCandidates, isLoading, createCandidate, updateCandidate } = useCandidates({
+  const { candidates: rawCandidates, isLoading, createCandidate, updateCandidate, refetch } = useCandidates({
     search: searchQuery,
   })
   const { consultants, users } = useUsers()
   const { sources } = useSources()
 
-  // ステータス変更ハンドラー
-  const handleStatusChange = useCallback(async (candidateId: string, newStatus: string) => {
-    // 現在のステータスを取得
-    const candidate = rawCandidates.find(c => c.id === candidateId)
-    const oldStatus = localStatuses[candidateId] || candidate?.status || '初回連絡中'
-    
-    if (oldStatus === newStatus) return
-    
-    setLocalStatuses(prev => ({ ...prev, [candidateId]: newStatus }))
-    
-    // API経由で更新（新しいステータス体系をそのまま保存）
-    await updateCandidate(candidateId, { status: newStatus as any })
-    
-    // タイムラインにステータス変更を記録
-    try {
-      await fetch('/api/timeline-events', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          candidate_id: candidateId,
-          event_type: 'status_change',
-          title: 'ステータス変更',
-          description: `${statusLabels[oldStatus as StatusType] || oldStatus} → ${statusLabels[newStatus as StatusType] || newStatus}`,
-        }),
-      })
-    } catch (err) {
-      console.error('タイムラインイベント追加エラー:', err)
+  // タブ復帰・bfcache 復元時に DB 最新を反映
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') refetch()
     }
-    
-    // ステータスが「成約」になった場合、成約データをAPI経由で作成
-    if (newStatus === '内定承諾（成約）') {
-      const existingContract = contracts.find(c => c.candidate_id === candidateId)
-      if (!existingContract) {
-        try {
-          const res = await fetch('/api/contracts', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              candidate_id: candidateId,
-              accepted_date: new Date().toISOString().split('T')[0],
-            }),
-          })
-          
-          if (res.ok) {
-            const { data: newContract } = await res.json()
-            setContracts(prev => [...prev, newContract])
-          } else {
-            console.error('成約データ作成エラー')
-          }
-        } catch (err) {
-          console.error('成約データ作成エラー:', err)
-        }
-      }
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) refetch()
     }
-  }, [updateCandidate, contracts, rawCandidates, localStatuses])
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('pageshow', onPageShow)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('pageshow', onPageShow)
+    }
+  }, [refetch])
+
+  const consultantFilter = useMemo(() => {
+    const q = searchParams.get('consultant') ?? 'all'
+    if (q === 'all') return 'all'
+    if (consultants.some((u) => u.id === q)) return q
+    return 'all'
+  }, [searchParams, consultants])
 
   // 担当者変更ハンドラー
   const handleConsultantChange = useCallback(async (candidateId: string, consultantId: string) => {
@@ -289,56 +255,46 @@ export default function CandidatesPage() {
   // 優先度別カウント（タスクタブ用）
   const priorityCounts = useMemo(() => {
     const counts: Record<string, number> = { S: 0, A: 0, B: 0, C: 0 }
-    
     rawCandidates
       .filter(c => {
-        const rawStatus = localStatuses[c.id] || c.status
-        const mappedStatus = mapLegacyStatusToNewStatus(rawStatus)
+        const mappedStatus = mapLegacyStatusToNewStatus(c.status)
         return activeStatuses.includes(mappedStatus)
       })
       .forEach(c => {
         const priority = localPriorities[c.id] || getApproachPriority(c)
         counts[priority]++
       })
-    
     return counts
-  }, [rawCandidates, localStatuses, localPriorities])
+  }, [rawCandidates, localPriorities])
 
-  // フィルタリング
+  // フィルタリング（ステータスは DB のみ参照）
   const filteredCandidates = useMemo(() => {
     let filtered = rawCandidates.filter((candidate) => {
-      // 変更されたステータスを取得（古い値を新しい体系に変換）
-      const rawStatus = localStatuses[candidate.id] || candidate.status
-      const currentStatus = mapLegacyStatusToNewStatus(rawStatus)
-      
+      const currentStatus = mapLegacyStatusToNewStatus(candidate.status)
+
       // タブによるフィルタ
       if (activeTab === 'tasks' && !activeStatuses.includes(currentStatus)) {
         return false
       }
-      
       // ステータスフィルタ
       if (statusFilter !== 'all' && currentStatus !== statusFilter) {
         return false
       }
-
       // 担当者フィルタ
       const currentConsultantIdForFilter = localConsultants[candidate.id] || candidate.consultant_id
       if (consultantFilter !== 'all' && currentConsultantIdForFilter !== consultantFilter) {
         return false
       }
-
       // 優先度フィルタ（タスクタブのみ）
       if (activeTab === 'tasks' && priorityFilter !== 'all') {
         const currentPriority = localPriorities[candidate.id] || getApproachPriority(candidate)
         if (currentPriority !== priorityFilter) return false
       }
-
       return true
     }).map(candidate => {
       const approachPriority = localPriorities[candidate.id] || getApproachPriority(candidate)
       return {
         ...candidate,
-        status: localStatuses[candidate.id] || candidate.status,
         consultant_id: localConsultants[candidate.id] || candidate.consultant_id,
         approach_priority: approachPriority,
       }
@@ -350,14 +306,12 @@ export default function CandidatesPage() {
         return priorityOrder[a.approach_priority || 'B'] - priorityOrder[b.approach_priority || 'B']
       })
     }
-
     return filtered
-  }, [rawCandidates, statusFilter, consultantFilter, priorityFilter, activeTab, localStatuses, localConsultants, localPriorities])
+  }, [rawCandidates, statusFilter, consultantFilter, priorityFilter, activeTab, localConsultants, localPriorities])
 
   const allCount = rawCandidates.length
   const taskCount = rawCandidates.filter(c => {
-    const rawStatus = localStatuses[c.id] || c.status
-    const mappedStatus = mapLegacyStatusToNewStatus(rawStatus)
+    const mappedStatus = mapLegacyStatusToNewStatus(c.status)
     return activeStatuses.includes(mappedStatus)
   }).length
 
@@ -490,10 +444,16 @@ export default function CandidatesPage() {
           </Select>
         </div>
 
-        {/* 担当者フィルター */}
+        {/* 担当者フィルター（URLで保持し、詳細→戻るで復元） */}
         <div className="flex items-center gap-2">
           <span className="text-sm text-slate-600 font-medium">担当者:</span>
-          <Select value={consultantFilter} onValueChange={setConsultantFilter}>
+          <Select
+            value={consultantFilter}
+            onValueChange={(v) => {
+              const path = v === 'all' ? '/candidates' : `/candidates?consultant=${v}`
+              router.replace(path)
+            }}
+          >
             <SelectTrigger className="w-40 bg-white border-slate-200 text-slate-700 shadow-sm">
               <SelectValue placeholder="担当者" />
             </SelectTrigger>
@@ -613,7 +573,7 @@ export default function CandidatesPage() {
                   <TableCell className="max-w-40">
                     <div className="truncate">
                       <Link 
-                        href={`/candidates/${candidate.id}`}
+                        href={consultantFilter !== 'all' ? `/candidates/${candidate.id}?consultant=${consultantFilter}` : `/candidates/${candidate.id}`}
                         className="font-medium text-slate-800 hover:text-violet-600 hover:underline transition-colors"
                       >
                         {candidate.name}
@@ -673,38 +633,14 @@ export default function CandidatesPage() {
                   </TableCell>
                   <TableCell>
                     {(() => {
-                      const rawStatus = localStatuses[candidate.id] || candidate.status
-                      // 古いステータス値を新しいステータス体系に変換
-                      const currentStatus = mapLegacyStatusToNewStatus(rawStatus)
+                      const currentStatus = mapLegacyStatusToNewStatus(candidate.status)
                       return (
-                        <Select
-                          value={currentStatus}
-                          onValueChange={(value) => {
-                            handleStatusChange(candidate.id, value)
-                          }}
+                        <Badge
+                          variant="outline"
+                          className={statusColors[currentStatus] || 'bg-slate-100 text-slate-700 border-slate-200'}
                         >
-                          <SelectTrigger className="w-32 h-7 p-0 border-0 bg-transparent hover:bg-slate-100">
-                            <SelectValue>
-                              <Badge
-                                variant="outline"
-                                className={statusColors[currentStatus] || 'bg-slate-100 text-slate-700 border-slate-200'}
-                              >
-                                {statusLabels[currentStatus] || currentStatus}
-                              </Badge>
-                            </SelectValue>
-                          </SelectTrigger>
-                          <SelectContent className="bg-white border-slate-200">
-                            {STATUS_LIST.map((status) => (
-                              <SelectItem key={status} value={status}>
-                                <div className="flex items-center gap-2">
-                                  <Badge variant="outline" className={statusColors[status]}>
-                                    {statusLabels[status]}
-                                  </Badge>
-                                </div>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                          {statusLabels[currentStatus] || currentStatus}
+                        </Badge>
                       )
                     })()}
                   </TableCell>
@@ -761,7 +697,7 @@ export default function CandidatesPage() {
                     {candidate.registered_at}
                   </TableCell>
                   <TableCell>
-                    <Link href={`/candidates/${candidate.id}`}>
+                    <Link href={consultantFilter !== 'all' ? `/candidates/${candidate.id}?consultant=${consultantFilter}` : `/candidates/${candidate.id}`}>
                       <Button
                         variant="ghost"
                         size="icon"
@@ -1083,5 +1019,19 @@ export default function CandidatesPage() {
         </DialogContent>
       </Dialog>
     </AppLayout>
+  )
+}
+
+export default function CandidatesPage() {
+  return (
+    <Suspense fallback={
+      <AppLayout title="求職者管理" description="読み込み中...">
+        <div className="flex items-center justify-center h-64">
+          <p className="text-slate-500">読み込み中...</p>
+        </div>
+      </AppLayout>
+    }>
+      <CandidatesPageContent />
+    </Suspense>
   )
 }

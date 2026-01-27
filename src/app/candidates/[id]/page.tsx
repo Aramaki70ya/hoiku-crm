@@ -41,16 +41,16 @@ import {
   Building,
   Clock,
   Banknote,
-  FileText,
-  Link as LinkIcon,
-  CalendarCheck,
   Loader2,
 } from 'lucide-react'
+import { mockMemos } from '@/lib/mock-data'
 import {
-  mockMemos,
+  STATUS_LIST,
   statusLabels,
   statusColors,
-} from '@/lib/mock-data'
+  mapLegacyStatusToNewStatus,
+  type StatusType,
+} from '@/lib/status-mapping'
 import type { Contract, Candidate, Project, Interview, User, Source } from '@/types/database'
 
 interface PageProps {
@@ -67,25 +67,19 @@ function formatCurrency(amount: number | null | undefined): string {
   }).format(amount)
 }
 
-// 日付をフォーマット
-function formatDate(dateStr: string | null | undefined): string {
-  if (!dateStr) return '-'
-  const date = new Date(dateStr)
-  return date.toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' })
-}
-
 export default function CandidateDetailPage({ params }: PageProps) {
   const { id } = use(params)
   const router = useRouter()
   const searchParams = useSearchParams()
   const [candidateStatus, setCandidateStatus] = useState<string | null>(null)
-  
+  const [isSaving, setIsSaving] = useState(false)
+
   // Supabaseからデータを取得
   const [candidate, setCandidate] = useState<Candidate | null>(null)
   const [users, setUsers] = useState<User[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [allInterviews, setAllInterviews] = useState<Interview[]>([])
-  const [contract, setContract] = useState<Contract | null>(null)
+  const [, setContract] = useState<Contract | null>(null)
   const [sources, setSources] = useState<Source[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -95,7 +89,9 @@ export default function CandidateDetailPage({ params }: PageProps) {
       setLoading(true)
       
       // まず求職者データを取得（最優先）
-      const candidateRes = await fetch(`/api/candidates/${id}`)
+      const candidateRes = await fetch(`/api/candidates/${id}?_t=${Date.now()}`, {
+        cache: 'no-store',
+      })
       if (!candidateRes.ok) {
         if (candidateRes.status === 404) {
           setError('求職者が見つかりません')
@@ -107,7 +103,9 @@ export default function CandidateDetailPage({ params }: PageProps) {
       }
       const { data: candidateData } = await candidateRes.json()
       setCandidate(candidateData)
-      setCandidateStatus(candidateData.status)
+      setCandidateStatus(
+        mapLegacyStatusToNewStatus(candidateData.status || 'new') as StatusType
+      )
       
       // 求職者情報が取得できたら、すぐにローディングを解除（段階的ローディング）
       setLoading(false)
@@ -163,22 +161,26 @@ export default function CandidateDetailPage({ params }: PageProps) {
   useEffect(() => {
     fetchData()
   }, [fetchData])
+
+  // DBのステータスを正とする。レガシー値は new 体系に変換（一覧と同じ）
+  const currentStatus = mapLegacyStatusToNewStatus(
+    candidateStatus || candidate?.status || 'new'
+  ) as StatusType
   
-  // ステータスを初期化（変更されていない場合は元のステータスを使用）
-  const currentStatus = candidateStatus || candidate?.status || 'new'
-  
-  // 遷移元の情報を取得
   const from = searchParams.get('from')
   const memberId = searchParams.get('memberId')
-  
-  // 戻るボタンのハンドラー
+  const consultantFromList = searchParams.get('consultant')
+  const listHref = consultantFromList ? `/candidates?consultant=${consultantFromList}` : '/candidates'
+
+  // 戻る: 保存中なら待つ。一覧からなら必ず Link 的に新規ナビして一覧を再マウント＆再fetch
   const handleBack = () => {
+    if (isSaving) return
     if (from === 'members' && memberId) {
-      // メンバーページから来た場合は、選択状態を保持してメンバーページに戻る
       router.push(`/members?selected=${memberId}`)
+    } else if (consultantFromList) {
+      router.push(listHref)
     } else {
-      // それ以外の場合はブラウザの履歴を戻る
-      router.back()
+      router.push('/candidates')
     }
   }
   
@@ -605,11 +607,13 @@ export default function CandidateDetailPage({ params }: PageProps) {
 
   // エラー時または求職者が見つからない場合
   if (error || !candidate) {
+    const c = searchParams.get('consultant')
+    const backHref = c ? `/candidates?consultant=${c}` : '/candidates'
     return (
       <AppLayout title="求職者が見つかりません">
         <div className="flex flex-col items-center justify-center h-96">
           <p className="text-slate-500 mb-4">{error || '指定された求職者は存在しません'}</p>
-          <Link href="/candidates">
+          <Link href={backHref}>
             <Button variant="outline">一覧に戻る</Button>
           </Link>
         </div>
@@ -626,7 +630,8 @@ export default function CandidateDetailPage({ params }: PageProps) {
             variant="ghost"
             size="icon"
             onClick={handleBack}
-            className="text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+            disabled={isSaving}
+            className={isSaving ? "text-slate-300" : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"}
           >
             <ArrowLeft className="w-5 h-5" />
           </Button>
@@ -635,44 +640,49 @@ export default function CandidateDetailPage({ params }: PageProps) {
               <h1 className="text-2xl font-bold text-slate-800">{candidate.name}</h1>
               <Select
                 value={currentStatus}
+                disabled={isSaving}
                 onValueChange={async (value) => {
                   const oldStatus = currentStatus
+                  if (oldStatus === value || !candidate) return
+                  setIsSaving(true)
                   setCandidateStatus(value)
-                  
-                  // ステータスをAPIで保存
-                  if (oldStatus !== value && candidate) {
-                    try {
-                      await fetch(`/api/candidates/${candidate.id}`, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ status: value }),
-                      })
-                    } catch (err) {
-                      console.error('ステータス更新エラー:', err)
+                  try {
+                    const res = await fetch(`/api/candidates/${candidate.id}`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ status: value }),
+                    })
+                    if (!res.ok) {
+                      console.error('ステータス更新失敗:', await res.text())
+                      setCandidateStatus(oldStatus)
+                      return
                     }
-                    
-                    // ステータス変更をタイムラインに追加
-                    addTimelineEvent(
+                    await addTimelineEvent(
                       'status_change',
                       'ステータス変更',
-                      `${statusLabels[oldStatus] || oldStatus} → ${statusLabels[value] || value}`
+                      `${statusLabels[oldStatus] || oldStatus} → ${statusLabels[value as StatusType] || value}`
                     )
+                  } catch (err) {
+                    console.error('ステータス更新エラー:', err)
+                    setCandidateStatus(oldStatus)
+                  } finally {
+                    setIsSaving(false)
                   }
                 }}
               >
-                <SelectTrigger className="w-32 h-8 p-0 border-0 bg-transparent hover:bg-slate-100">
+                <SelectTrigger className="w-32 h-8 p-0 border-0 bg-transparent hover:bg-slate-100" disabled={isSaving}>
                   <SelectValue>
-                    <Badge variant="outline" className={statusColors[currentStatus]}>
-                      {statusLabels[currentStatus]}
+                    <Badge variant="outline" className={isSaving ? 'bg-slate-100 text-slate-500' : statusColors[currentStatus]}>
+                      {isSaving ? '保存中...' : (statusLabels[currentStatus] || currentStatus)}
                     </Badge>
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent className="bg-white border-slate-200">
-                  {Object.entries(statusLabels).map(([value, label]) => (
-                    <SelectItem key={value} value={value}>
+                  {STATUS_LIST.map((status) => (
+                    <SelectItem key={status} value={status}>
                       <div className="flex items-center gap-2">
-                        <Badge variant="outline" className={statusColors[value]}>
-                          {label}
+                        <Badge variant="outline" className={statusColors[status]}>
+                          {statusLabels[status]}
                         </Badge>
                       </div>
                     </SelectItem>
