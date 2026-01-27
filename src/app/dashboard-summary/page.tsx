@@ -172,6 +172,15 @@ export default function DashboardSummaryPage() {
         }
         const data = await response.json()
         setMonthlyStatusCases(data.statusCases || {})
+        
+        // デバッグ情報をログ出力（開発環境のみ）
+        if (process.env.NODE_ENV === 'development' && data.debug) {
+          console.log('[DEBUG] 面接状況取得結果:', {
+            month: data.month,
+            statusCases: data.statusCases,
+            debug: data.debug,
+          })
+        }
       } catch (error) {
         console.error('Error fetching monthly status cases:', error)
         setMonthlyStatusCases({})

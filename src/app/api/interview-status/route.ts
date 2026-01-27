@@ -34,8 +34,27 @@ export async function GET(request: NextRequest) {
   if (!monthlyData || monthlyData.length === 0) {
     return NextResponse.json({ 
       statusCases: {},
-      message: 'データが見つかりませんでした'
+      message: 'データが見つかりませんでした',
+      debug: {
+        month,
+        totalRecords: 0,
+        recordsWithInterviewFlag: 0,
+      }
     })
+  }
+
+  // デバッグ情報
+  const debugInfo = {
+    month,
+    totalRecords: monthlyData.length,
+    recordsWithInterviewFlag: monthlyData.filter(d => {
+      const flag = d.interview_flag
+      if (!flag) return false
+      const flagStr = flag.toString().toUpperCase().trim()
+      return flagStr === 'TRUE' || flagStr === '1' || flagStr === 'YES'
+    }).length,
+    interviewFlagValues: [...new Set(monthlyData.map(d => d.interview_flag?.toString()).filter(Boolean))],
+    statusValues: [...new Set(monthlyData.map(d => d.status).filter(Boolean))],
   }
 
   // 担当者ごとに集計
@@ -122,5 +141,6 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ 
     month,
     statusCases,
+    debug: process.env.NODE_ENV === 'development' ? debugInfo : undefined,
   })
 }
