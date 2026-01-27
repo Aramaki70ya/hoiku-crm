@@ -743,18 +743,6 @@ export default function DashboardSummaryPage() {
                         目標: {(targetRates.closedRate * 100).toFixed(0)}%
                       </span>
                     </TableHead>
-                    <TableHead className="text-slate-700 font-semibold bg-orange-50">
-                      調整中
-                    </TableHead>
-                    <TableHead className="text-slate-700 font-semibold bg-orange-50">
-                      面接前
-                    </TableHead>
-                    <TableHead className="text-slate-700 font-semibold bg-orange-50">
-                      結果待ち
-                    </TableHead>
-                    <TableHead className="text-slate-700 font-semibold bg-orange-50">
-                      本人返事待ち
-                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -839,70 +827,6 @@ export default function DashboardSummaryPage() {
                             </span>
                           </div>
                         </TableCell>
-                        <TableCell className="text-sm text-slate-600">
-                          {(() => {
-                            const cases = getStatusCases[progress.userId]?.adjusting || []
-                            return cases.length > 0 ? (
-                              <div className="space-y-1">
-                                {cases.map((case_, idx) => (
-                                  <div key={idx}>
-                                    {case_.name} {case_.yomi} {formatAmount(case_.amount)}
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              '-'
-                            )
-                          })()}
-                        </TableCell>
-                        <TableCell className="text-sm text-slate-600">
-                          {(() => {
-                            const cases = getStatusCases[progress.userId]?.beforeInterview || []
-                            return cases.length > 0 ? (
-                              <div className="space-y-1">
-                                {cases.map((case_, idx) => (
-                                  <div key={idx}>
-                                    {case_.name} {case_.yomi} {formatAmount(case_.amount)}
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              '-'
-                            )
-                          })()}
-                        </TableCell>
-                        <TableCell className="text-sm text-slate-600">
-                          {(() => {
-                            const cases = getStatusCases[progress.userId]?.waitingResult || []
-                            return cases.length > 0 ? (
-                              <div className="space-y-1">
-                                {cases.map((case_, idx) => (
-                                  <div key={idx}>
-                                    {case_.name} {case_.yomi} {formatAmount(case_.amount)}
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              '-'
-                            )
-                          })()}
-                        </TableCell>
-                        <TableCell className="text-sm text-slate-600">
-                          {(() => {
-                            const cases = getStatusCases[progress.userId]?.waitingReply || []
-                            return cases.length > 0 ? (
-                              <div className="space-y-1">
-                                {cases.map((case_, idx) => (
-                                  <div key={idx}>
-                                    {case_.name} {case_.yomi} {formatAmount(case_.amount)}
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              '-'
-                            )
-                          })()}
-                        </TableCell>
                       </TableRow>
                     )
                   })}
@@ -946,7 +870,6 @@ export default function DashboardSummaryPage() {
                         {formatRate(totalClosedRate)}
                       </span>
                     </TableCell>
-                    <TableCell colSpan={4}></TableCell>
                   </TableRow>
                 </TableBody>
               </Table>
