@@ -166,3 +166,49 @@ export const INTERVIEW_SET_STATUSES: StatusType[] = [
   '内定承諾（成約）',
   '内定辞退',
 ]
+
+/**
+ * ステータスの表示用ラベル（求職者管理画面のプルダウン用）
+ */
+export const statusLabels: Record<StatusType, string> = {
+  '初回連絡中': '初回連絡中',
+  '連絡つかず（初回未接触）': '連絡つかず（初回未接触）',
+  '提案求人選定中': '提案求人選定中',
+  '求人提案済（返信待ち）': '求人提案済（返信待ち）',
+  '書類選考中': '書類選考中',
+  '面接日程調整中': '面接日程調整中',
+  '面接確定済': '面接確定済',
+  '面接実施済（結果待ち）': '面接実施済（結果待ち）',
+  '内定獲得（承諾確認中）': '内定獲得（承諾確認中）',
+  '内定承諾（成約）': '内定承諾（成約）',
+  '内定辞退': '内定辞退',
+  '音信不通': '音信不通',
+  '追客中（中長期フォロー）': '追客中（中長期フォロー）',
+  'クローズ（終了）': 'クローズ（終了）',
+  '見学提案~設定': '見学提案~設定',
+  '再ヒアリング・条件変更あり': '再ヒアリング・条件変更あり',
+  '初回ヒアリング実施済': '初回ヒアリング実施済',
+}
+
+/**
+ * ステータスの表示用色（求職者管理画面のプルダウン用）
+ */
+export const statusColors: Record<StatusType, string> = {
+  '初回連絡中': 'bg-blue-100 text-blue-700 border-blue-200',
+  '連絡つかず（初回未接触）': 'bg-slate-100 text-slate-700 border-slate-200',
+  '提案求人選定中': 'bg-purple-100 text-purple-700 border-purple-200',
+  '求人提案済（返信待ち）': 'bg-amber-100 text-amber-700 border-amber-200',
+  '書類選考中': 'bg-emerald-100 text-emerald-700 border-emerald-200',
+  '面接日程調整中': 'bg-cyan-100 text-cyan-700 border-cyan-200',
+  '面接確定済': 'bg-blue-100 text-blue-700 border-blue-200',
+  '面接実施済（結果待ち）': 'bg-orange-100 text-orange-700 border-orange-200',
+  '内定獲得（承諾確認中）': 'bg-pink-100 text-pink-700 border-pink-200',
+  '内定承諾（成約）': 'bg-green-100 text-green-700 border-green-200',
+  '内定辞退': 'bg-red-100 text-red-700 border-red-200',
+  '音信不通': 'bg-gray-100 text-gray-700 border-gray-200',
+  '追客中（中長期フォロー）': 'bg-yellow-100 text-yellow-700 border-yellow-200',
+  'クローズ（終了）': 'bg-slate-100 text-slate-700 border-slate-200',
+  '見学提案~設定': 'bg-lime-100 text-lime-700 border-lime-200',
+  '再ヒアリング・条件変更あり': 'bg-orange-100 text-orange-700 border-orange-200',
+  '初回ヒアリング実施済': 'bg-emerald-100 text-emerald-700 border-emerald-200',
+}

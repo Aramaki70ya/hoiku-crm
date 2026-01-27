@@ -39,11 +39,15 @@ import {
   CheckCircle2,
 } from 'lucide-react'
 import { 
-  statusLabels, 
-  statusColors, 
   priorityColors, 
   sourcePriorityRules
 } from '@/lib/mock-data'
+import {
+  STATUS_LIST,
+  statusLabels,
+  statusColors,
+  type StatusType
+} from '@/lib/status-mapping'
 import { useCandidates } from '@/hooks/useCandidates'
 import { useUsers } from '@/hooks/useUsers'
 import { useSources } from '@/hooks/useSources'
@@ -71,7 +75,20 @@ const priorityOrder: Record<string, number> = {
 }
 
 // アクティブなステータス（進行中の案件）
-const activeStatuses = ['new', 'contacting', 'first_contact_done', 'proposing', 'interviewing', 'offer']
+const activeStatuses: StatusType[] = [
+  '初回連絡中',
+  '連絡つかず（初回未接触）',
+  '提案求人選定中',
+  '求人提案済（返信待ち）',
+  '書類選考中',
+  '面接日程調整中',
+  '面接確定済',
+  '面接実施済（結果待ち）',
+  '内定獲得（承諾確認中）',
+  '見学提案~設定',
+  '再ヒアリング・条件変更あり',
+  '初回ヒアリング実施済',
+]
 
 export default function CandidatesPage() {
   const [searchQuery, setSearchQuery] = useState('')
@@ -116,14 +133,14 @@ export default function CandidatesPage() {
   const handleStatusChange = useCallback(async (candidateId: string, newStatus: string) => {
     // 現在のステータスを取得
     const candidate = rawCandidates.find(c => c.id === candidateId)
-    const oldStatus = localStatuses[candidateId] || candidate?.status || 'new'
+    const oldStatus = localStatuses[candidateId] || candidate?.status || '初回連絡中'
     
     if (oldStatus === newStatus) return
     
     setLocalStatuses(prev => ({ ...prev, [candidateId]: newStatus }))
     
-    // API経由で更新
-    await updateCandidate(candidateId, { status: newStatus as 'new' | 'contacting' | 'first_contact_done' | 'proposing' | 'interviewing' | 'offer' | 'closed_won' | 'closed_lost' | 'pending' | 'on_hold' })
+    // API経由で更新（新しいステータス体系をそのまま保存）
+    await updateCandidate(candidateId, { status: newStatus as any })
     
     // タイムラインにステータス変更を記録
     try {
@@ -134,7 +151,7 @@ export default function CandidatesPage() {
           candidate_id: candidateId,
           event_type: 'status_change',
           title: 'ステータス変更',
-          description: `${statusLabels[oldStatus] || oldStatus} → ${statusLabels[newStatus] || newStatus}`,
+          description: `${statusLabels[oldStatus as StatusType] || oldStatus} → ${statusLabels[newStatus as StatusType] || newStatus}`,
         }),
       })
     } catch (err) {
@@ -142,7 +159,7 @@ export default function CandidatesPage() {
     }
     
     // ステータスが「成約」になった場合、成約データをAPI経由で作成
-    if (newStatus === 'closed_won') {
+    if (newStatus === '内定承諾（成約）') {
       const existingContract = contracts.find(c => c.candidate_id === candidateId)
       if (!existingContract) {
         try {
@@ -273,7 +290,7 @@ export default function CandidatesPage() {
     const counts: Record<string, number> = { S: 0, A: 0, B: 0, C: 0 }
     
     rawCandidates
-      .filter(c => activeStatuses.includes(localStatuses[c.id] || c.status))
+      .filter(c => activeStatuses.includes((localStatuses[c.id] || c.status) as StatusType))
       .forEach(c => {
         const priority = localPriorities[c.id] || getApproachPriority(c)
         counts[priority]++
@@ -289,7 +306,7 @@ export default function CandidatesPage() {
       const currentStatus = localStatuses[candidate.id] || candidate.status
       
       // タブによるフィルタ
-      if (activeTab === 'tasks' && !activeStatuses.includes(currentStatus)) {
+      if (activeTab === 'tasks' && !activeStatuses.includes(currentStatus as StatusType)) {
         return false
       }
 
@@ -332,7 +349,7 @@ export default function CandidatesPage() {
   }, [rawCandidates, statusFilter, consultantFilter, priorityFilter, activeTab, localStatuses, localConsultants, localPriorities])
 
   const allCount = rawCandidates.length
-  const taskCount = rawCandidates.filter(c => activeStatuses.includes(localStatuses[c.id] || c.status)).length
+  const taskCount = rawCandidates.filter(c => activeStatuses.includes((localStatuses[c.id] || c.status) as StatusType)).length
 
   const today = new Date().toLocaleDateString('ja-JP', {
     year: 'numeric',
@@ -454,9 +471,9 @@ export default function CandidatesPage() {
             </SelectTrigger>
             <SelectContent className="bg-white border-slate-200">
               <SelectItem value="all">すべて</SelectItem>
-              {Object.entries(statusLabels).map(([value, label]) => (
-                <SelectItem key={value} value={value}>
-                  {label}
+              {STATUS_LIST.map((status) => (
+                <SelectItem key={status} value={status}>
+                  {statusLabels[status]}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -658,18 +675,18 @@ export default function CandidatesPage() {
                             <SelectValue>
                               <Badge
                                 variant="outline"
-                                className={statusColors[currentStatus]}
+                                className={statusColors[currentStatus as StatusType] || 'bg-slate-100 text-slate-700 border-slate-200'}
                               >
-                                {statusLabels[currentStatus]}
+                                {statusLabels[currentStatus as StatusType] || currentStatus}
                               </Badge>
                             </SelectValue>
                           </SelectTrigger>
                           <SelectContent className="bg-white border-slate-200">
-                            {Object.entries(statusLabels).map(([value, label]) => (
-                              <SelectItem key={value} value={value}>
+                            {STATUS_LIST.map((status) => (
+                              <SelectItem key={status} value={status}>
                                 <div className="flex items-center gap-2">
-                                  <Badge variant="outline" className={statusColors[value]}>
-                                    {label}
+                                  <Badge variant="outline" className={statusColors[status]}>
+                                    {statusLabels[status]}
                                   </Badge>
                                 </div>
                               </SelectItem>
