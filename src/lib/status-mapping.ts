@@ -196,7 +196,7 @@ export const statusLabels: Record<StatusType, string> = {
  */
 export const LEGACY_STATUS_MAP: Record<string, StatusType> = {
   'new': '初回連絡中',
-  'contacting': '連絡中', // 古い値だが、新しい体系には「連絡中」がないので「初回連絡中」にマッピング
+  'contacting': '初回連絡中', // 古い値。新しい体系には「連絡中」がないため「初回連絡中」にマッピング
   'first_contact_done': '初回ヒアリング実施済',
   'proposing': '提案求人選定中',
   'interviewing': '面接確定済', // または '面接実施済（結果待ち）' にマッピングする可能性もある

@@ -8,7 +8,7 @@
 |---|---|---|
 | yoshida@josei-katuyaku.co.jp | 吉田 | `Yoshida2025!` |
 | goto@josei-katuyaku.co.jp | 後藤 | `Goto2025!` |
-| takizawa@josei-katuyaku.co.jp | 滝沢 | `Takizawa2025!` |
+| takizawa@josei-katuyaku.co.jp | 瀧澤 | `Takizawa2025!` |
 | matsuzawa@josei-katuyaku.co.jp | 松沢 | `Matsuzawa2025!` |
 | suzuki@josei-katuyaku.co.jp | 鈴木 | `Suzuki2025!` |
 | ohtsuka@josei-katuyaku.co.jp | 大塚 | `Ohtsuka2025!` |
@@ -34,7 +34,7 @@
 初期パスワード: Goto2025!
 ```
 
-### 滝沢さん
+### 瀧澤さん
 ```
 メールアドレス: takizawa@josei-katuyaku.co.jp
 初期パスワード: Takizawa2025!

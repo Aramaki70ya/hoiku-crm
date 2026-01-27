@@ -15,7 +15,7 @@
 const users = [
   { email: 'yoshida@josei-katuyaku.co.jp', name: '吉田', role: 'user', password: 'Yoshida2025!' },
   { email: 'goto@josei-katuyaku.co.jp', name: '後藤', role: 'user', password: 'Goto2025!' },
-  { email: 'takizawa@josei-katuyaku.co.jp', name: '滝沢', role: 'user', password: 'Takizawa2025!' },
+  { email: 'takizawa@josei-katuyaku.co.jp', name: '瀧澤', role: 'user', password: 'Takizawa2025!' },
   { email: 'matsuzawa@josei-katuyaku.co.jp', name: '松沢', role: 'user', password: 'Matsuzawa2025!' },
   { email: 'suzuki@josei-katuyaku.co.jp', name: '鈴木', role: 'user', password: 'Suzuki2025!' },
   { email: 'ohtsuka@josei-katuyaku.co.jp', name: '大塚', role: 'user', password: 'Ohtsuka2025!' },

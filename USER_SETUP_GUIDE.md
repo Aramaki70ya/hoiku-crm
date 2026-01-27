@@ -84,7 +84,7 @@ node scripts/create-auth-users.js
 |---|---|---|
 | yoshida@josei-katuyaku.co.jp | 吉田 | user |
 | goto@josei-katuyaku.co.jp | 後藤 | user |
-| takizawa@josei-katuyaku.co.jp | 滝沢 | user |
+| takizawa@josei-katuyaku.co.jp | 瀧澤 | user |
 | matsuzawa@josei-katuyaku.co.jp | 松沢 | user |
 | suzuki@josei-katuyaku.co.jp | 鈴木 | user |
 | ohtsuka@josei-katuyaku.co.jp | 大塚 | user |
