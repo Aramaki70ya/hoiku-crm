@@ -191,6 +191,30 @@ export const statusLabels: Record<StatusType, string> = {
 }
 
 /**
+ * 古いステータス値（CandidateStatus）から新しいステータス体系へのマッピング
+ * データベースに保存されている古い値を新しい体系に変換するために使用
+ */
+export const LEGACY_STATUS_MAP: Record<string, StatusType> = {
+  'new': '初回連絡中',
+  'contacting': '連絡中', // 古い値だが、新しい体系には「連絡中」がないので「初回連絡中」にマッピング
+  'first_contact_done': '初回ヒアリング実施済',
+  'proposing': '提案求人選定中',
+  'interviewing': '面接確定済', // または '面接実施済（結果待ち）' にマッピングする可能性もある
+  'offer': '内定獲得（承諾確認中）',
+  'closed_won': '内定承諾（成約）',
+  'closed_lost': 'クローズ（終了）',
+  'pending': '追客中（中長期フォロー）',
+  'on_hold': '音信不通',
+}
+
+/**
+ * 古いステータス値を新しいステータス体系に変換
+ */
+export function mapLegacyStatusToNewStatus(legacyStatus: string): StatusType {
+  return LEGACY_STATUS_MAP[legacyStatus] || (legacyStatus as StatusType) || '初回連絡中'
+}
+
+/**
  * ステータスの表示用色（求職者管理画面のプルダウン用）
  */
 export const statusColors: Record<StatusType, string> = {

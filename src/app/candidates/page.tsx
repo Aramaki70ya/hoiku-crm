@@ -46,6 +46,7 @@ import {
   STATUS_LIST,
   statusLabels,
   statusColors,
+  mapLegacyStatusToNewStatus,
   type StatusType
 } from '@/lib/status-mapping'
 import { useCandidates } from '@/hooks/useCandidates'
@@ -290,7 +291,11 @@ export default function CandidatesPage() {
     const counts: Record<string, number> = { S: 0, A: 0, B: 0, C: 0 }
     
     rawCandidates
-      .filter(c => activeStatuses.includes((localStatuses[c.id] || c.status) as StatusType))
+      .filter(c => {
+        const rawStatus = localStatuses[c.id] || c.status
+        const mappedStatus = mapLegacyStatusToNewStatus(rawStatus)
+        return activeStatuses.includes(mappedStatus)
+      })
       .forEach(c => {
         const priority = localPriorities[c.id] || getApproachPriority(c)
         counts[priority]++
@@ -302,14 +307,15 @@ export default function CandidatesPage() {
   // フィルタリング
   const filteredCandidates = useMemo(() => {
     let filtered = rawCandidates.filter((candidate) => {
-      // 変更されたステータスを取得
-      const currentStatus = localStatuses[candidate.id] || candidate.status
+      // 変更されたステータスを取得（古い値を新しい体系に変換）
+      const rawStatus = localStatuses[candidate.id] || candidate.status
+      const currentStatus = mapLegacyStatusToNewStatus(rawStatus)
       
       // タブによるフィルタ
-      if (activeTab === 'tasks' && !activeStatuses.includes(currentStatus as StatusType)) {
+      if (activeTab === 'tasks' && !activeStatuses.includes(currentStatus)) {
         return false
       }
-
+      
       // ステータスフィルタ
       if (statusFilter !== 'all' && currentStatus !== statusFilter) {
         return false
@@ -349,7 +355,11 @@ export default function CandidatesPage() {
   }, [rawCandidates, statusFilter, consultantFilter, priorityFilter, activeTab, localStatuses, localConsultants, localPriorities])
 
   const allCount = rawCandidates.length
-  const taskCount = rawCandidates.filter(c => activeStatuses.includes((localStatuses[c.id] || c.status) as StatusType)).length
+  const taskCount = rawCandidates.filter(c => {
+    const rawStatus = localStatuses[c.id] || c.status
+    const mappedStatus = mapLegacyStatusToNewStatus(rawStatus)
+    return activeStatuses.includes(mappedStatus)
+  }).length
 
   const today = new Date().toLocaleDateString('ja-JP', {
     year: 'numeric',
@@ -663,7 +673,9 @@ export default function CandidatesPage() {
                   </TableCell>
                   <TableCell>
                     {(() => {
-                      const currentStatus = localStatuses[candidate.id] || candidate.status
+                      const rawStatus = localStatuses[candidate.id] || candidate.status
+                      // 古いステータス値を新しいステータス体系に変換
+                      const currentStatus = mapLegacyStatusToNewStatus(rawStatus)
                       return (
                         <Select
                           value={currentStatus}
@@ -675,9 +687,9 @@ export default function CandidatesPage() {
                             <SelectValue>
                               <Badge
                                 variant="outline"
-                                className={statusColors[currentStatus as StatusType] || 'bg-slate-100 text-slate-700 border-slate-200'}
+                                className={statusColors[currentStatus] || 'bg-slate-100 text-slate-700 border-slate-200'}
                               >
-                                {statusLabels[currentStatus as StatusType] || currentStatus}
+                                {statusLabels[currentStatus] || currentStatus}
                               </Badge>
                             </SelectValue>
                           </SelectTrigger>

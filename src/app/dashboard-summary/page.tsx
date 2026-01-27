@@ -411,6 +411,7 @@ export default function DashboardSummaryPage() {
             closedCount: 0,
           }
         })
+        .filter((p) => p.totalCount > 0) // 担当数が0のメンバーを除外
         .sort((a, b) => b.totalCount - a.totalCount)
     }
     
@@ -456,8 +457,10 @@ export default function DashboardSummaryPage() {
         }
       })
     
-    // 担当が多い順（totalCount降順）でソート
-    return progress.sort((a, b) => b.totalCount - a.totalCount)
+    // 担当が多い順（totalCount降順）でソートし、担当数が0のメンバーを除外
+    return progress
+      .filter((p) => p.totalCount > 0) // 担当数が0のメンバーを除外
+      .sort((a, b) => b.totalCount - a.totalCount)
   }, [users, periodCandidates, periodInterviews, periodContracts, projects, candidates, periodType, monthlyMetrics, monthlyMetricsLoading, isUserActiveInPeriod])
 
   // 全体集計
