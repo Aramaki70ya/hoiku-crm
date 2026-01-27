@@ -86,6 +86,10 @@ export default function DashboardSummaryPage() {
     }
   >>({})
   const [monthlyStatusCasesLoading, setMonthlyStatusCasesLoading] = useState(false)
+  
+  // 個人別月次目標（面接設定目標・売上予算）
+  const [userTargets, setUserTargets] = useState<Record<string, { sales_budget: number; interview_target: number }>>({})
+  const [userTargetsLoading, setUserTargetsLoading] = useState(false)
 
   useEffect(() => {
     async function fetchData() {
@@ -190,6 +194,42 @@ export default function DashboardSummaryPage() {
     }
     fetchMonthlyStatusCases()
   }, [getMonthText])
+
+  // 個人別月次目標を取得
+  useEffect(() => {
+    async function fetchUserTargets() {
+      setUserTargetsLoading(true)
+      try {
+        // 現在の年月を取得（YYYY-MM形式）
+        const now = new Date()
+        const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+        
+        const response = await fetch(`/api/user-targets?year_month=${yearMonth}`)
+        if (!response.ok) {
+          throw new Error('個人別目標の取得に失敗しました')
+        }
+        const { data } = await response.json()
+        
+        // user_idをキーとしたマップに変換
+        const targetsMap: Record<string, { sales_budget: number; interview_target: number }> = {}
+        if (data && Array.isArray(data)) {
+          data.forEach((target: { user_id: string; sales_budget: number; interview_target: number }) => {
+            targetsMap[target.user_id] = {
+              sales_budget: target.sales_budget || 0,
+              interview_target: target.interview_target || 0,
+            }
+          })
+        }
+        setUserTargets(targetsMap)
+      } catch (error) {
+        console.error('Error fetching user targets:', error)
+        setUserTargets({})
+      } finally {
+        setUserTargetsLoading(false)
+      }
+    }
+    fetchUserTargets()
+  }, [])
 
   // 期間表示用テキスト
   const getPeriodLabel = () => {
@@ -1061,14 +1101,19 @@ export default function DashboardSummaryPage() {
                         })
                         .reduce((sum, c) => sum + (c.revenue_excluding_tax || 0), 0)
                       
-                      // mockから予算と面接設定目標を取得（設定ページができたら実データに変更）
-                      const stats = mockMemberStats.find((s) => s.userId === progress.userId)
-                      const budget = stats?.budget || 0
-                      const meetingTarget = stats?.meetingTarget || 0
+                      // 個人別月次目標から予算と面接設定目標を取得（DBから取得）
+                      const userTarget = userTargets[progress.userId]
+                      const budget = userTarget?.sales_budget || 0
+                      const meetingTarget = userTarget?.interview_target || 0
                       
-                      const budgetRate = budget > 0 ? (periodSales / budget) * 100 : 0
-                      const meetingRate = meetingTarget > 0
-                        ? (progress.interviewCount / meetingTarget) * 100
+                      // フォールバック: DBにデータがない場合はmockデータを使用
+                      const stats = mockMemberStats.find((s) => s.userId === progress.userId)
+                      const finalBudget = budget > 0 ? budget : (stats?.budget || 0)
+                      const finalMeetingTarget = meetingTarget > 0 ? meetingTarget : (stats?.meetingTarget || 0)
+                      
+                      const budgetRate = finalBudget > 0 ? (periodSales / finalBudget) * 100 : 0
+                      const meetingRate = finalMeetingTarget > 0
+                        ? (progress.interviewCount / finalMeetingTarget) * 100
                         : 0
 
                       return (
@@ -1077,7 +1122,7 @@ export default function DashboardSummaryPage() {
                             {user?.name || progress.userName || '-'}
                           </TableCell>
                           <TableCell className="text-right">
-                            {formatAmount(budget)}
+                            {formatAmount(finalBudget)}
                           </TableCell>
                           <TableCell className="text-right text-emerald-600 font-semibold">
                             {formatAmount(periodSales)}
@@ -1095,7 +1140,7 @@ export default function DashboardSummaryPage() {
                               {budgetRate.toFixed(1)}%
                             </span>
                           </TableCell>
-                          <TableCell className="text-center">{meetingTarget}</TableCell>
+                          <TableCell className="text-center">{finalMeetingTarget}</TableCell>
                           <TableCell className="text-center">{progress.interviewCount}</TableCell>
                           <TableCell className="text-right">
                             <span
