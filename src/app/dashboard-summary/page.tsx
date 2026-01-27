@@ -74,6 +74,18 @@ export default function DashboardSummaryPage() {
     closedRate: number
   }[]>([])
   const [monthlyMetricsLoading, setMonthlyMetricsLoading] = useState(false)
+  
+  // 月次マージシートから面接状況を取得
+  const [monthlyStatusCases, setMonthlyStatusCases] = useState<Record<
+    string,
+    {
+      adjusting: Array<{ name: string; yomi: string; amount: number }>
+      beforeInterview: Array<{ name: string; yomi: string; amount: number }>
+      waitingResult: Array<{ name: string; yomi: string; amount: number }>
+      waitingReply: Array<{ name: string; yomi: string; amount: number }>
+    }
+  >>({})
+  const [monthlyStatusCasesLoading, setMonthlyStatusCasesLoading] = useState(false)
 
   useEffect(() => {
     async function fetchData() {
@@ -105,32 +117,33 @@ export default function DashboardSummaryPage() {
     fetchData()
   }, [])
   
+  // 期間からmonth_textを計算するヘルパー関数
+  const getMonthText = useCallback(() => {
+    const now = new Date()
+    switch (periodType) {
+      case 'current_month':
+        return `${now.getFullYear()}_${String(now.getMonth() + 1).padStart(2, '0')}`
+      case 'previous_month':
+        const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+        return `${prev.getFullYear()}_${String(prev.getMonth() + 1).padStart(2, '0')}`
+      case 'custom':
+        if (customStartDate) {
+          const start = new Date(customStartDate)
+          return `${start.getFullYear()}_${String(start.getMonth() + 1).padStart(2, '0')}`
+        } else {
+          return `${now.getFullYear()}_${String(now.getMonth() + 1).padStart(2, '0')}`
+        }
+      default:
+        return `${now.getFullYear()}_${String(now.getMonth() + 1).padStart(2, '0')}`
+    }
+  }, [periodType, customStartDate])
+
   // 期間に応じて月次マージシートから営業進捗指標を取得
   useEffect(() => {
     async function fetchMonthlyMetrics() {
       setMonthlyMetricsLoading(true)
       try {
-        // 期間からmonth_textを計算
-        let monthText = ''
-        const now = new Date()
-        switch (periodType) {
-          case 'current_month':
-            monthText = `${now.getFullYear()}_${String(now.getMonth() + 1).padStart(2, '0')}`
-            break
-          case 'previous_month':
-            const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-            monthText = `${prev.getFullYear()}_${String(prev.getMonth() + 1).padStart(2, '0')}`
-            break
-          case 'custom':
-            if (customStartDate) {
-              const start = new Date(customStartDate)
-              monthText = `${start.getFullYear()}_${String(start.getMonth() + 1).padStart(2, '0')}`
-            } else {
-              monthText = `${now.getFullYear()}_${String(now.getMonth() + 1).padStart(2, '0')}`
-            }
-            break
-        }
-        
+        const monthText = getMonthText()
         const response = await fetch(`/api/metrics?month=${monthText}`)
         if (!response.ok) {
           throw new Error('営業進捗指標の取得に失敗しました')
@@ -145,7 +158,29 @@ export default function DashboardSummaryPage() {
       }
     }
     fetchMonthlyMetrics()
-  }, [periodType, customStartDate])
+  }, [getMonthText])
+
+  // 期間に応じて月次マージシートから面接状況を取得
+  useEffect(() => {
+    async function fetchMonthlyStatusCases() {
+      setMonthlyStatusCasesLoading(true)
+      try {
+        const monthText = getMonthText()
+        const response = await fetch(`/api/interview-status?month=${monthText}`)
+        if (!response.ok) {
+          throw new Error('面接状況の取得に失敗しました')
+        }
+        const data = await response.json()
+        setMonthlyStatusCases(data.statusCases || {})
+      } catch (error) {
+        console.error('Error fetching monthly status cases:', error)
+        setMonthlyStatusCases({})
+      } finally {
+        setMonthlyStatusCasesLoading(false)
+      }
+    }
+    fetchMonthlyStatusCases()
+  }, [getMonthText])
 
   // 期間表示用テキスト
   const getPeriodLabel = () => {
@@ -907,7 +942,8 @@ export default function DashboardSummaryPage() {
                 </TableHeader>
                 <TableBody>
                   {salesProgress.map((progress) => {
-                    const cases = getStatusCases[progress.userId] || {
+                    // 月次マージシートのデータが利用可能な場合はそれを使用、そうでない場合は従来のロジックにフォールバック
+                    const cases = monthlyStatusCases[progress.userName] || getStatusCases[progress.userId] || {
                       adjusting: [],
                       beforeInterview: [],
                       waitingResult: [],
