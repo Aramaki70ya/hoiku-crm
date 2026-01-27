@@ -145,6 +145,8 @@ export default function DashboardSummaryPage() {
   // 期間に応じて月次マージシートから営業進捗指標を取得
   useEffect(() => {
     async function fetchMonthlyMetrics() {
+      // 期間が切り替わったら一旦データをクリア（古いデータが表示されないようにする）
+      setMonthlyMetrics([])
       setMonthlyMetricsLoading(true)
       try {
         const monthText = getMonthText()
@@ -167,6 +169,8 @@ export default function DashboardSummaryPage() {
   // 期間に応じて月次マージシートから面接状況を取得
   useEffect(() => {
     async function fetchMonthlyStatusCases() {
+      // 期間が切り替わったら一旦データをクリア（古いデータが表示されないようにする）
+      setMonthlyStatusCases({})
       setMonthlyStatusCasesLoading(true)
       try {
         const monthText = getMonthText()
@@ -422,8 +426,13 @@ export default function DashboardSummaryPage() {
   // 月次マージシートから営業進捗を計算（期間対応）
   // 月次マージシートのデータが利用可能な場合はそれを使用、そうでない場合は従来のロジックにフォールバック
   const salesProgress = useMemo(() => {
+    // ローディング中は古いデータを表示しない（空配列を返す）
+    if (monthlyMetricsLoading) {
+      return []
+    }
+    
     // 月次マージシートのデータが利用可能な場合
-    if (monthlyMetrics.length > 0 && !monthlyMetricsLoading) {
+    if (monthlyMetrics.length > 0) {
       return users
         .filter((u) => u.role !== 'admin' && isUserActiveInPeriod(u))
         .map((user) => {
