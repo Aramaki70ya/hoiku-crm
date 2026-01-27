@@ -118,16 +118,20 @@ export async function GET(request: NextRequest) {
         amount,
       }
 
-      // ステータスに応じて分類
-      if (d.status === '🟢 面接日程調整中') {
+      // ステータスに応じて分類（完全一致で判定）
+      // 注意: ステータスの値は絵文字とスペースを含めて完全一致する必要がある
+      const status = d.status?.trim() || ''
+      
+      if (status === '🟢 面接日程調整中') {
         adjusting.push(caseInfo)
-      } else if (d.status === '🟢 面接確定済') {
+      } else if (status === '🟢 面接確定済') {
         beforeInterview.push(caseInfo)
-      } else if (d.status === '🟠 面接実施済（結果待ち）') {
+      } else if (status === '🟠 面接実施済（結果待ち）') {
         waitingResult.push(caseInfo)
-      } else if (d.status === '🟣 内定獲得（承諾確認中）') {
+      } else if (status === '🟣 内定獲得（承諾確認中）') {
         waitingReply.push(caseInfo)
       }
+      // その他のステータスは面接状況カードには表示しない
     })
 
     statusCases[memberName] = {
