@@ -1,6 +1,8 @@
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
-import { getSupabaseUrl, getSupabaseAnonKey } from './config'
+import type { Database } from '@/types/database'
+import { getSupabaseUrl, getSupabaseAnonKey, getSupabaseServiceRoleKey } from './config'
 
 export async function createClient() {
   const url = getSupabaseUrl()
@@ -30,3 +32,11 @@ export async function createClient() {
   )
 }
 
+/**
+ * サービスロールクライアント（SYNC_API_KEY 等の外部連携時に使用。RLS をバイパス）
+ */
+export function createServiceRoleClient(): ReturnType<typeof createSupabaseClient<Database>> | null {
+  const key = getSupabaseServiceRoleKey()
+  if (!key) return null
+  return createSupabaseClient<Database>(getSupabaseUrl(), key)
+}

@@ -2,6 +2,10 @@ import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { isDemoMode } from '@/lib/supabase/config'
 
+// Next.js サーバーレベルのキャッシュを完全に無効化
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 // プロジェクト一覧取得
 export async function GET(request: NextRequest) {
   try {

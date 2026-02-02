@@ -32,10 +32,12 @@ export async function getCandidatesClient(): Promise<Candidate[]> {
   }
 
   const supabase = createClient()
+  // Supabaseのデフォルト limit は1000件なので、全件取得するために range を指定
   const { data, error } = await supabase
     .from('candidates')
     .select('*')
     .order('registered_at', { ascending: false })
+    .range(0, 9999) // 最大10000件まで取得
 
   if (error) {
     console.error('Error fetching candidates:', error)
@@ -132,10 +134,12 @@ export async function getProjectsClient(): Promise<Project[]> {
   }
 
   const supabase = createClient()
+  // Supabaseのデフォルト limit は1000件なので、全件取得するために range を指定
   const { data, error } = await supabase
     .from('projects')
     .select('*')
     .order('created_at', { ascending: false })
+    .range(0, 9999) // 最大10000件まで取得
 
   if (error) {
     console.error('Error fetching projects:', error)
@@ -181,9 +185,13 @@ export async function getInterviewsClient(): Promise<Interview[]> {
   }
 
   const supabase = createClient()
+  // projects との INNER JOIN で、有効なプロジェクトを持つ面接のみを取得
   const { data, error } = await supabase
     .from('interviews')
-    .select('*')
+    .select(`
+      *,
+      project:projects!inner(id)
+    `)
     .order('start_at', { ascending: false })
 
   if (error) {
@@ -194,7 +202,8 @@ export async function getInterviewsClient(): Promise<Interview[]> {
     throw new Error(`Failed to fetch interviews: ${error.message}`)
   }
 
-  return data || []
+  // project 情報を除去して Interview 型として返す
+  return (data || []).map(({ project, ...interview }) => interview as Interview)
 }
 
 export async function getInterviewsByProjectIdClient(projectId: string): Promise<Interview[]> {

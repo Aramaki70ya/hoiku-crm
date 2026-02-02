@@ -54,8 +54,9 @@ export function useInterviews(options: UseInterviewsOptions = {}): UseInterviews
       if (options.month) params.set('month', options.month)
       if (options.status && options.status !== 'all') params.set('status', options.status)
       if (options.consultantId && options.consultantId !== 'all') params.set('consultant_id', options.consultantId)
+      params.set('_t', Date.now().toString())
 
-      const res = await fetch(`/api/interviews?${params.toString()}`)
+      const res = await fetch(`/api/interviews?${params.toString()}`, { cache: 'no-store' })
       if (!res.ok) {
         const data = await res.json()
         throw new Error(data.error || 'データ取得に失敗しました')

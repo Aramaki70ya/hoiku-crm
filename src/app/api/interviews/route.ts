@@ -2,6 +2,10 @@ import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { isDemoMode } from '@/lib/supabase/config'
 
+// Next.js サーバーレベルのキャッシュを完全に無効化
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 // 面接一覧取得
 export async function GET(request: NextRequest) {
   try {
@@ -78,10 +82,12 @@ export async function GET(request: NextRequest) {
       )
     }
     
-    return NextResponse.json({
+    const res = NextResponse.json({
       data: filteredData,
       total: count,
     })
+    res.headers.set('Cache-Control', 'no-store, max-age=0')
+    return res
   } catch (error) {
     console.error('Error fetching interviews:', error)
     return NextResponse.json({ error: 'サーバーエラー' }, { status: 500 })

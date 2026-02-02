@@ -94,36 +94,38 @@ export default function DashboardSummaryPage() {
   const [userTargets, setUserTargets] = useState<Record<string, { sales_budget: number; interview_target: number }>>({})
   const [userTargetsLoading, setUserTargetsLoading] = useState(false)
 
-  useEffect(() => {
-    async function fetchData() {
-      try {
-        const [candidatesData, projectsData, contractsData, interviewsData, usersData] = await Promise.all([
-          getCandidates(),
-          getProjects(),
-          getContracts(),
-          getInterviews(),
-          getUsers(),
-        ])
-        setCandidates(candidatesData)
-        setProjects(projectsData)
-        setContracts(contractsData)
-        setInterviews(interviewsData)
-        setUsers(usersData)
-      } catch (error) {
-        console.error('Error fetching data:', error)
-        // エラー時は空配列を設定
-        setCandidates([])
-        setProjects([])
-        setContracts([])
-        setInterviews([])
-        setUsers([])
-      } finally {
-        setLoading(false)
-      }
+  // データ再取得関数
+  const fetchData = useCallback(async () => {
+    try {
+      const [candidatesData, projectsData, contractsData, interviewsData, usersData] = await Promise.all([
+        getCandidates(),
+        getProjects(),
+        getContracts(),
+        getInterviews(),
+        getUsers(),
+      ])
+      setCandidates(candidatesData)
+      setProjects(projectsData)
+      setContracts(contractsData)
+      setInterviews(interviewsData)
+      setUsers(usersData)
+    } catch (error) {
+      console.error('Error fetching data:', error)
+      setCandidates([])
+      setProjects([])
+      setContracts([])
+      setInterviews([])
+      setUsers([])
+    } finally {
+      setLoading(false)
     }
-    fetchData()
   }, [])
-  
+
+  // 初回読み込み
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
+
   // 期間からmonth_textを計算するヘルパー関数
   const getMonthText = useCallback(() => {
     const now = new Date()
@@ -145,98 +147,115 @@ export default function DashboardSummaryPage() {
     }
   }, [periodType, customStartDate])
 
-  // 期間に応じて月次マージシートから営業進捗指標を取得
-  useEffect(() => {
-    async function fetchMonthlyMetrics() {
-      // 期間が切り替わったら一旦データをクリア（古いデータが表示されないようにする）
-      setMonthlyMetrics([])
-      setMonthlyMetricsLoading(true)
-      try {
-        const monthText = getMonthText()
-        const response = await fetch(`/api/metrics?month=${monthText}`)
-        if (!response.ok) {
-          throw new Error('営業進捗指標の取得に失敗しました')
-        }
-        const data = await response.json()
-        setMonthlyMetrics(data.metrics || [])
-      } catch (error) {
-        console.error('Error fetching monthly metrics:', error)
-        setMonthlyMetrics([])
-      } finally {
-        setMonthlyMetricsLoading(false)
+  // 月次マージシートから営業進捗指標を取得
+  const fetchMonthlyMetrics = useCallback(async () => {
+    setMonthlyMetrics([])
+    setMonthlyMetricsLoading(true)
+    try {
+      const monthText = getMonthText()
+      const response = await fetch(`/api/metrics?month=${monthText}&_t=${Date.now()}`)
+      if (!response.ok) {
+        throw new Error('営業進捗指標の取得に失敗しました')
       }
+      const data = await response.json()
+      setMonthlyMetrics(data.metrics || [])
+    } catch (error) {
+      console.error('Error fetching monthly metrics:', error)
+      setMonthlyMetrics([])
+    } finally {
+      setMonthlyMetricsLoading(false)
     }
-    fetchMonthlyMetrics()
   }, [getMonthText])
 
-  // 期間に応じて月次マージシートから面接状況を取得
-  useEffect(() => {
-    async function fetchMonthlyStatusCases() {
-      // 期間が切り替わったら一旦データをクリア（古いデータが表示されないようにする）
-      setMonthlyStatusCases({})
-      setMonthlyStatusCasesLoading(true)
-      try {
-        const monthText = getMonthText()
-        const response = await fetch(`/api/interview-status?month=${monthText}`)
-        if (!response.ok) {
-          throw new Error('面接状況の取得に失敗しました')
-        }
-        const data = await response.json()
-        setMonthlyStatusCases(data.statusCases || {})
-        
-        // デバッグ情報をログ出力（開発環境のみ）
-        if (process.env.NODE_ENV === 'development' && data.debug) {
-          console.log('[DEBUG] 面接状況取得結果:', {
-            month: data.month,
-            statusCases: data.statusCases,
-            debug: data.debug,
-          })
-        }
-      } catch (error) {
-        console.error('Error fetching monthly status cases:', error)
-        setMonthlyStatusCases({})
-      } finally {
-        setMonthlyStatusCasesLoading(false)
+  // 月次マージシートから面接状況を取得
+  const fetchMonthlyStatusCases = useCallback(async () => {
+    setMonthlyStatusCases({})
+    setMonthlyStatusCasesLoading(true)
+    try {
+      const monthText = getMonthText()
+      const response = await fetch(`/api/interview-status?month=${monthText}&_t=${Date.now()}`)
+      if (!response.ok) {
+        throw new Error('面接状況の取得に失敗しました')
       }
+      const data = await response.json()
+      setMonthlyStatusCases(data.statusCases || {})
+    } catch (error) {
+      console.error('Error fetching monthly status cases:', error)
+      setMonthlyStatusCases({})
+    } finally {
+      setMonthlyStatusCasesLoading(false)
     }
-    fetchMonthlyStatusCases()
   }, [getMonthText])
 
   // 個人別月次目標を取得
+  const fetchUserTargets = useCallback(async () => {
+    setUserTargetsLoading(true)
+    try {
+      const now = new Date()
+      const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+      const response = await fetch(`/api/user-targets?year_month=${yearMonth}&_t=${Date.now()}`)
+      if (!response.ok) {
+        throw new Error('個人別目標の取得に失敗しました')
+      }
+      const { data } = await response.json()
+      const targetsMap: Record<string, { sales_budget: number; interview_target: number }> = {}
+      if (data && Array.isArray(data)) {
+        data.forEach((target: { user_id: string; sales_budget: number; interview_target: number }) => {
+          targetsMap[target.user_id] = {
+            sales_budget: target.sales_budget || 0,
+            interview_target: target.interview_target || 0,
+          }
+        })
+      }
+      setUserTargets(targetsMap)
+    } catch (error) {
+      console.error('Error fetching user targets:', error)
+      setUserTargets({})
+    } finally {
+      setUserTargetsLoading(false)
+    }
+  }, [])
+
+  // 期間変更時に月次データを再取得
   useEffect(() => {
-    async function fetchUserTargets() {
-      setUserTargetsLoading(true)
-      try {
-        // 現在の年月を取得（YYYY-MM形式）
-        const now = new Date()
-        const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-        
-        const response = await fetch(`/api/user-targets?year_month=${yearMonth}`)
-        if (!response.ok) {
-          throw new Error('個人別目標の取得に失敗しました')
-        }
-        const { data } = await response.json()
-        
-        // user_idをキーとしたマップに変換
-        const targetsMap: Record<string, { sales_budget: number; interview_target: number }> = {}
-        if (data && Array.isArray(data)) {
-          data.forEach((target: { user_id: string; sales_budget: number; interview_target: number }) => {
-            targetsMap[target.user_id] = {
-              sales_budget: target.sales_budget || 0,
-              interview_target: target.interview_target || 0,
-            }
-          })
-        }
-        setUserTargets(targetsMap)
-      } catch (error) {
-        console.error('Error fetching user targets:', error)
-        setUserTargets({})
-      } finally {
-        setUserTargetsLoading(false)
+    fetchMonthlyMetrics()
+  }, [fetchMonthlyMetrics])
+
+  useEffect(() => {
+    fetchMonthlyStatusCases()
+  }, [fetchMonthlyStatusCases])
+
+  useEffect(() => {
+    fetchUserTargets()
+  }, [fetchUserTargets])
+
+  // すべてのデータを再取得
+  const refetchAll = useCallback(() => {
+    fetchData()
+    fetchMonthlyMetrics()
+    fetchMonthlyStatusCases()
+    fetchUserTargets()
+  }, [fetchData, fetchMonthlyMetrics, fetchMonthlyStatusCases, fetchUserTargets])
+
+  // ページ復帰時・タブ切り替え時に再取得（bfcache対策）
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        refetchAll()
       }
     }
-    fetchUserTargets()
-  }, [])
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) {
+        refetchAll()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('pageshow', onPageShow)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('pageshow', onPageShow)
+    }
+  }, [refetchAll])
 
   // 期間表示用テキスト
   const getPeriodLabel = () => {
@@ -361,7 +380,12 @@ export default function DashboardSummaryPage() {
           const candidate = userCandidates.find((c) => c.id === project.candidate_id)
           if (!candidate) return
 
-          const projectInterviews = interviews.filter((i) => i.project_id === project.id)
+          // 選択期間内の面接のみ使用（面接一覧と同じ期間で集計）
+          const projectInterviews = periodInterviews.filter((i) => i.project_id === project.id)
+          if (projectInterviews.length === 0) return
+
+          // 各ステータスごとにフィルタ
+          const reschedulingInterviews = projectInterviews.filter((i) => i.status === 'rescheduling')
           const scheduledInterviews = projectInterviews.filter((i) => i.status === 'scheduled')
           const completedInterviews = projectInterviews.filter((i) => i.status === 'completed')
 
@@ -384,34 +408,24 @@ export default function DashboardSummaryPage() {
             amount: project.expected_amount || 0,
           }
 
-          // 調整中: 面接日程を調整している案件（面接予定があるが、リスケ中または調整中）
-          if (
-            project.phase === 'interview_scheduled' &&
-            scheduledInterviews.some((i) => i.status === 'rescheduling')
-          ) {
+          // 調整中: 面接日程を調整している案件（reschedulingステータスの面接がある）
+          if (reschedulingInterviews.length > 0) {
             adjusting.push(caseInfo)
           }
           // 面接前: 面接が予定されているが、まだ実施されていない案件
-          else if (
-            project.phase === 'interview_scheduled' &&
-            scheduledInterviews.length > 0 &&
-            completedInterviews.length === 0
-          ) {
+          else if (scheduledInterviews.length > 0 && completedInterviews.length === 0) {
             beforeInterview.push(caseInfo)
           }
           // 結果待ち: 面接が終了し、結果を待っている案件
-          else if (
-            project.phase === 'interviewing' &&
-            completedInterviews.length > 0
-          ) {
+          else if (completedInterviews.length > 0 && candidate.status !== 'offer') {
             waitingResult.push(caseInfo)
           }
           // 本人返事待ち: 内定が出て、本人からの返事を待っている案件
-          else if (project.phase === 'offer' || candidate.status === 'offer') {
+          if (project.phase === 'offer' || candidate.status === 'offer') {
             waitingReply.push(caseInfo)
           }
         })
-
+        
         statusCases[user.id] = {
           adjusting,
           beforeInterview,
@@ -421,7 +435,7 @@ export default function DashboardSummaryPage() {
       })
 
     return statusCases
-  }, [users, candidates, projects, interviews])
+  }, [users, candidates, projects, periodInterviews])
 
   // 退職者フィルタリング用ヘルパー（選択期間に応じて退職者を含める/除外する）
   const isUserActiveInPeriod = useCallback((user: User) => {
@@ -1162,8 +1176,8 @@ export default function DashboardSummaryPage() {
                 </TableHeader>
                 <TableBody>
                   {salesProgress.map((progress) => {
-                    // 月次マージシートのデータが利用可能な場合はそれを使用、そうでない場合は従来のロジックにフォールバック
-                    const cases = monthlyStatusCases[progress.userName] || getStatusCases[progress.userId] || {
+                    // CRM データ（DB）から面接状況を取得（月次マージシートではなくリアルタイムのデータを表示）
+                    const cases = getStatusCases[progress.userId] || {
                       adjusting: [],
                       beforeInterview: [],
                       waitingResult: [],

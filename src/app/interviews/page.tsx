@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { AppLayout } from '@/components/layout/app-layout'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -57,13 +57,33 @@ export default function InterviewsPage() {
   const [localCandidateConsultants, setLocalCandidateConsultants] = useState<Record<string, string>>({})
 
   // API経由でデータを取得
-  const { interviews: apiInterviews, isLoading, updateInterview } = useInterviews({
+  const { interviews: apiInterviews, isLoading, updateInterview, refetch } = useInterviews({
     month: selectedMonth,
     status: statusFilter,
     consultantId: consultantFilter,
   })
   const { users } = useUsers()
   const { updateCandidate } = useCandidates()
+
+  // ページ復帰時・タブ切り替え時に再取得（bfcache対策）
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        refetch()
+      }
+    }
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) {
+        refetch()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('pageshow', onPageShow)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('pageshow', onPageShow)
+    }
+  }, [refetch])
 
   // 面接データを拡張（API経由で取得したデータにローカルの変更をマージ）
   const enrichedInterviews = useMemo(() => {

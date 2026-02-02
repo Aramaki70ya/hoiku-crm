@@ -30,8 +30,8 @@ interface CsvRow {
   フォロー中断理由: string
 }
 
-// ステータスのマッピング
-const statusMap: Record<string, CandidateStatus> = {
+// ステータスのマッピング（スプレッドシート取り込み用にエクスポート）
+export const spreadsheetStatusMap: Record<string, CandidateStatus> = {
   '新規': 'new',
   '連絡中': 'contacting',
   '初回済み': 'first_contact_done',
@@ -111,7 +111,7 @@ export function csvRowToCandidate(row: CsvRow): Partial<Candidate> | null {
   if (!row.ID || row.ID === '' || row.ID === '125') return null
   
   // ステータスの変換
-  const status = statusMap[row.ステータス] || 'new'
+  const status = spreadsheetStatusMap[row.ステータス] || 'new'
   
   // 年齢の計算（125は無効値）
   const age = row.年齢 && row.年齢 !== '125' ? parseInt(row.年齢, 10) : null
@@ -135,28 +135,24 @@ export function csvRowToCandidate(row: CsvRow): Partial<Candidate> | null {
 }
 
 /**
- * 電話番号の正規化
+ * 電話番号の正規化（スプレッドシート取り込み用にエクスポート）
  */
-function normalizePhone(phone: string | undefined): string | null {
+export function normalizePhone(phone: string | undefined): string | null {
   if (!phone) return null
-  // 数字とハイフンのみを残す
   const cleaned = phone.replace(/[^\d-]/g, '')
   return cleaned || null
 }
 
 /**
- * 日付文字列をISO形式に変換
+ * 日付文字列をISO形式に変換（スプレッドシート取り込み用にエクスポート）
  */
-function parseDateString(dateStr: string | undefined): string | null {
+export function parseDateString(dateStr: string | undefined): string | null {
   if (!dateStr) return null
-  
-  // YYYY/MM/DD形式
   const match = dateStr.match(/(\d{4})\/(\d{1,2})\/(\d{1,2})/)
   if (match) {
     const [, year, month, day] = match
     return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`
   }
-  
   return null
 }
 
@@ -170,3 +166,35 @@ export function parseCandidatesFromCSV(csvText: string): Partial<Candidate>[] {
     .filter((c): c is Partial<Candidate> => c !== null && c.name !== '')
 }
 
+/** スプレッドシート/APIの1行（キーは列名） */
+export type SpreadsheetRow = Record<string, string>
+
+/**
+ * スプレッドシート行（Record）を Partial<Candidate> に変換。consultant_id/source_id は呼び出し元で解決すること。
+ */
+export function rowToCandidateForSync(row: SpreadsheetRow): Partial<Candidate> | null {
+  const asCsvRow: CsvRow = {
+    担当者: row['担当者'] ?? '',
+    媒体: row['媒体'] ?? '',
+    日付: row['日付'] ?? '',
+    曜日: row['曜日'] ?? '',
+    時間: row['時間'] ?? '',
+    電話予約: row['電話予約'] ?? '',
+    ステータス: row['ステータス'] ?? '',
+    ID: row['ID'] ?? '',
+    氏名: row['氏名'] ?? '',
+    電話番号: row['電話番号'] ?? '',
+    メールアドレス: row['メールアドレス'] ?? '',
+    生年月日: row['生年月日'] ?? '',
+    年齢: row['年齢'] ?? '',
+    都道府県: row['都道府県'] ?? '',
+    市区町村: row['市区町村'] ?? '',
+    '正・パ': row['正・パ'] ?? '',
+    保有資格: row['保有資格'] ?? '',
+    応募職種: row['応募職種'] ?? '',
+    '応募・気になる求人': row['応募・気になる求人'] ?? '',
+    備考: row['備考'] ?? '',
+    フォロー中断理由: row['フォロー中断理由'] ?? '',
+  }
+  return csvRowToCandidate(asCsvRow)
+}

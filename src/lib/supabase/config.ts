@@ -32,3 +32,10 @@ export function hasSupabaseConfig(): boolean {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   )
 }
+
+/**
+ * サービスロールキー（サーバー専用・APIキー連携時の一括INSERT用）
+ */
+export function getSupabaseServiceRoleKey(): string | undefined {
+  return process.env.SUPABASE_SERVICE_ROLE_KEY
+}
