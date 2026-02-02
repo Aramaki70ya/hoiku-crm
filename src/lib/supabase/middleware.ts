@@ -49,11 +49,13 @@ export async function updateSession(request: NextRequest) {
     cookies: request.cookies.getAll().map(c => c.name).filter(n => n.includes('supabase')),
   })
 
-  // 未認証ユーザーを/loginにリダイレクト（ただし/loginと/auth系は除外）
+  // 未認証ユーザーを/loginにリダイレクト（ただし/loginと/auth系、API同期用は除外）
+  // /api/sync/candidates は Bearer トークンで API 側が認証するためスキップ
   if (
     !user &&
     !request.nextUrl.pathname.startsWith('/login') &&
-    !request.nextUrl.pathname.startsWith('/auth')
+    !request.nextUrl.pathname.startsWith('/auth') &&
+    !request.nextUrl.pathname.startsWith('/api/sync/candidates')
   ) {
     console.log('[DEBUG Middleware] 未認証ユーザーを/loginにリダイレクト')
     const url = request.nextUrl.clone()

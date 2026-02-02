@@ -8,10 +8,17 @@ import { rowToCandidateForSync, type SpreadsheetRow } from './csv-parser'
 
 type CandidateInsert = Database['public']['Tables']['candidates']['Insert']
 
+/** 1リクエストあたりの最大処理行数 */
+const MAX_ROWS = 100
+
 export interface SyncResult {
   inserted: number
   skipped: number
   errors: { row: number; id?: string; message: string }[]
+  /** 追加した人: { id, name } */
+  insertedLog: { id: string; name: string }[]
+  /** 重複でスキップした人: { id, name } */
+  skippedLog: { id: string; name: string }[]
 }
 
 /**
@@ -22,9 +29,14 @@ export async function syncCandidatesFromRows(
   supabase: SupabaseClient<Database>,
   rows: SpreadsheetRow[]
 ): Promise<SyncResult> {
-  const result: SyncResult = { inserted: 0, skipped: 0, errors: [] }
+  const result: SyncResult = { inserted: 0, skipped: 0, errors: [], insertedLog: [], skippedLog: [] }
 
   if (rows.length === 0) return result
+
+  const rowsToProcess = rows.slice(0, MAX_ROWS)
+  if (rows.length > MAX_ROWS) {
+    result.errors.push({ row: MAX_ROWS + 1, message: `上限${MAX_ROWS}行のため、${rows.length - MAX_ROWS}行は未処理` })
+  }
 
   const { data: existingRows } = await supabase.from('candidates').select('id')
   const existingIdList = (existingRows ?? []) as { id: string }[]
@@ -44,16 +56,18 @@ export async function syncCandidatesFromRows(
     nameToSourceId.set(s.name, s.id)
   }
 
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i]
+  for (let i = 0; i < rowsToProcess.length; i++) {
+    const row = rowsToProcess[i]
     const id = (row['ID'] ?? '').toString().trim()
     if (!id || id === '125') continue
 
     const parsed = rowToCandidateForSync(row)
     if (!parsed || parsed.name === '') continue
 
+    const name = parsed.name ?? ''
     if (existingIds.has(id)) {
       result.skipped += 1
+      result.skippedLog.push({ id, name })
       continue
     }
 
@@ -93,6 +107,7 @@ export async function syncCandidatesFromRows(
       continue
     }
     result.inserted += 1
+    result.insertedLog.push({ id, name })
     existingIds.add(id)
   }
 

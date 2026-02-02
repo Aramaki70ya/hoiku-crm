@@ -41,7 +41,6 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  Download,
 } from 'lucide-react'
 import { 
   priorityColors, 
@@ -108,11 +107,6 @@ function CandidatesPageContent() {
   const [localConsultants, setLocalConsultants] = useState<Record<string, string>>({})
   const [localPriorities, setLocalPriorities] = useState<Record<string, 'S' | 'A' | 'B' | 'C'>>({})
   const [localEmploymentTypes, setLocalEmploymentTypes] = useState<Record<string, string>>({})
-
-  // スプレッドシート取り込み
-  const [isSyncLoading, setIsSyncLoading] = useState(false)
-  const [syncResult, setSyncResult] = useState<{ message: string; inserted: number; skipped: number; errors: { row: number; id?: string; message: string }[] } | null>(null)
-  const [syncResultOpen, setSyncResultOpen] = useState(false)
 
   // 新規登録ダイアログ
   const [isNewDialogOpen, setIsNewDialogOpen] = useState(false)
@@ -190,43 +184,6 @@ function CandidatesPageContent() {
     setLocalEmploymentTypes(prev => ({ ...prev, [candidateId]: value || '' }))
     await updateCandidate(candidateId, { desired_employment_type: value })
   }, [updateCandidate])
-
-  // スプレッドシートから取り込み
-  const handleSyncFromSheet = async () => {
-    setIsSyncLoading(true)
-    setSyncResult(null)
-    try {
-      const res = await fetch('/api/sync/from-sheet', { method: 'POST' })
-      const data = await res.json()
-      if (!res.ok) {
-        setSyncResult({
-          message: data.error || '取り込みに失敗しました',
-          inserted: 0,
-          skipped: 0,
-          errors: [],
-        })
-      } else {
-        setSyncResult({
-          message: data.message ?? '',
-          inserted: data.inserted ?? 0,
-          skipped: data.skipped ?? 0,
-          errors: data.errors ?? [],
-        })
-        refetch()
-      }
-      setSyncResultOpen(true)
-    } catch (e) {
-      setSyncResult({
-        message: e instanceof Error ? e.message : '通信エラー',
-        inserted: 0,
-        skipped: 0,
-        errors: [],
-      })
-      setSyncResultOpen(true)
-    } finally {
-      setIsSyncLoading(false)
-    }
-  }
 
   // 新規登録ハンドラー
   const handleCreateCandidate = async () => {
@@ -564,18 +521,9 @@ function CandidatesPageContent() {
           </Button>
         </div>
 
-        <Button
-          variant="outline"
-          onClick={handleSyncFromSheet}
-          disabled={isSyncLoading}
-          className="bg-white border-slate-200 text-slate-700 shadow-sm ml-auto"
-        >
-          <Download className="w-4 h-4 mr-2" />
-          {isSyncLoading ? '取り込み中…' : 'スプレッドシートから取り込み'}
-        </Button>
         <Button 
           onClick={handleOpenNewDialog}
-          className="bg-gradient-to-r from-violet-500 to-indigo-600 hover:from-violet-600 hover:to-indigo-700 text-white shadow-md"
+          className="bg-gradient-to-r from-violet-500 to-indigo-600 hover:from-violet-600 hover:to-indigo-700 text-white shadow-md ml-auto"
         >
           <Plus className="w-4 h-4 mr-2" />
           新規登録
@@ -845,41 +793,6 @@ function CandidatesPageContent() {
           </div>
         </div>
       )}
-
-      {/* スプレッドシート取り込み結果 */}
-      <Dialog open={syncResultOpen} onOpenChange={setSyncResultOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-bold text-slate-800">スプレッドシート取り込み結果</DialogTitle>
-          </DialogHeader>
-          {syncResult && (
-            <div className="space-y-3 py-2">
-              <p className="text-slate-700">{syncResult.message}</p>
-              {(syncResult.inserted > 0 || syncResult.skipped > 0) && (
-                <p className="text-sm text-slate-600">
-                  追加: {syncResult.inserted}件 / 既存のためスキップ: {syncResult.skipped}件
-                </p>
-              )}
-              {syncResult.errors.length > 0 && (
-                <div className="text-sm text-amber-700 bg-amber-50 rounded p-2">
-                  <p className="font-medium">エラー {syncResult.errors.length}件:</p>
-                  <ul className="list-disc list-inside mt-1">
-                    {syncResult.errors.slice(0, 5).map((e, i) => (
-                      <li key={i}>行{e.row}{e.id ? ` (ID: ${e.id})` : ''}: {e.message}</li>
-                    ))}
-                    {syncResult.errors.length > 5 && (
-                      <li>…他 {syncResult.errors.length - 5}件</li>
-                    )}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setSyncResultOpen(false)}>閉じる</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* 新規登録ダイアログ */}
       <Dialog open={isNewDialogOpen} onOpenChange={setIsNewDialogOpen}>
