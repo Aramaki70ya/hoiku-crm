@@ -145,13 +145,28 @@ export function normalizePhone(phone: string | undefined): string | null {
 
 /**
  * 日付文字列をISO形式に変換（スプレッドシート取り込み用にエクスポート）
+ * 対応形式: YYYY/M/D, YYYY-MM-DD, YYYY.M.D, YYYY年M月D日, JS Date.toString(), および先頭の時刻部分は無視
  */
 export function parseDateString(dateStr: string | undefined): string | null {
-  if (!dateStr) return null
-  const match = dateStr.match(/(\d{4})\/(\d{1,2})\/(\d{1,2})/)
+  if (dateStr === undefined || dateStr === null) return null
+  const s = String(dateStr).trim()
+  if (!s) return null
+  // YYYY/M/D または YYYY-MM-DD または YYYY.M.D（先頭の日付部分のみ）
+  const match =
+    s.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})/) ||
+    s.match(/(\d{4})\/(\d{1,2})\/(\d{1,2})/) ||
+    s.match(/(\d{4})年(\d{1,2})月(\d{1,2})日?/)
   if (match) {
     const [, year, month, day] = match
     return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`
+  }
+  // スプレッドシートの日付セルが Date で渡り "Mon Jan 15 2024 ..." のようになっている場合
+  const d = new Date(s)
+  if (!Number.isNaN(d.getTime())) {
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
   }
   return null
 }
@@ -173,10 +188,12 @@ export type SpreadsheetRow = Record<string, string>
  * スプレッドシート行（Record）を Partial<Candidate> に変換。consultant_id/source_id は呼び出し元で解決すること。
  */
 export function rowToCandidateForSync(row: SpreadsheetRow): Partial<Candidate> | null {
+  // 登録日: 列名が「日付」または「登録日」のどちらでも受け付ける
+  const dateValue = (row['日付'] ?? row['登録日'] ?? '').toString().trim()
   const asCsvRow: CsvRow = {
     担当者: row['担当者'] ?? '',
     媒体: row['媒体'] ?? '',
-    日付: row['日付'] ?? '',
+    日付: dateValue,
     曜日: row['曜日'] ?? '',
     時間: row['時間'] ?? '',
     電話予約: row['電話予約'] ?? '',

@@ -6,12 +6,49 @@
  * 2. このコードをそのまま貼り付けて保存
  * 3. プロジェクトの設定 → スクリプト プロパティ で追加:
  *    - API_URL: https://あなたのアプリ.vercel.app/api/sync/candidates
- *    - SYNC_API_KEY: （.env.local の SYNC_API_KEY と同じ値）
+ *    - SYNC_API_KEY: （Vercel の SYNC_API_KEY と同じ値）
  * 4. syncNewCandidates を選択して実行
  * 5. 表示 → ログ で結果を確認
  *
  * シート名「連絡先一覧」が必要。1リクエストあたり最大100行。
  */
+
+/**
+ * 設定チェック用（デバッグ）
+ * スクリプトプロパティの設定状況を確認する
+ */
+function checkSettings() {
+  const props = PropertiesService.getScriptProperties()
+  const apiUrl = props.getProperty('API_URL')
+  const apiKey = props.getProperty('SYNC_API_KEY')
+
+  Logger.log('=== 設定チェック ===')
+  Logger.log('API_URL: ' + (apiUrl ? apiUrl : '❌ 未設定'))
+  Logger.log('SYNC_API_KEY: ' + (apiKey ? '設定済み（' + apiKey.length + '文字）' : '❌ 未設定'))
+  if (apiKey) {
+    Logger.log('  最初の10文字: ' + apiKey.substring(0, 10) + '...')
+    Logger.log('  最後の5文字: ...' + apiKey.substring(apiKey.length - 5))
+  }
+  Logger.log('====================')
+
+  // 簡易接続テスト
+  if (apiUrl) {
+    try {
+      const testOptions = {
+        method: 'post',
+        contentType: 'application/json',
+        payload: JSON.stringify({ rows: [] }),
+        headers: { Authorization: 'Bearer ' + (apiKey || '') },
+        muteHttpExceptions: true
+      }
+      const res = UrlFetchApp.fetch(apiUrl, testOptions)
+      Logger.log('接続テスト ステータス: ' + res.getResponseCode())
+      Logger.log('接続テスト レスポンス: ' + res.getContentText())
+    } catch (e) {
+      Logger.log('接続テスト エラー: ' + e.message)
+    }
+  }
+}
 
 function syncNewCandidates() {
   const props = PropertiesService.getScriptProperties()
@@ -37,17 +74,28 @@ function syncNewCandidates() {
   }
 
   const headers = data[0].map(function (h) { return String(h != null ? h : '').trim() })
-  const rows = []
   const maxRows = 100
 
-  for (let i = 1; i < data.length && rows.length < maxRows; i++) {
+  // 全データ行をオブジェクトに変換
+  const allRows = []
+  for (let i = 1; i < data.length; i++) {
     const values = data[i]
     const row = {}
     for (let j = 0; j < headers.length; j++) {
       row[headers[j]] = values[j] != null ? String(values[j]).trim() : ''
     }
-    rows.push(row)
+    allRows.push(row)
   }
+
+  // ID と氏名が両方ある行だけ有効とする（プルダウンだけの行・IDのみの行を除外）
+  const validRows = allRows.filter(function (row) {
+    const id = row['ID'] || ''
+    const name = row['氏名'] || ''
+    return id !== '' && id !== '125' && name !== ''
+  })
+
+  // 有効な行のうち最新 maxRows 行
+  const rows = validRows.slice(-maxRows)
 
   const payload = JSON.stringify({ rows: rows })
   Logger.log('送信行数: ' + rows.length)
