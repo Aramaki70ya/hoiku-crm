@@ -76,13 +76,49 @@ function syncNewCandidates() {
   const headers = data[0].map(function (h) { return String(h != null ? h : '').trim() })
   const maxRows = 100
 
+  // 日付列のヘッダー名（いずれかがシートにあれば登録日として送る）
+  const dateHeaderNames = ['日付', '登録日', '登録日時', '作成日']
+
+  /** セル値を文字列に。Date / 数値(シリアル日付) の場合は YYYY-MM-DD に整形する */
+  function cellValueToString(val, header) {
+    if (val == null || val === '') return ''
+    if (Object.prototype.toString.call(val) === '[object Date]') {
+      var y = val.getFullYear()
+      var m = ('0' + (val.getMonth() + 1)).slice(-2)
+      var d = ('0' + val.getDate()).slice(-2)
+      return y + '-' + m + '-' + d
+    }
+    if (typeof val === 'number' && val > 30000) {
+      var d2 = new Date((val - 25569) * 86400 * 1000)
+      if (!isNaN(d2.getTime())) {
+        var y2 = d2.getFullYear()
+        var m2 = ('0' + (d2.getMonth() + 1)).slice(-2)
+        var d3 = ('0' + d2.getDate()).slice(-2)
+        return y2 + '-' + m2 + '-' + d3
+      }
+    }
+    return String(val).trim()
+  }
+
   // 全データ行をオブジェクトに変換
   const allRows = []
   for (let i = 1; i < data.length; i++) {
     const values = data[i]
     const row = {}
     for (let j = 0; j < headers.length; j++) {
-      row[headers[j]] = values[j] != null ? String(values[j]).trim() : ''
+      var header = headers[j]
+      row[header] = cellValueToString(values[j], header)
+    }
+    // API が「日付」で受け取るので、登録日系の列があれば「日付」としても持たせる
+    if (!row['日付'] && dateHeaderNames.some(function (h) { return (row[h] || '').toString().trim() !== '' })) {
+      var firstDateVal = ''
+      for (var k = 0; k < dateHeaderNames.length; k++) {
+        if ((row[dateHeaderNames[k]] || '').toString().trim() !== '') {
+          firstDateVal = (row[dateHeaderNames[k]] || '').toString().trim()
+          break
+        }
+      }
+      row['日付'] = firstDateVal
     }
     allRows.push(row)
   }
@@ -119,11 +155,18 @@ function syncNewCandidates() {
   try {
     const json = JSON.parse(body)
     if (code >= 200 && code < 300) {
-      Logger.log('成功: ' + json.inserted + '件追加、' + json.skipped + '件スキップ')
+      Logger.log('成功: ' + (json.message || (json.inserted + '件追加、' + json.skipped + '件スキップ')))
 
       if (json.insertedLog && json.insertedLog.length > 0) {
         Logger.log('--- 追加した人 ---')
         json.insertedLog.forEach(function (r) {
+          Logger.log('  ' + r.id + ' ' + r.name)
+        })
+      }
+
+      if (json.backfilledLog && json.backfilledLog.length > 0) {
+        Logger.log('--- 登録日を補完した人 ---')
+        json.backfilledLog.forEach(function (r) {
           Logger.log('  ' + r.id + ' ' + r.name)
         })
       }

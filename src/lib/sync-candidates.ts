@@ -14,11 +14,15 @@ const MAX_ROWS = 100
 export interface SyncResult {
   inserted: number
   skipped: number
+  /** 登録日が空だった既存求職者に登録日を補完した件数 */
+  backfilled: number
   errors: { row: number; id?: string; message: string }[]
   /** 追加した人: { id, name } */
   insertedLog: { id: string; name: string }[]
   /** 重複でスキップした人: { id, name } */
   skippedLog: { id: string; name: string }[]
+  /** 登録日を補完した人: { id, name } */
+  backfilledLog: { id: string; name: string }[]
 }
 
 /**
@@ -29,7 +33,15 @@ export async function syncCandidatesFromRows(
   supabase: SupabaseClient<Database>,
   rows: SpreadsheetRow[]
 ): Promise<SyncResult> {
-  const result: SyncResult = { inserted: 0, skipped: 0, errors: [], insertedLog: [], skippedLog: [] }
+  const result: SyncResult = {
+    inserted: 0,
+    skipped: 0,
+    backfilled: 0,
+    errors: [],
+    insertedLog: [],
+    skippedLog: [],
+    backfilledLog: [],
+  }
 
   if (rows.length === 0) return result
 
@@ -38,9 +50,12 @@ export async function syncCandidatesFromRows(
     result.errors.push({ row: MAX_ROWS + 1, message: `上限${MAX_ROWS}行のため、${rows.length - MAX_ROWS}行は未処理` })
   }
 
-  const { data: existingRows } = await supabase.from('candidates').select('id')
-  const existingIdList = (existingRows ?? []) as { id: string }[]
+  const { data: existingRows } = await supabase.from('candidates').select('id, registered_at')
+  const existingIdList = (existingRows ?? []) as { id: string; registered_at: string | null }[]
   const existingIds = new Set(existingIdList.map((r) => r.id))
+  const registeredAtById = new Map<string, string | null>(
+    existingIdList.map((r) => [r.id, r.registered_at ?? null])
+  )
 
   const { data: users } = await supabase.from('users').select('id, name')
   const userList = (users ?? []) as { id: string; name: string }[]
@@ -66,8 +81,24 @@ export async function syncCandidatesFromRows(
 
     const name = parsed.name ?? ''
     if (existingIds.has(id)) {
-      result.skipped += 1
-      result.skippedLog.push({ id, name })
+      const rowDate = parsed.registered_at ?? null
+      const currentRegisteredAt = registeredAtById.get(id) ?? null
+      if (rowDate && !currentRegisteredAt) {
+        const { error: updateError } = await supabase
+          .from('candidates')
+          .update({ registered_at: rowDate })
+          .eq('id', id)
+        if (updateError) {
+          result.errors.push({ row: i + 1, id, message: `登録日補完失敗: ${updateError.message}` })
+        } else {
+          result.backfilled += 1
+          result.backfilledLog.push({ id, name })
+          registeredAtById.set(id, rowDate)
+        }
+      } else {
+        result.skipped += 1
+        result.skippedLog.push({ id, name })
+      }
       continue
     }
 

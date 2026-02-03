@@ -45,15 +45,20 @@ export async function POST(request: NextRequest) {
 
     if (rows.length === 0) {
       return NextResponse.json(
-        { inserted: 0, skipped: 0, errors: [], message: '行がありません' },
+        { inserted: 0, skipped: 0, backfilled: 0, errors: [], message: '行がありません' },
         { status: 200 }
       )
     }
 
     const result = await syncCandidatesFromRows(supabase, rows)
+    const msgParts = [
+      `${result.inserted}件追加`,
+      result.backfilled > 0 ? `${result.backfilled}件の登録日を補完` : null,
+      `${result.skipped}件は既に登録済み`,
+    ].filter(Boolean)
     return NextResponse.json({
       ...result,
-      message: `${result.inserted}件追加、${result.skipped}件は既に登録済みでした。`,
+      message: msgParts.join('、') + '。',
     })
   } catch (error) {
     console.error('Sync candidates error:', error)
