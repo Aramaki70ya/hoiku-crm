@@ -79,16 +79,17 @@ function syncNewCandidates() {
   // 日付列のヘッダー名（いずれかがシートにあれば登録日として送る）
   const dateHeaderNames = ['日付', '登録日', '登録日時', '作成日']
 
-  /** セル値を文字列に。Date / 数値(シリアル日付) の場合は YYYY-MM-DD に整形する */
+  /** セル値を文字列に。日付列のみ Date/数値(シリアル) を YYYY-MM-DD に変換（ID列などは数値のまま文字列で送る） */
   function cellValueToString(val, header) {
     if (val == null || val === '') return ''
-    if (Object.prototype.toString.call(val) === '[object Date]') {
+    var isDateColumn = dateHeaderNames.indexOf(header) !== -1
+    if (isDateColumn && Object.prototype.toString.call(val) === '[object Date]') {
       var y = val.getFullYear()
       var m = ('0' + (val.getMonth() + 1)).slice(-2)
       var d = ('0' + val.getDate()).slice(-2)
       return y + '-' + m + '-' + d
     }
-    if (typeof val === 'number' && val > 30000) {
+    if (isDateColumn && typeof val === 'number' && val > 30000) {
       var d2 = new Date((val - 25569) * 86400 * 1000)
       if (!isNaN(d2.getTime())) {
         var y2 = d2.getFullYear()

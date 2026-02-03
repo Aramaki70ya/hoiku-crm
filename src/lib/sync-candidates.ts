@@ -50,8 +50,20 @@ export async function syncCandidatesFromRows(
     result.errors.push({ row: MAX_ROWS + 1, message: `上限${MAX_ROWS}行のため、${rows.length - MAX_ROWS}行は未処理` })
   }
 
-  const { data: existingRows } = await supabase.from('candidates').select('id, registered_at')
-  const existingIdList = (existingRows ?? []) as { id: string; registered_at: string | null }[]
+  // Supabase はデフォルトで最大1000件しか返さないため、全件取得するまでページングする
+  const PAGE_SIZE = 1000
+  const existingIdList: { id: string; registered_at: string | null }[] = []
+  let offset = 0
+  while (true) {
+    const { data: page } = await supabase
+      .from('candidates')
+      .select('id, registered_at')
+      .range(offset, offset + PAGE_SIZE - 1)
+    const rows = (page ?? []) as { id: string; registered_at: string | null }[]
+    existingIdList.push(...rows)
+    if (rows.length < PAGE_SIZE) break
+    offset += PAGE_SIZE
+  }
   const existingIds = new Set(existingIdList.map((r) => r.id))
   const registeredAtById = new Map<string, string | null>(
     existingIdList.map((r) => [r.id, r.registered_at ?? null])
