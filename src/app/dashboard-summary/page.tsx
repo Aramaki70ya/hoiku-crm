@@ -371,10 +371,23 @@ export default function DashboardSummaryPage() {
           userCandidates.some((c) => c.id === p.candidate_id)
         )
 
-        const adjusting: Array<{ name: string; yomi: string; amount: number }> = []
-        const beforeInterview: Array<{ name: string; yomi: string; amount: number }> = []
-        const waitingResult: Array<{ name: string; yomi: string; amount: number }> = []
-        const waitingReply: Array<{ name: string; yomi: string; amount: number }> = []
+        // 同一求職者は最新のヨミ（project.updated_at）1件だけ表示するため Map で保持
+        const adjustingMap = new Map<string, { caseInfo: { name: string; yomi: string; amount: number }; updated_at: string }>()
+        const beforeInterviewMap = new Map<string, { caseInfo: { name: string; yomi: string; amount: number }; updated_at: string }>()
+        const waitingResultMap = new Map<string, { caseInfo: { name: string; yomi: string; amount: number }; updated_at: string }>()
+        const waitingReplyMap = new Map<string, { caseInfo: { name: string; yomi: string; amount: number }; updated_at: string }>()
+
+        const setIfNewer = (
+          map: Map<string, { caseInfo: { name: string; yomi: string; amount: number }; updated_at: string }>,
+          candidateId: string,
+          caseInfo: { name: string; yomi: string; amount: number },
+          updated_at: string
+        ) => {
+          const existing = map.get(candidateId)
+          if (!existing || updated_at > existing.updated_at) {
+            map.set(candidateId, { caseInfo, updated_at })
+          }
+        }
 
         userProjects.forEach((project) => {
           const candidate = userCandidates.find((c) => c.id === project.candidate_id)
@@ -407,30 +420,31 @@ export default function DashboardSummaryPage() {
             yomi: yomiLabel,
             amount: project.expected_amount || 0,
           }
+          const updated_at = project.updated_at || project.created_at || ''
 
           // 調整中: 面接日程を調整している案件（reschedulingステータスの面接がある）
           if (reschedulingInterviews.length > 0) {
-            adjusting.push(caseInfo)
+            setIfNewer(adjustingMap, candidate.id, caseInfo, updated_at)
           }
           // 面接前: 面接が予定されているが、まだ実施されていない案件
           else if (scheduledInterviews.length > 0 && completedInterviews.length === 0) {
-            beforeInterview.push(caseInfo)
+            setIfNewer(beforeInterviewMap, candidate.id, caseInfo, updated_at)
           }
           // 結果待ち: 面接が終了し、結果を待っている案件
           else if (completedInterviews.length > 0 && candidate.status !== 'offer') {
-            waitingResult.push(caseInfo)
+            setIfNewer(waitingResultMap, candidate.id, caseInfo, updated_at)
           }
           // 本人返事待ち: 内定が出て、本人からの返事を待っている案件
           if (project.phase === 'offer' || candidate.status === 'offer') {
-            waitingReply.push(caseInfo)
+            setIfNewer(waitingReplyMap, candidate.id, caseInfo, updated_at)
           }
         })
-        
+
         statusCases[user.id] = {
-          adjusting,
-          beforeInterview,
-          waitingResult,
-          waitingReply,
+          adjusting: Array.from(adjustingMap.values()).map((v) => v.caseInfo),
+          beforeInterview: Array.from(beforeInterviewMap.values()).map((v) => v.caseInfo),
+          waitingResult: Array.from(waitingResultMap.values()).map((v) => v.caseInfo),
+          waitingReply: Array.from(waitingReplyMap.values()).map((v) => v.caseInfo),
         }
       })
 

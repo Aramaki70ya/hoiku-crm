@@ -454,7 +454,7 @@ function CandidatesPageContent() {
         <div className="flex items-center gap-2">
           <span className="text-sm text-slate-600 font-medium">ステータス:</span>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-32 bg-white border-slate-200 text-slate-700 shadow-sm">
+            <SelectTrigger className="w-40 h-9 bg-white border-2 border-violet-300 text-slate-800 font-medium shadow-md rounded-md hover:border-violet-400 hover:bg-violet-50/50 focus:ring-2 focus:ring-violet-400/50">
               <SelectValue placeholder="ステータス" />
             </SelectTrigger>
             <SelectContent className="bg-white border-slate-200">
