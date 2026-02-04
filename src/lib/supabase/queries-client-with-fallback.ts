@@ -26,30 +26,50 @@ if (isDemoMode()) {
 // Candidates (求職者)
 // ========================================
 
+function logSupabaseError(context: string, err: unknown): void {
+  const msg = err && typeof err === 'object' && 'message' in err ? (err as { message?: string }).message : String(err)
+  const code = err && typeof err === 'object' && 'code' in err ? (err as { code?: string }).code : undefined
+  console.error(`Error fetching ${context}:`, msg, code ? `[${code}]` : '')
+}
+
 export async function getCandidatesClient(): Promise<Candidate[]> {
   if (isDemoMode() && mockData) {
     return mockData.mockCandidates
   }
 
-  const supabase = createClient()
-  // Supabaseのデフォルト limit は1000件なので、全件取得するために range を指定
-  const { data, error } = await supabase
-    .from('candidates')
-    .select('*')
-    .order('registered_at', { ascending: false })
-    .range(0, 9999) // 最大10000件まで取得
+  try {
+    const supabase = createClient()
+    // Supabaseのデフォルト limit は1000件なので、全件取得するために range を指定
+    const { data, error } = await supabase
+      .from('candidates')
+      .select('*')
+      .order('registered_at', { ascending: false })
+      .range(0, 9999) // 最大10000件まで取得
 
-  if (error) {
-    console.error('Error fetching candidates:', error)
-    // エラー時もデモデータを返す（開発中の利便性のため）
-    if (mockData) {
-      console.warn('Falling back to mock data due to error')
-      return mockData.mockCandidates
+    if (error) {
+      logSupabaseError('candidates', error)
+      if (mockData) {
+        console.warn('Falling back to mock data due to error')
+        return mockData.mockCandidates
+      }
+      throw new Error(`Failed to fetch candidates: ${error.message}`)
     }
-    throw new Error(`Failed to fetch candidates: ${error.message}`)
-  }
 
-  return data || []
+    return data || []
+  } catch (err) {
+    logSupabaseError('candidates', err)
+    // 開発時のみ: 接続失敗時にモックでフォールバック（.env.local 未設定時など）
+    if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+      try {
+        const m = require('@/lib/mock-data')
+        console.warn('Supabase接続に失敗したためモックデータで表示しています。.env.local を設定してください。')
+        return m.mockCandidates ?? []
+      } catch {
+        // ignore
+      }
+    }
+    throw err instanceof Error ? err : new Error(`Failed to fetch candidates: ${String(err)}`)
+  }
 }
 
 export async function getCandidateByIdClient(id: string): Promise<Candidate | null> {
@@ -84,21 +104,35 @@ export async function getUsersClient(): Promise<User[]> {
     return mockData.mockUsers
   }
 
-  const supabase = createClient()
-  const { data, error } = await supabase
-    .from('users')
-    .select('*')
-    .order('name')
+  try {
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .order('name')
 
-  if (error) {
-    console.error('Error fetching users:', error)
-    if (mockData) {
-      return mockData.mockUsers
+    if (error) {
+      logSupabaseError('users', error)
+      if (mockData) {
+        return mockData.mockUsers
+      }
+      throw new Error(`Failed to fetch users: ${error.message}`)
     }
-    throw new Error(`Failed to fetch users: ${error.message}`)
-  }
 
-  return data || []
+    return data || []
+  } catch (err) {
+    logSupabaseError('users', err)
+    if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+      try {
+        const m = require('@/lib/mock-data')
+        console.warn('Supabase接続に失敗したためモックデータで表示しています。.env.local を設定してください。')
+        return m.mockUsers ?? []
+      } catch {
+        // ignore
+      }
+    }
+    throw err instanceof Error ? err : new Error(`Failed to fetch users: ${String(err)}`)
+  }
 }
 
 export async function getUserByIdClient(id: string): Promise<User | null> {
@@ -133,23 +167,32 @@ export async function getProjectsClient(): Promise<Project[]> {
     return mockData.mockProjects
   }
 
-  const supabase = createClient()
-  // Supabaseのデフォルト limit は1000件なので、全件取得するために range を指定
-  const { data, error } = await supabase
-    .from('projects')
-    .select('*')
-    .order('created_at', { ascending: false })
-    .range(0, 9999) // 最大10000件まで取得
+  try {
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from('projects')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .range(0, 9999)
 
-  if (error) {
-    console.error('Error fetching projects:', error)
-    if (mockData) {
-      return mockData.mockProjects
+    if (error) {
+      logSupabaseError('projects', error)
+      if (mockData) return mockData.mockProjects
+      throw new Error(`Failed to fetch projects: ${error.message}`)
     }
-    throw new Error(`Failed to fetch projects: ${error.message}`)
+    return data || []
+  } catch (err) {
+    logSupabaseError('projects', err)
+    if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+      try {
+        const m = require('@/lib/mock-data')
+        return m.mockProjects ?? []
+      } catch {
+        // ignore
+      }
+    }
+    throw err instanceof Error ? err : new Error(`Failed to fetch projects: ${String(err)}`)
   }
-
-  return data || []
 }
 
 export async function getProjectsByCandidateIdClient(candidateId: string): Promise<Project[]> {
@@ -184,26 +227,34 @@ export async function getInterviewsClient(): Promise<Interview[]> {
     return mockData.mockInterviews
   }
 
-  const supabase = createClient()
-  // projects との INNER JOIN で、有効なプロジェクトを持つ面接のみを取得
-  const { data, error } = await supabase
-    .from('interviews')
-    .select(`
-      *,
-      project:projects!inner(id)
-    `)
-    .order('start_at', { ascending: false })
+  try {
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from('interviews')
+      .select(`
+        *,
+        project:projects!inner(id)
+      `)
+      .order('start_at', { ascending: false })
 
-  if (error) {
-    console.error('Error fetching interviews:', error)
-    if (mockData) {
-      return mockData.mockInterviews
+    if (error) {
+      logSupabaseError('interviews', error)
+      if (mockData) return mockData.mockInterviews
+      throw new Error(`Failed to fetch interviews: ${error.message}`)
     }
-    throw new Error(`Failed to fetch interviews: ${error.message}`)
+    return (data || []).map(({ project, ...interview }: { project?: unknown }) => interview as Interview)
+  } catch (err) {
+    logSupabaseError('interviews', err)
+    if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+      try {
+        const m = require('@/lib/mock-data')
+        return m.mockInterviews ?? []
+      } catch {
+        // ignore
+      }
+    }
+    throw err instanceof Error ? err : new Error(`Failed to fetch interviews: ${String(err)}`)
   }
-
-  // project 情報を除去して Interview 型として返す
-  return (data || []).map(({ project, ...interview }) => interview as Interview)
 }
 
 export async function getInterviewsByProjectIdClient(projectId: string): Promise<Interview[]> {
@@ -238,21 +289,31 @@ export async function getContractsClient(): Promise<Contract[]> {
     return mockData.mockContracts
   }
 
-  const supabase = createClient()
-  const { data, error } = await supabase
-    .from('contracts')
-    .select('*')
-    .order('accepted_date', { ascending: false })
+  try {
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from('contracts')
+      .select('*')
+      .order('accepted_date', { ascending: false })
 
-  if (error) {
-    console.error('Error fetching contracts:', error)
-    if (mockData) {
-      return mockData.mockContracts
+    if (error) {
+      logSupabaseError('contracts', error)
+      if (mockData) return mockData.mockContracts
+      throw new Error(`Failed to fetch contracts: ${error.message}`)
     }
-    throw new Error(`Failed to fetch contracts: ${error.message}`)
+    return data || []
+  } catch (err) {
+    logSupabaseError('contracts', err)
+    if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+      try {
+        const m = require('@/lib/mock-data')
+        return m.mockContracts ?? []
+      } catch {
+        // ignore
+      }
+    }
+    throw err instanceof Error ? err : new Error(`Failed to fetch contracts: ${String(err)}`)
   }
-
-  return data || []
 }
 
 export async function getContractByCandidateIdClient(candidateId: string): Promise<Contract | null> {
