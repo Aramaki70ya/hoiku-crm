@@ -98,7 +98,8 @@ const activeStatuses: StatusType[] = [
 function CandidatesPageContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
-  const [searchQuery, setSearchQuery] = useState('')
+  const [searchInputValue, setSearchInputValue] = useState('') // 入力欄の値（入力中）
+  const [searchQuery, setSearchQuery] = useState('') // 実際に検索に使う値（Enterで適用）
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [priorityFilter, setPriorityFilter] = useState<string>('all')
   const [activeTab, setActiveTab] = useState<'all' | 'tasks'>('all')
@@ -448,9 +449,15 @@ function CandidatesPageContent() {
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <Input
-            placeholder="氏名、ID、電話番号で検索..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="氏名、ID、電話番号で検索... (Enterで検索)"
+            value={searchInputValue}
+            onChange={(e) => setSearchInputValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                setSearchQuery(searchInputValue)
+              }
+            }}
             className="pl-9 bg-white border-slate-200 text-slate-700 shadow-sm"
           />
         </div>
@@ -650,7 +657,7 @@ function CandidatesPageContent() {
                         {candidate.name}
                       </Link>
                       <div className="text-sm text-slate-500 truncate">
-                        {candidate.age != null ? `${candidate.age}歳` : '—'}
+                        {candidate.age != null && candidate.age < 120 ? `${candidate.age}歳` : '—'}
                         {candidate.prefecture && ` / ${candidate.prefecture}`}
                         {candidate.address && ` ${candidate.address}`}
                       </div>

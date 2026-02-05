@@ -22,11 +22,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Calendar, Clock, MapPin, User as UserIcon, Building, CheckCircle, XCircle } from 'lucide-react'
+import { Calendar, Clock, MapPin, User as UserIcon, Building, CheckCircle, XCircle, Trash2 } from 'lucide-react'
 import {
   interviewStatusLabels,
   interviewStatusColors,
 } from '@/lib/mock-data'
+
+// 求職者ステータス → 面接一覧での表示（求職者詳細のステータスのみと連動）
+const CANDIDATE_STATUS_TO_DISPLAY: Record<string, { label: string; className: string }> = {
+  '面接日程調整中': { label: '調整中', className: interviewStatusColors.rescheduling },
+  '面接確定済': { label: '面接確定済み', className: interviewStatusColors.scheduled },
+  '面接実施済（結果待ち）': { label: '面接実施済み', className: interviewStatusColors.completed },
+}
+function getDisplayStatusFromCandidate(candidateStatus: string | undefined) {
+  return candidateStatus ? CANDIDATE_STATUS_TO_DISPLAY[candidateStatus] : null
+}
 import { useInterviews } from '@/hooks/useInterviews'
 import { useUsers } from '@/hooks/useUsers'
 import { useCandidates } from '@/hooks/useCandidates'
@@ -75,7 +85,11 @@ export default function InterviewsPage() {
     consultantId: consultantFilter,
   })
   const { users } = useUsers()
-  const { updateCandidate } = useCandidates()
+  const { updateCandidate, candidates: reschedulingCandidates } = useCandidates({
+    status: '面接日程調整中',
+    consultantId: consultantFilter !== 'all' ? consultantFilter : undefined,
+    limit: 1000,
+  })
 
   // ページ復帰時・タブ切り替え時に再取得（bfcache対策）
   useEffect(() => {
@@ -118,10 +132,38 @@ export default function InterviewsPage() {
   // フィルタリング（API側で既にフィルタリングされている）
   const filteredInterviews = enrichedInterviews
 
-  // ステータス別集計
-  const reschedulingCount = enrichedInterviews.filter(i => i.status === 'rescheduling').length
-  const scheduledCount = enrichedInterviews.filter(i => i.status === 'scheduled').length
-  const completedCount = enrichedInterviews.filter(i => i.status === 'completed').length
+  // 調整中タブ用: 面接レコードが rescheduling のもの + 面接未登録の「面接日程調整中」候補
+  const candidateIdsInInterviewsList = useMemo(
+    () => new Set(enrichedInterviews.map((i) => i.candidate?.id).filter(Boolean) as string[]),
+    [enrichedInterviews]
+  )
+  const reschedulingOnlyCandidates = useMemo(
+    () => reschedulingCandidates.filter((c) => !candidateIdsInInterviewsList.has(c.id)),
+    [reschedulingCandidates, candidateIdsInInterviewsList]
+  )
+  const reschedulingList = useMemo(() => {
+    const withInterview = enrichedInterviews.filter((i) => i.candidate?.status === '面接日程調整中')
+    const placeholders: typeof enrichedInterviews = reschedulingOnlyCandidates.map((c) => ({
+      id: `rescheduling-candidate-${c.id}`,
+      project_id: '',
+      type: 'interview',
+      start_at: '',
+      end_at: null,
+      location: null,
+      status: 'rescheduling',
+      feedback: null,
+      created_at: '',
+      project: undefined,
+      candidate: c,
+      consultant: c.consultant || undefined,
+    }))
+    return [...withInterview, ...placeholders]
+  }, [enrichedInterviews, reschedulingOnlyCandidates])
+
+  // ステータス別集計（求職者ステータス基準。調整中は面接未登録の候補も含む）
+  const reschedulingCount = reschedulingList.length
+  const scheduledCount = enrichedInterviews.filter((i) => i.candidate?.status === '面接確定済').length
+  const completedCount = enrichedInterviews.filter((i) => i.candidate?.status === '面接実施済（結果待ち）').length
 
   // ステータス変更ハンドラー
   const handleStatusChange = useCallback(async (interviewId: string, newStatus: string) => {
@@ -149,6 +191,22 @@ export default function InterviewsPage() {
       await updateCandidate(candidateId, { consultant_id: consultantId })
     }
   }, [updateCandidate])
+
+  // 面接削除ハンドラー
+  const handleDeleteInterview = useCallback(async (interviewId: string) => {
+    if (!confirm('この面接を削除してよいですか？')) return
+    try {
+      const res = await fetch(`/api/interviews/${interviewId}`, { method: 'DELETE' })
+      if (res.ok) {
+        await refetch()
+      } else {
+        const err = await res.json().catch(() => ({}))
+        alert(err.details || err.error || '削除に失敗しました')
+      }
+    } catch {
+      alert('削除に失敗しました')
+    }
+  }, [refetch])
 
   // ローディング中の表示
   if (isLoading) {
@@ -185,7 +243,7 @@ export default function InterviewsPage() {
                 <Calendar className="w-5 h-5 text-blue-600" />
               </div>
               <div>
-                <p className="text-xs text-slate-500">実施中</p>
+                <p className="text-xs text-slate-500">面接確定済み</p>
                 <p className="text-2xl font-bold text-slate-800">{scheduledCount}</p>
               </div>
             </div>
@@ -198,7 +256,7 @@ export default function InterviewsPage() {
                 <CheckCircle className="w-5 h-5 text-green-600" />
               </div>
               <div>
-                <p className="text-xs text-slate-500">実施済</p>
+                <p className="text-xs text-slate-500">面接実施済み</p>
                 <p className="text-2xl font-bold text-slate-800">{completedCount}</p>
               </div>
             </div>
@@ -247,19 +305,19 @@ export default function InterviewsPage() {
             value="rescheduling"
             className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-amber-500 data-[state=active]:to-orange-600 data-[state=active]:text-white"
           >
-            調整中 ({filteredInterviews.filter(i => i.status === 'rescheduling').length})
+            調整中 ({reschedulingCount})
           </TabsTrigger>
           <TabsTrigger 
             value="scheduled"
             className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-500 data-[state=active]:to-cyan-600 data-[state=active]:text-white"
           >
-            実施中 ({filteredInterviews.filter(i => i.status === 'scheduled').length})
+            面接確定済み ({filteredInterviews.filter((i) => i.candidate?.status === '面接確定済').length})
           </TabsTrigger>
           <TabsTrigger 
             value="completed"
             className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-green-500 data-[state=active]:to-emerald-600 data-[state=active]:text-white"
           >
-            実施済 ({filteredInterviews.filter(i => i.status === 'completed').length})
+            面接実施済み ({filteredInterviews.filter((i) => i.candidate?.status === '面接実施済（結果待ち）').length})
           </TabsTrigger>
         </TabsList>
 
@@ -269,30 +327,35 @@ export default function InterviewsPage() {
             users={users}
             onStatusChange={handleStatusChange}
             onConsultantChange={handleConsultantChange}
+            onDelete={handleDeleteInterview}
           />
         </TabsContent>
         <TabsContent value="rescheduling">
           <InterviewTable 
-            interviews={filteredInterviews.filter(i => i.status === 'rescheduling')}
+            interviews={reschedulingList}
             users={users}
             onStatusChange={handleStatusChange}
             onConsultantChange={handleConsultantChange}
+            onDelete={handleDeleteInterview}
+            isReschedulingTab
           />
         </TabsContent>
         <TabsContent value="scheduled">
           <InterviewTable 
-            interviews={filteredInterviews.filter(i => i.status === 'scheduled')}
+            interviews={filteredInterviews.filter((i) => i.candidate?.status === '面接確定済')}
             users={users}
             onStatusChange={handleStatusChange}
             onConsultantChange={handleConsultantChange}
+            onDelete={handleDeleteInterview}
           />
         </TabsContent>
         <TabsContent value="completed">
           <InterviewTable 
-            interviews={filteredInterviews.filter(i => i.status === 'completed')}
+            interviews={filteredInterviews.filter((i) => i.candidate?.status === '面接実施済（結果待ち）')}
             users={users}
             onStatusChange={handleStatusChange}
             onConsultantChange={handleConsultantChange}
+            onDelete={handleDeleteInterview}
           />
         </TabsContent>
       </Tabs>
@@ -349,6 +412,9 @@ interface InterviewTableProps {
   users: User[]
   onStatusChange: (interviewId: string, newStatus: string) => Promise<void>
   onConsultantChange: (interviewId: string, candidateId: string, consultantId: string) => Promise<void>
+  onDelete: (interviewId: string) => Promise<void>
+  /** 調整中タブ用。面接未登録の候補行（プレースホルダー）を含む */
+  isReschedulingTab?: boolean
 }
 
 function InterviewTable({ 
@@ -356,7 +422,11 @@ function InterviewTable({
   users,
   onStatusChange,
   onConsultantChange,
+  onDelete,
+  isReschedulingTab = false,
 }: InterviewTableProps) {
+  const isPlaceholderRow = (interview: EnrichedInterview) =>
+    interview.id.startsWith('rescheduling-candidate-') || !interview.start_at
   const getInterviewDestination = (project?: EnrichedInterview['project']) => {
     const gardenName = project?.garden_name?.trim() || ''
     const corporationName = project?.corporation_name?.trim() || ''
@@ -390,12 +460,18 @@ function InterviewTable({
               <TableHead className="text-slate-600 font-semibold">担当者</TableHead>
               <TableHead className="text-slate-600 font-semibold">ステータス</TableHead>
               <TableHead className="text-slate-600 font-semibold">フィードバック</TableHead>
+              <TableHead className="text-slate-600 font-semibold w-16">操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {interviews.map(interview => (
+            {interviews.map(interview => {
+              const isPlaceholder = isReschedulingTab && isPlaceholderRow(interview)
+              return (
               <TableRow key={interview.id} className="border-slate-100 hover:bg-violet-50/50">
                 <TableCell>
+                  {isPlaceholder ? (
+                    <span className="text-slate-400 text-sm">未設定</span>
+                  ) : (
                   <div className="flex items-center gap-2">
                     <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-violet-100 to-indigo-100 border border-violet-200 flex flex-col items-center justify-center">
                       <span className="text-sm font-bold text-violet-600">
@@ -414,6 +490,7 @@ function InterviewTable({
                       </p>
                     </div>
                   </div>
+                  )}
                 </TableCell>
                 <TableCell>
                   <div>
@@ -444,6 +521,9 @@ function InterviewTable({
                   </div>
                 </TableCell>
                 <TableCell>
+                  {isPlaceholder ? (
+                    <span className="text-slate-600 text-sm">{interview.consultant?.name || '-'}</span>
+                  ) : (
                   <Select
                     value={interview.consultant?.id || ((interview.candidate as Candidate | undefined)?.consultant_id ?? 'unassigned')}
                     onValueChange={(value) => {
@@ -468,39 +548,50 @@ function InterviewTable({
                       ))}
                     </SelectContent>
                   </Select>
+                  )}
                 </TableCell>
-                <TableCell>
-                  <Select
-                    value={interview.status}
-                    onValueChange={(value) => {
-                      onStatusChange(interview.id, value)
-                    }}
-                  >
-                    <SelectTrigger className="w-32 h-7 p-0 border-0 bg-transparent hover:bg-slate-100">
-                      <SelectValue>
-                        <Badge variant="outline" className={interviewStatusColors[interview.status]}>
-                          {interviewStatusLabels[interview.status]}
+                <TableCell title="求職者詳細で変更するステータスと連動しています">
+                  {isPlaceholder ? (
+                    <Badge variant="outline" className={interviewStatusColors.rescheduling}>
+                      調整中
+                    </Badge>
+                  ) : (() => {
+                    const fromCandidate = getDisplayStatusFromCandidate(interview.candidate?.status)
+                    if (fromCandidate) {
+                      return (
+                        <Badge variant="outline" className={fromCandidate.className}>
+                          {fromCandidate.label}
                         </Badge>
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent className="bg-white border-slate-200">
-                      {Object.entries(interviewStatusLabels).map(([value, label]) => (
-                        <SelectItem key={value} value={value}>
-                          <Badge variant="outline" className={interviewStatusColors[value]}>
-                            {label}
-                          </Badge>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                      )
+                    }
+                    return (
+                      <Badge variant="outline" className={interviewStatusColors[interview.status] || ''}>
+                        {interviewStatusLabels[interview.status] || interview.status || '-'}
+                      </Badge>
+                    )
+                  })()}
                 </TableCell>
                 <TableCell>
                   <p className="text-sm text-slate-600 max-w-[200px] truncate">
                     {interview.feedback || '-'}
                   </p>
                 </TableCell>
+                <TableCell>
+                  {!isPlaceholder && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-slate-400 hover:text-rose-600"
+                      title="この面接を削除"
+                      onClick={() => onDelete(interview.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                </TableCell>
               </TableRow>
-            ))}
+            )})}
           </TableBody>
         </Table>
       </CardContent>
