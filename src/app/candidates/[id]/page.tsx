@@ -1210,10 +1210,11 @@ export default function CandidateDetailPage({ params }: PageProps) {
                   const projectInterviews = allInterviews.filter(
                     (i) => i.project_id === project.id
                   )
+                  const p = project as Project & { garden_name?: string | null; corporation_name?: string | null }
                   const projectDisplay = getProjectDisplayName(
-                    project.garden_name,
-                    project.corporation_name,
-                    project.client_name
+                    p.garden_name ?? undefined,
+                    p.corporation_name ?? undefined,
+                    p.client_name
                   )
                   return (
                     <Card
