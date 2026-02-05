@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { AppLayout } from '@/components/layout/app-layout'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -44,7 +45,10 @@ function generateMonthOptions() {
   return options
 }
 
+const MONTH_REGEX = /^\d{4}-(0[1-9]|1[0-2])$/
+
 export default function InterviewsPage() {
+  const searchParams = useSearchParams()
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [consultantFilter, setConsultantFilter] = useState<string>('all')
   const [selectedMonth, setSelectedMonth] = useState(() => {
@@ -55,6 +59,14 @@ export default function InterviewsPage() {
   const [localInterviewStatuses, setLocalInterviewStatuses] = useState<Record<string, string>>({})
   const [localInterviewConsultants, setLocalInterviewConsultants] = useState<Record<string, string>>({})
   const [localCandidateConsultants, setLocalCandidateConsultants] = useState<Record<string, string>>({})
+
+  // URL の ?month=YYYY-MM で開いたときにその月を表示する
+  useEffect(() => {
+    const monthFromUrl = searchParams.get('month')
+    if (monthFromUrl && MONTH_REGEX.test(monthFromUrl)) {
+      setSelectedMonth(monthFromUrl)
+    }
+  }, [searchParams])
 
   // API経由でデータを取得
   const { interviews: apiInterviews, isLoading, updateInterview, refetch } = useInterviews({
@@ -302,6 +314,8 @@ interface EnrichedInterview {
     id: string
     candidate_id: string
     client_name: string
+    garden_name?: string | null
+    corporation_name?: string | null
     phase: string
     expected_amount?: number | null
     probability?: string | null
@@ -343,6 +357,15 @@ function InterviewTable({
   onStatusChange,
   onConsultantChange,
 }: InterviewTableProps) {
+  const getInterviewDestination = (project?: EnrichedInterview['project']) => {
+    const gardenName = project?.garden_name?.trim() || ''
+    const corporationName = project?.corporation_name?.trim() || ''
+    const fallbackName = project?.client_name?.trim() || ''
+    const title = gardenName || fallbackName || corporationName || '-'
+    const subtitle = gardenName && corporationName ? corporationName : ''
+    return { title, subtitle }
+  }
+
   if (interviews.length === 0) {
     return (
       <Card className="bg-white border-slate-200 shadow-sm">
@@ -399,10 +422,20 @@ function InterviewTable({
                   </div>
                 </TableCell>
                 <TableCell>
-                  <div className="flex items-center gap-2">
-                    <Building className="w-4 h-4 text-slate-400" />
-                    <span className="text-slate-700">{interview.project?.client_name || '-'}</span>
-                  </div>
+                  {(() => {
+                    const destination = getInterviewDestination(interview.project)
+                    return (
+                      <div className="flex items-center gap-2">
+                        <Building className="w-4 h-4 text-slate-400" />
+                        <div className="flex flex-col">
+                          <span className="text-slate-700">{destination.title}</span>
+                          {destination.subtitle && (
+                            <span className="text-xs text-slate-500">法人: {destination.subtitle}</span>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })()}
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-2">

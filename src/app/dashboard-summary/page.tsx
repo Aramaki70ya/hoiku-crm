@@ -393,8 +393,8 @@ export default function DashboardSummaryPage() {
           const candidate = userCandidates.find((c) => c.id === project.candidate_id)
           if (!candidate) return
 
-          // 選択期間内の面接のみ使用（面接一覧と同じ期間で集計）
-          const projectInterviews = periodInterviews.filter((i) => i.project_id === project.id)
+          // 面接状況（調整中/前/結果待ち）は「今の状態」を表示するため、全期間の面接で判定する（期間フィルタしない）
+          const projectInterviews = interviews.filter((i) => i.project_id === project.id)
           if (projectInterviews.length === 0) return
 
           // 各ステータスごとにフィルタ
@@ -449,7 +449,7 @@ export default function DashboardSummaryPage() {
       })
 
     return statusCases
-  }, [users, candidates, projects, periodInterviews])
+  }, [users, candidates, projects, interviews])
 
   // 退職者フィルタリング用ヘルパー（選択期間に応じて退職者を含める/除外する）
   const isUserActiveInPeriod = useCallback((user: User) => {

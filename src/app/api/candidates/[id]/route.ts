@@ -136,7 +136,32 @@ export async function PATCH(
       console.error('PATCH candidates error:', error.message, error.details)
       throw error
     }
-    
+
+    // 求職者ステータスを「面接〜」にしたとき、面接一覧・ダッシュボードに反映するため interviews.status を同期する
+    const rawStatus = body.status as string | undefined
+    const interviewStatusByCandidateStatus: Record<string, 'rescheduling' | 'scheduled' | 'completed'> = {
+      '面接日程調整中': 'rescheduling',
+      '面接確定済': 'scheduled',
+      '面接実施済（結果待ち）': 'completed',
+    }
+    const targetInterviewStatus = rawStatus ? interviewStatusByCandidateStatus[rawStatus] : null
+    if (targetInterviewStatus) {
+      const { data: projects } = await supabase.from('projects').select('id').eq('candidate_id', id)
+      if (projects && projects.length > 0) {
+        const projectIds = projects.map((p) => p.id)
+        const { data: candidateInterviews } = await supabase
+          .from('interviews')
+          .select('id, start_at')
+          .in('project_id', projectIds)
+          .neq('status', 'cancelled')
+          .order('start_at', { ascending: false })
+        const toUpdate = candidateInterviews && candidateInterviews.length > 0 ? candidateInterviews[0] : null
+        if (toUpdate?.id) {
+          await supabase.from('interviews').update({ status: targetInterviewStatus }).eq('id', toUpdate.id)
+        }
+      }
+    }
+
     return NextResponse.json({ data, message: '求職者情報を更新しました' })
   } catch (error) {
     console.error('Error updating candidate:', error)

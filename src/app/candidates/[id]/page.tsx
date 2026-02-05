@@ -42,6 +42,7 @@ import {
   Clock,
   Banknote,
   Loader2,
+  X,
 } from 'lucide-react'
 import { mockMemos } from '@/lib/mock-data'
 import {
@@ -65,6 +66,22 @@ function formatCurrency(amount: number | null | undefined): string {
     currency: 'JPY',
     maximumFractionDigits: 0,
   }).format(amount)
+}
+
+function getProjectDisplayName(
+  gardenName?: string | null,
+  corporationName?: string | null,
+  fallbackName?: string | null
+) {
+  const cleanGarden = gardenName?.trim() || ''
+  const cleanCorporation = corporationName?.trim() || ''
+  const cleanFallback = fallbackName?.trim() || ''
+  const title = cleanGarden || cleanFallback || cleanCorporation || '未設定'
+  const subtitle = cleanGarden && cleanCorporation ? cleanCorporation : ''
+  const combined = cleanGarden && cleanCorporation
+    ? `${cleanGarden} / ${cleanCorporation}`
+    : cleanGarden || cleanCorporation || cleanFallback
+  return { title, subtitle, combined }
 }
 
 export default function CandidateDetailPage({ params }: PageProps) {
@@ -309,16 +326,20 @@ export default function CandidateDetailPage({ params }: PageProps) {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [editType, setEditType] = useState<'timeline' | 'project' | 'memo' | 'basic' | 'task' | null>(null)
   const [memoContent, setMemoContent] = useState('')
+  const [projectError, setProjectError] = useState<string | null>(null)
   
   // 案件追加用state
   const [projectForm, setProjectForm] = useState({
-    client_name: '',
+    garden_name: '',
+    corporation_name: '',
     phase: 'interview_scheduled',
     interview_date: '',
     probability: '' as '' | 'A' | 'B' | 'C',
     expected_amount: '',
   })
   const [projectSaving, setProjectSaving] = useState(false)
+  // 面接登録成功後に表示する「面接一覧で〇月を選択」案内（月 YYYY-MM / null で非表示）
+  const [registeredInterviewMonth, setRegisteredInterviewMonth] = useState<string | null>(null)
   
   // 基本情報編集用state
   const [basicInfoForm, setBasicInfoForm] = useState({
@@ -449,24 +470,38 @@ export default function CandidateDetailPage({ params }: PageProps) {
   
   // 案件追加の保存処理
   const handleSaveProject = async () => {
-    if (!candidate || !projectForm.client_name.trim() || !projectForm.interview_date) return
+    const gardenName = projectForm.garden_name.trim()
+    const corporationName = projectForm.corporation_name.trim()
+    setProjectError(null)
+    if (!candidate || !gardenName || !corporationName || !projectForm.interview_date) {
+      setProjectError('園名・法人名・面接日時を入力してね')
+      return
+    }
     
     setProjectSaving(true)
     try {
       // 案件を作成（フェーズは面接予定で固定）
+      const projectDisplay = getProjectDisplayName(gardenName, corporationName, null)
       const projectRes = await fetch('/api/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           candidate_id: candidate.id,
-          client_name: projectForm.client_name,
+          client_name: projectDisplay.combined || gardenName,
+          garden_name: gardenName,
+          corporation_name: corporationName,
           phase: 'interview_scheduled',
         }),
       })
       
       if (projectRes.ok) {
         const projectData = await projectRes.json()
-        const newProject = projectData.data
+        const newProject = projectData?.data
+        if (!newProject?.id) {
+          console.error('案件登録エラー: APIは成功したが data が返っていない status=', projectRes.status, 'body=', JSON.stringify(projectData))
+          setProjectError(`案件登録に失敗しました。サーバー応答が不正です（${projectRes.status}）。`)
+          return
+        }
         setProjects(prev => [...prev, newProject])
         
         // 面接データも作成
@@ -477,7 +512,7 @@ export default function CandidateDetailPage({ params }: PageProps) {
             project_id: newProject.id,
             type: 'interview',
             start_at: projectForm.interview_date,
-            location: projectForm.client_name,
+            location: projectDisplay.combined || gardenName,
             status: 'rescheduling',
           }),
         })
@@ -485,16 +520,30 @@ export default function CandidateDetailPage({ params }: PageProps) {
         if (interviewRes.ok) {
           const interviewData = await interviewRes.json()
           setAllInterviews(prev => [...prev, interviewData.data])
+          // 面接一覧で同じ月を選ぶと表示されるよう案内する
+          const interviewDate = new Date(projectForm.interview_date)
+          const yyyyMm = `${interviewDate.getFullYear()}-${String(interviewDate.getMonth() + 1).padStart(2, '0')}`
+          setRegisteredInterviewMonth(yyyyMm)
+        } else {
+          const interviewText = await interviewRes.text()
+          let interviewMessage = interviewText
+          try {
+            const parsed = JSON.parse(interviewText)
+            interviewMessage = parsed.details || parsed.error || interviewText
+          } catch {
+            // JSONでない場合はそのまま表示
+          }
+          alert(`面接一覧への登録に失敗しました（${interviewRes.status}）。案件は作成済みです。${interviewMessage ? `\n${interviewMessage}` : ''}`)
         }
         
-        // タイムラインにイベントを追加
-        const interviewDate = new Date(projectForm.interview_date)
-        const description = `${projectForm.client_name}（${interviewDate.toLocaleDateString('ja-JP')} ${interviewDate.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}）`
+        // タイムラインにイベントを追加（interviewDate は上で定義済み）
+        const description = `${projectDisplay.combined || gardenName}（${interviewDate.toLocaleDateString('ja-JP')} ${interviewDate.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}）`
         addTimelineEvent('project_add', '面接追加', description)
         
         // フォームをリセット
         setProjectForm({
-          client_name: '',
+          garden_name: '',
+          corporation_name: '',
           phase: 'interview_scheduled',
           interview_date: '',
           probability: '',
@@ -503,13 +552,20 @@ export default function CandidateDetailPage({ params }: PageProps) {
         setIsEditDialogOpen(false)
         setEditType(null)
       } else {
-        const errorData = await projectRes.json()
-        console.error('案件登録エラー:', errorData)
-        alert('案件登録エラー: ' + (errorData.error || 'Unknown error'))
+        const errorText = await projectRes.text()
+        let errorMessage = errorText
+        try {
+          const parsed = JSON.parse(errorText)
+          errorMessage = parsed.details || parsed.error || errorText
+        } catch {
+          // JSONでない場合はそのまま表示
+        }
+        console.error('案件登録エラー: status=' + projectRes.status + ' statusText=' + projectRes.statusText + ' body=' + errorText)
+        setProjectError(`案件登録に失敗しました（${projectRes.status}）。${errorMessage || ''}`)
       }
     } catch (err) {
       console.error('案件追加エラー:', err)
-      alert('案件追加エラー: ' + (err instanceof Error ? err.message : 'Unknown error'))
+      setProjectError(err instanceof Error ? err.message : '案件登録に失敗しました')
     } finally {
       setProjectSaving(false)
     }
@@ -691,12 +747,40 @@ export default function CandidateDetailPage({ params }: PageProps) {
               </Select>
             </div>
             <p className="text-slate-500 mt-1">
-              {candidate.age != null ? `${candidate.age}歳` : '—'}
+              {candidate.age != null && candidate.age < 120 ? `${candidate.age}歳` : '—'}
               {candidate.prefecture && ` / ${candidate.prefecture}${candidate.address || ''}`}
             </p>
           </div>
         </div>
       </div>
+
+      {/* 面接登録直後の案内（面接一覧で同じ月を選ぶと表示される） */}
+      {registeredInterviewMonth && (() => {
+        const [y, m] = registeredInterviewMonth.split('-')
+        const monthLabel = `${y}年${parseInt(m, 10)}月`
+        return (
+          <div className="mb-4 flex items-center justify-between gap-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            <span className="flex items-center gap-2">
+              <Calendar className="h-4 w-4 shrink-0" />
+              面接を登録しました。面接一覧で <strong>{monthLabel}</strong> を選択すると表示されます。
+              <Link
+                href={`/interviews?month=${registeredInterviewMonth}`}
+                className="font-medium underline hover:no-underline"
+              >
+                面接一覧で確認
+              </Link>
+            </span>
+            <button
+              type="button"
+              onClick={() => setRegisteredInterviewMonth(null)}
+              className="shrink-0 rounded p-1 text-emerald-600 hover:bg-emerald-100"
+              aria-label="閉じる"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )
+      })()}
 
       <div className="grid grid-cols-3 gap-6">
         {/* 左カラム: ヨミ情報と基本情報 */}
@@ -1049,8 +1133,10 @@ export default function CandidateDetailPage({ params }: PageProps) {
                 // ダイアログを閉じる際に選択状態をリセット
                 setEditType(null)
                 setMemoContent('')
+                setProjectError(null)
                 setProjectForm({
-                  client_name: '',
+                  garden_name: '',
+                  corporation_name: '',
                   phase: 'interview_scheduled',
                   interview_date: '',
                   probability: '',
@@ -1089,6 +1175,7 @@ export default function CandidateDetailPage({ params }: PageProps) {
                     className="bg-gradient-to-r from-violet-500 to-indigo-600 hover:from-violet-600 hover:to-indigo-700 text-white shadow-md"
                     onClick={() => {
                       setEditType('project')
+                      setProjectError(null)
                     }}
                   >
                     <Plus className="w-4 h-4 mr-2" />
@@ -1121,6 +1208,11 @@ export default function CandidateDetailPage({ params }: PageProps) {
                   const projectInterviews = allInterviews.filter(
                     (i) => i.project_id === project.id
                   )
+                  const projectDisplay = getProjectDisplayName(
+                    project.garden_name,
+                    project.corporation_name,
+                    project.client_name
+                  )
                   return (
                     <Card
                       key={project.id}
@@ -1130,8 +1222,11 @@ export default function CandidateDetailPage({ params }: PageProps) {
                         <div className="flex items-start justify-between mb-4">
                           <div>
                             <h3 className="text-lg font-medium text-slate-800">
-                              {project.client_name}
+                              {projectDisplay.title}
                             </h3>
+                            {projectDisplay.subtitle && (
+                              <p className="text-xs text-slate-500">法人: {projectDisplay.subtitle}</p>
+                            )}
                             <p className="text-sm text-slate-500">
                               ヨミ: ¥{project.expected_amount?.toLocaleString() || '-'}
                             </p>
@@ -1349,12 +1444,21 @@ export default function CandidateDetailPage({ params }: PageProps) {
               ) : editType === 'project' ? (
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="project-name">面接先（園名）<span className="text-red-500">*</span></Label>
+                    <Label htmlFor="project-corporation">面接先（法人名）<span className="text-red-500">*</span></Label>
                     <Input 
-                      id="project-name" 
+                      id="project-corporation" 
+                      placeholder="例: さくら福祉会" 
+                      value={projectForm.corporation_name}
+                      onChange={(e) => setProjectForm(prev => ({ ...prev, corporation_name: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="project-garden">面接先（園名）<span className="text-red-500">*</span></Label>
+                    <Input 
+                      id="project-garden" 
                       placeholder="例: さくら保育園" 
-                      value={projectForm.client_name}
-                      onChange={(e) => setProjectForm(prev => ({ ...prev, client_name: e.target.value }))}
+                      value={projectForm.garden_name}
+                      onChange={(e) => setProjectForm(prev => ({ ...prev, garden_name: e.target.value }))}
                     />
                   </div>
                   <div className="space-y-2">
@@ -1370,6 +1474,9 @@ export default function CandidateDetailPage({ params }: PageProps) {
                 </div>
               ) : null}
             </div>
+            {editType === 'project' && projectError && (
+              <p className="text-xs text-rose-600">{projectError}</p>
+            )}
             <DialogFooter>
               <Button variant="outline" onClick={() => {
                 setIsEditDialogOpen(false)
@@ -1393,7 +1500,7 @@ export default function CandidateDetailPage({ params }: PageProps) {
                   className="bg-gradient-to-r from-violet-500 to-indigo-600 hover:from-violet-600 hover:to-indigo-700 text-white"
                   disabled={
                     (editType === 'memo' && !memoContent.trim()) ||
-                    (editType === 'project' && (!projectForm.client_name.trim() || !projectForm.interview_date || projectSaving))
+                    (editType === 'project' && (!projectForm.garden_name.trim() || !projectForm.corporation_name.trim() || !projectForm.interview_date || projectSaving))
                   }
                 >
                   {projectSaving ? '保存中...' : '保存'}
