@@ -633,7 +633,7 @@ export const mockProjects = [
     created_at: '2025-11-25T00:00:00Z',
     updated_at: '2025-11-25T00:00:00Z',
   },
-] as Project[]
+] as unknown as Project[]
 
 export const mockInterviews: Interview[] = [
   {
