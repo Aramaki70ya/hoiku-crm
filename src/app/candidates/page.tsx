@@ -746,8 +746,10 @@ function CandidatesPageContent() {
                       </SelectContent>
                     </Select>
                   </TableCell>
-                  <TableCell className="text-slate-500 text-sm">
-                    {candidate.registered_at}
+                  <TableCell className="text-slate-500 text-sm whitespace-nowrap">
+                    {candidate.registered_at
+                      ? candidate.registered_at.replace(/^(\d{4})-(\d{2})-(\d{2}).*/, '$1/$2/$3')
+                      : '-'}
                   </TableCell>
                   <TableCell>
                     <Link href={consultantFilter !== 'all' ? `/candidates/${candidate.id}?consultant=${consultantFilter}` : `/candidates/${candidate.id}`}>

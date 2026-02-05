@@ -4,12 +4,12 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
-import { rowToCandidateForSync, type SpreadsheetRow } from './csv-parser'
+import { rowToCandidateForSync, normalizePhone, type SpreadsheetRow } from './csv-parser'
 
 type CandidateInsert = Database['public']['Tables']['candidates']['Insert']
 
 /** 1リクエストあたりの最大処理行数 */
-const MAX_ROWS = 100
+const MAX_ROWS = 200
 
 export interface SyncResult {
   inserted: number
@@ -52,22 +52,28 @@ export async function syncCandidatesFromRows(
 
   // Supabase はデフォルトで最大1000件しか返さないため、全件取得するまでページングする
   const PAGE_SIZE = 1000
-  const existingIdList: { id: string; registered_at: string | null }[] = []
+  const existingList: { id: string; registered_at: string | null; phone: string | null }[] = []
   let offset = 0
   while (true) {
     const { data: page } = await supabase
       .from('candidates')
-      .select('id, registered_at')
+      .select('id, registered_at, phone')
       .range(offset, offset + PAGE_SIZE - 1)
-    const rows = (page ?? []) as { id: string; registered_at: string | null }[]
-    existingIdList.push(...rows)
-    if (rows.length < PAGE_SIZE) break
+    const pageRows = (page ?? []) as { id: string; registered_at: string | null; phone: string | null }[]
+    existingList.push(...pageRows)
+    if (pageRows.length < PAGE_SIZE) break
     offset += PAGE_SIZE
   }
-  const existingIds = new Set(existingIdList.map((r) => r.id))
+  const existingIds = new Set(existingList.map((r) => r.id))
   const registeredAtById = new Map<string, string | null>(
-    existingIdList.map((r) => [r.id, r.registered_at ?? null])
+    existingList.map((r) => [r.id, r.registered_at ?? null])
   )
+  // 電話番号重複チェック用（正規化済みの番号を収集）
+  const existingPhones = new Set<string>()
+  for (const r of existingList) {
+    const norm = normalizePhone(r.phone ?? '')
+    if (norm) existingPhones.add(norm)
+  }
 
   const { data: users } = await supabase.from('users').select('id, name')
   const userList = (users ?? []) as { id: string; name: string }[]
@@ -114,6 +120,14 @@ export async function syncCandidatesFromRows(
       continue
     }
 
+    // 電話番号重複チェック（ID は新規だが同一電話番号が既存ならスキップ）
+    const normPhone = normalizePhone(parsed.phone ?? '')
+    if (normPhone && existingPhones.has(normPhone)) {
+      result.skipped += 1
+      result.skippedLog.push({ id, name })
+      continue
+    }
+
     const consultantName = (row['担当者'] ?? '').toString().trim()
     const primaryConsultant = consultantName.split(/[・\s]/)[0]?.trim()
     const consultant_id = primaryConsultant ? nameToUserId.get(primaryConsultant) ?? null : null
@@ -125,7 +139,7 @@ export async function syncCandidatesFromRows(
       id: parsed.id!,
       name: parsed.name ?? '',
       kana: parsed.kana ?? null,
-      phone: parsed.phone ?? null,
+      phone: normPhone ?? parsed.phone ?? null, // 正規化済み（頭0補完）で保存
       email: parsed.email ?? null,
       birth_date: parsed.birth_date ?? null,
       age: parsed.age ?? null,
@@ -152,6 +166,7 @@ export async function syncCandidatesFromRows(
     result.inserted += 1
     result.insertedLog.push({ id, name })
     existingIds.add(id)
+    if (normPhone) existingPhones.add(normPhone)
   }
 
   return result

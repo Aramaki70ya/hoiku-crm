@@ -1,7 +1,7 @@
 /**
  * hoiku-crm 求職者同期（Google Apps Script）
  * スプレッドシート「求職者管理 - 連絡先一覧」の行を取得し、API に POST する。
- * 1リクエストあたり最大100行。
+ * 1リクエストあたり最大200行。
  */
 
 function syncNewCandidates() {
@@ -28,17 +28,54 @@ function syncNewCandidates() {
   }
 
   const headers = data[0].map((h) => String(h ?? '').trim())
-  const rows = []
-  const maxRows = 100
+  const maxRows = 200
 
-  for (let i = 1; i < data.length && rows.length < maxRows; i++) {
+  // 日付列のヘッダー名（いずれかがシートにあれば登録日として送る）
+  const dateHeaderNames = ['日付', '登録日', '登録日時', '作成日']
+
+  /** セル値を文字列に。Date の場合は YYYY-MM-DD に整形してAPIで確実に登録日として扱えるようにする */
+  function cellValueToString(val) {
+    if (val == null || val === '') return ''
+    if (Object.prototype.toString.call(val) === '[object Date]') {
+      const y = val.getFullYear()
+      const m = ('0' + (val.getMonth() + 1)).slice(-2)
+      const d = ('0' + val.getDate()).slice(-2)
+      return y + '-' + m + '-' + d
+    }
+    return String(val).trim()
+  }
+
+  // 全データ行をオブジェクトに変換
+  const allRows = []
+  for (let i = 1; i < data.length; i++) {
     const values = data[i]
     const row = {}
     for (let j = 0; j < headers.length; j++) {
-      row[headers[j]] = values[j] != null ? String(values[j]).trim() : ''
+      row[headers[j]] = cellValueToString(values[j])
     }
-    rows.push(row)
+    // API が「日付」で受け取るので、登録日系の列があれば「日付」としても持たせる
+    if (!row['日付'] && dateHeaderNames.some((h) => (row[h] || '').toString().trim() !== '')) {
+      let firstDateVal = ''
+      for (let k = 0; k < dateHeaderNames.length; k++) {
+        if ((row[dateHeaderNames[k]] || '').toString().trim() !== '') {
+          firstDateVal = (row[dateHeaderNames[k]] || '').toString().trim()
+          break
+        }
+      }
+      row['日付'] = firstDateVal
+    }
+    allRows.push(row)
   }
+
+  // ID と氏名が両方ある行だけ有効とする（プルダウンだけの行・IDのみの行を除外）
+  const validRows = allRows.filter((row) => {
+    const id = row['ID'] || ''
+    const name = row['氏名'] || ''
+    return id !== '' && id !== '125' && name !== ''
+  })
+
+  // 有効な行のうち最新 maxRows 行
+  const rows = validRows.slice(-maxRows)
 
   const payload = JSON.stringify({ rows })
   Logger.log('送信行数: ' + rows.length)
@@ -60,7 +97,8 @@ function syncNewCandidates() {
   try {
     const json = JSON.parse(body)
     if (code >= 200 && code < 300) {
-      Logger.log(`成功: ${json.inserted}件追加、${json.skipped}件スキップ`)
+      const backfilled = json.backfilled ? `、${json.backfilled}件の登録日を補完` : ''
+      Logger.log(`成功: ${json.inserted}件追加${backfilled}、${json.skipped}件スキップ`)
 
       // 追加した人
       if (json.insertedLog && json.insertedLog.length > 0) {
@@ -74,6 +112,14 @@ function syncNewCandidates() {
       if (json.skippedLog && json.skippedLog.length > 0) {
         Logger.log('--- 重複でスキップした人 ---')
         json.skippedLog.forEach(function (r) {
+          Logger.log('  ' + r.id + ' ' + r.name)
+        })
+      }
+
+      // 登録日を補完した人
+      if (json.backfilledLog && json.backfilledLog.length > 0) {
+        Logger.log('--- 登録日を補完した人 ---')
+        json.backfilledLog.forEach(function (r) {
           Logger.log('  ' + r.id + ' ' + r.name)
         })
       }

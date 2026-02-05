@@ -136,19 +136,37 @@ export function csvRowToCandidate(row: CsvRow): Partial<Candidate> | null {
 
 /**
  * 電話番号の正規化（スプレッドシート取り込み用にエクスポート）
+ * 非数字を除去し、090/080/070/050 で頭の0が抜けている場合は補完する
  */
 export function normalizePhone(phone: string | undefined): string | null {
   if (!phone) return null
-  const cleaned = phone.replace(/[^\d-]/g, '')
-  return cleaned || null
+  const cleaned = phone.replace(/\D/g, '')
+  if (!cleaned) return null
+  // 10桁で先頭が 90/80/70/50 なら頭に0を補完（090-XXXX-XXXX 形式）
+  if (cleaned.length === 10 && /^[9875]0/.test(cleaned)) {
+    return '0' + cleaned
+  }
+  return cleaned
 }
 
 /**
  * 日付文字列をISO形式に変換（スプレッドシート取り込み用にエクスポート）
- * 対応形式: YYYY/M/D, YYYY-MM-DD, YYYY.M.D, YYYY年M月D日, JS Date.toString(), および先頭の時刻部分は無視
+ * 対応形式: YYYY/M/D, YYYY-MM-DD, YYYY.M.D, YYYY年M月D日, JS Date.toString(),
+ * Excel/Googleスプレッドシートのシリアル値（数値）
  */
-export function parseDateString(dateStr: string | undefined): string | null {
+export function parseDateString(dateStr: string | number | undefined): string | null {
   if (dateStr === undefined || dateStr === null) return null
+  // Excel/Googleスプレッドシートのシリアル値（日付として有効な範囲）
+  const n = Number(dateStr)
+  if (!Number.isNaN(n) && n > 10000 && n < 1000000) {
+    const d = new Date((n - 25569) * 86400 * 1000)
+    if (!Number.isNaN(d.getTime())) {
+      const y = d.getFullYear()
+      const m = String(d.getMonth() + 1).padStart(2, '0')
+      const day = String(d.getDate()).padStart(2, '0')
+      return `${y}-${m}-${day}`
+    }
+  }
   const s = String(dateStr).trim()
   if (!s) return null
   // YYYY/M/D または YYYY-MM-DD または YYYY.M.D（先頭の日付部分のみ）
@@ -188,8 +206,9 @@ export type SpreadsheetRow = Record<string, string>
  * スプレッドシート行（Record）を Partial<Candidate> に変換。consultant_id/source_id は呼び出し元で解決すること。
  */
 export function rowToCandidateForSync(row: SpreadsheetRow): Partial<Candidate> | null {
-  // 登録日: 列名が「日付」または「登録日」のどちらでも受け付ける
-  const dateValue = (row['日付'] ?? row['登録日'] ?? '').toString().trim()
+  // 登録日: 列名が「日付」「登録日」「登録日時」「作成日」のいずれかで受け付ける
+  const dateRaw = row['日付'] ?? row['登録日'] ?? row['登録日時'] ?? row['作成日'] ?? ''
+  const dateValue = dateRaw != null ? String(dateRaw).trim() : ''
   const asCsvRow: CsvRow = {
     担当者: row['担当者'] ?? '',
     媒体: row['媒体'] ?? '',

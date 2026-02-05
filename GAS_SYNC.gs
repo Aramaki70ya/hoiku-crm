@@ -10,7 +10,10 @@
  * 4. syncNewCandidates を選択して実行
  * 5. 表示 → ログ で結果を確認
  *
- * シート名「連絡先一覧」が必要。1リクエストあたり最大100行。
+ * 【補完用】backfillRegisteredAt を実行すると、DB の registered_at が null の人を
+ * シートの日付で一括補完する（全行を200行ずつ送信）
+ *
+ * シート名「連絡先一覧」が必要。1リクエストあたり最大200行。
  */
 
 /**
@@ -74,7 +77,7 @@ function syncNewCandidates() {
   }
 
   const headers = data[0].map(function (h) { return String(h != null ? h : '').trim() })
-  const maxRows = 100
+  const maxRows = 200
 
   // 日付列のヘッダー名（いずれかがシートにあれば登録日として送る）
   const dateHeaderNames = ['日付', '登録日', '登録日時', '作成日']
@@ -191,4 +194,126 @@ function syncNewCandidates() {
   } catch (e) {
     Logger.log('レスポンス解析エラー: ' + body)
   }
+}
+
+/**
+ * registered_at が null の既存求職者を一括補完する
+ * シート全行を200行ずつ API に送り、DB の registered_at が空なら日付を補完する
+ * ※ syncNewCandidates とは別。補完目的の一度きり実行用
+ */
+function backfillRegisteredAt() {
+  const props = PropertiesService.getScriptProperties()
+  const apiUrl = props.getProperty('API_URL')
+  const apiKey = props.getProperty('SYNC_API_KEY')
+
+  if (!apiUrl || !apiKey) {
+    Logger.log('エラー: スクリプトプロパティに API_URL と SYNC_API_KEY を設定してください')
+    return
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet()
+  const sheet = ss.getSheetByName('連絡先一覧')
+  if (!sheet) {
+    Logger.log('エラー: シート「連絡先一覧」が見つかりません')
+    return
+  }
+
+  const data = sheet.getDataRange().getValues()
+  if (data.length < 2) {
+    Logger.log('データ行がありません')
+    return
+  }
+
+  const headers = data[0].map(function (h) { return String(h != null ? h : '').trim() })
+  const dateHeaderNames = ['日付', '登録日', '登録日時', '作成日']
+
+  function cellValueToString(val, header) {
+    if (val == null || val === '') return ''
+    var isDateColumn = dateHeaderNames.indexOf(header) !== -1
+    if (isDateColumn && Object.prototype.toString.call(val) === '[object Date]') {
+      var y = val.getFullYear()
+      var m = ('0' + (val.getMonth() + 1)).slice(-2)
+      var d = ('0' + val.getDate()).slice(-2)
+      return y + '-' + m + '-' + d
+    }
+    if (isDateColumn && typeof val === 'number' && val > 30000) {
+      var d2 = new Date((val - 25569) * 86400 * 1000)
+      if (!isNaN(d2.getTime())) {
+        var y2 = d2.getFullYear()
+        var m2 = ('0' + (d2.getMonth() + 1)).slice(-2)
+        var d3 = ('0' + d2.getDate()).slice(-2)
+        return y2 + '-' + m2 + '-' + d3
+      }
+    }
+    return String(val).trim()
+  }
+
+  const allRows = []
+  for (let i = 1; i < data.length; i++) {
+    const values = data[i]
+    const row = {}
+    for (let j = 0; j < headers.length; j++) {
+      var header = headers[j]
+      row[header] = cellValueToString(values[j], header)
+    }
+    if (!row['日付'] && dateHeaderNames.some(function (h) { return (row[h] || '').toString().trim() !== '' })) {
+      for (var k = 0; k < dateHeaderNames.length; k++) {
+        if ((row[dateHeaderNames[k]] || '').toString().trim() !== '') {
+          row['日付'] = (row[dateHeaderNames[k]] || '').toString().trim()
+          break
+        }
+      }
+    }
+    allRows.push(row)
+  }
+
+  const validRows = allRows.filter(function (row) {
+    const id = row['ID'] || ''
+    const name = row['氏名'] || ''
+    return id !== '' && id !== '125' && name !== ''
+  })
+
+  const BATCH = 200
+  let totalBackfilled = 0
+  let totalSkipped = 0
+
+  for (let offset = 0; offset < validRows.length; offset += BATCH) {
+    const chunk = validRows.slice(offset, offset + BATCH)
+    const payload = JSON.stringify({ rows: chunk })
+    const options = {
+      method: 'post',
+      contentType: 'application/json',
+      payload: payload,
+      headers: { Authorization: 'Bearer ' + apiKey },
+      muteHttpExceptions: true
+    }
+
+    const response = UrlFetchApp.fetch(apiUrl, options)
+    const code = response.getResponseCode()
+    const body = response.getContentText()
+
+    try {
+      const json = JSON.parse(body)
+      if (code >= 200 && code < 300) {
+        totalBackfilled += (json.backfilled || 0)
+        totalSkipped += (json.skipped || 0)
+        Logger.log('バッチ ' + (Math.floor(offset / BATCH) + 1) + ': 補完=' + (json.backfilled || 0) + ', スキップ=' + (json.skipped || 0))
+        if (json.backfilledLog && json.backfilledLog.length > 0) {
+          json.backfilledLog.forEach(function (r) {
+            Logger.log('  補完: ' + r.id + ' ' + r.name)
+          })
+        }
+      } else {
+        Logger.log('バッチ ' + (Math.floor(offset / BATCH) + 1) + ' エラー: ' + (json.error || body))
+      }
+    } catch (e) {
+      Logger.log('バッチ ' + (Math.floor(offset / BATCH) + 1) + ' レスポンス解析エラー: ' + body)
+    }
+
+    if (offset + BATCH < validRows.length) {
+      Utilities.sleep(500) // API 負荷軽減のため少し待機
+    }
+  }
+
+  Logger.log('=== 完了 === 登録日補完: ' + totalBackfilled + '件, スキップ: ' + totalSkipped + '件')
 }

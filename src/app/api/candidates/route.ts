@@ -40,11 +40,14 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '100')
     const offset = parseInt(searchParams.get('offset') || '0')
     
-    // データ取得
+    // データ取得（registered_at を明示して確実に含める）
     let query = supabase
       .from('candidates')
       .select(`
-        *,
+        id, name, kana, phone, email, birth_date, age, prefecture, address,
+        qualification, desired_employment_type, desired_job_type, status,
+        source_id, registered_at, consultant_id, approach_priority, rank, memo,
+        created_at, updated_at,
         consultant:users(id, name, email, role),
         source:sources(id, name, category)
       `, { count: 'exact' })
