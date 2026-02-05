@@ -37,7 +37,11 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status') || 'all'
     const consultantId = searchParams.get('consultant_id') || 'all'
     const search = searchParams.get('search') || ''
-    const limit = parseInt(searchParams.get('limit') || '100')
+    const rawLimit = parseInt(searchParams.get('limit') || '100')
+    // 担当フィルタ時は全件返すため 1000 まで許可（Supabase のデフォルト上限）
+    const limit = consultantId && consultantId !== 'all'
+      ? Math.min(rawLimit, 1000)
+      : Math.min(rawLimit, 500)
     const offset = parseInt(searchParams.get('offset') || '0')
     
     // データ取得（registered_at を明示して確実に含める）

@@ -128,11 +128,23 @@ function CandidatesPageContent() {
     memo: '',
   })
 
-  const { candidates: rawCandidates, isLoading, createCandidate, updateCandidate, refetch } = useCandidates({
-    search: searchQuery,
-  })
   const { consultants, users } = useUsers()
+
+  const consultantFilter = useMemo(() => {
+    const q = searchParams.get('consultant') ?? 'all'
+    if (q === 'all') return 'all'
+    if (consultants.some((u) => u.id === q)) return q
+    return 'all'
+  }, [searchParams, consultants])
+
+  const { candidates: rawCandidates, total: apiTotal, isLoading, createCandidate, updateCandidate, refetch } = useCandidates({
+    search: searchQuery,
+    consultantId: consultantFilter,
+    // 担当フィルタ時は全件出したいので上限を上げる（Supabase は 1000 までなので 1000）
+    limit: consultantFilter !== 'all' ? 1000 : 100,
+  })
   const { sources } = useSources()
+  const consultantLabel = consultantFilter !== 'all' ? consultants.find((u) => u.id === consultantFilter)?.name : null
 
   // タブ復帰・bfcache 復元時に DB 最新を反映
   useEffect(() => {
@@ -149,13 +161,6 @@ function CandidatesPageContent() {
       window.removeEventListener('pageshow', onPageShow)
     }
   }, [refetch])
-
-  const consultantFilter = useMemo(() => {
-    const q = searchParams.get('consultant') ?? 'all'
-    if (q === 'all') return 'all'
-    if (consultants.some((u) => u.id === q)) return q
-    return 'all'
-  }, [searchParams, consultants])
 
   // 担当者変更ハンドラー
   const handleConsultantChange = useCallback(async (candidateId: string, consultantId: string) => {
@@ -529,6 +534,19 @@ function CandidatesPageContent() {
           新規登録
         </Button>
       </div>
+
+      {/* 担当・検索の絞り込み状況（原因調査用） */}
+      {(consultantLabel || searchQuery) && (
+        <div className="mb-3 px-1 text-sm text-slate-500">
+          {consultantLabel && <span>担当者「{consultantLabel}」で絞り込み中。</span>}
+          {searchQuery && <span>{consultantLabel ? ' さらに検索「' : '検索「'}{searchQuery}」を適用しています。検索欄を空にすると該当担当の全員が表示されます。</span>}
+        </div>
+      )}
+      {consultantFilter !== 'all' && apiTotal > rawCandidates.length && (
+        <div className="mb-3 px-1 text-sm text-amber-600">
+          該当は全{apiTotal}件あります。表示は最大1000件までです。検索で絞ると一覧しやすくなります。
+        </div>
+      )}
 
       {/* テーブル */}
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
