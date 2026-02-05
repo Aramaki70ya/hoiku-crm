@@ -104,7 +104,7 @@ export async function syncCandidatesFromRows(
       if (rowDate && !currentRegisteredAt) {
         const { error: updateError } = await supabase
           .from('candidates')
-          .update({ registered_at: rowDate })
+          .update({ registered_at: rowDate } as never)
           .eq('id', id)
         if (updateError) {
           result.errors.push({ row: i + 1, id, message: `登録日補完失敗: ${updateError.message}` })
