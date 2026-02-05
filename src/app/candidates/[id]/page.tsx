@@ -691,7 +691,7 @@ export default function CandidateDetailPage({ params }: PageProps) {
               </Select>
             </div>
             <p className="text-slate-500 mt-1">
-              {candidate.age && `${candidate.age}歳`}
+              {candidate.age != null ? `${candidate.age}歳` : '—'}
               {candidate.prefecture && ` / ${candidate.prefecture}${candidate.address || ''}`}
             </p>
           </div>

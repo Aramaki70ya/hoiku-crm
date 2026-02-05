@@ -13,6 +13,10 @@
  * 【補完用】backfillRegisteredAt を実行すると、DB の registered_at が null の人を
  * シートの日付で一括補完する（全行を200行ずつ送信）
  *
+ * 【連絡先・年齢の一括更新】syncAllContactUpdate を実行すると、既存登録者の
+ * 電話・メール・年齢などをシートの値で一括更新する（全行を200行ずつ送信）。
+ * 連絡先が空欄が多いときに1回実行するとよい。
+ *
  * シート名「連絡先一覧」が必要。1リクエストあたり最大200行。
  */
 
@@ -175,6 +179,13 @@ function syncNewCandidates() {
         })
       }
 
+      if (json.updatedLog && json.updatedLog.length > 0) {
+        Logger.log('--- 連絡先・年齢などを更新した人 ---')
+        json.updatedLog.forEach(function (r) {
+          Logger.log('  ' + r.id + ' ' + r.name)
+        })
+      }
+
       if (json.skippedLog && json.skippedLog.length > 0) {
         Logger.log('--- 重複でスキップした人 ---')
         json.skippedLog.forEach(function (r) {
@@ -316,4 +327,130 @@ function backfillRegisteredAt() {
   }
 
   Logger.log('=== 完了 === 登録日補完: ' + totalBackfilled + '件, スキップ: ' + totalSkipped + '件')
+}
+
+/**
+ * 連絡先・年齢の一括更新（全行を200行ずつ API に送り、既存者の電話・メール・年齢などをシートの値で更新する）
+ * 通常の syncNewCandidates は「最新200行」だけなので、既存の全員を更新したいときにこの関数を実行する
+ */
+function syncAllContactUpdate() {
+  const props = PropertiesService.getScriptProperties()
+  const apiUrl = props.getProperty('API_URL')
+  const apiKey = props.getProperty('SYNC_API_KEY')
+
+  if (!apiUrl || !apiKey) {
+    Logger.log('エラー: スクリプトプロパティに API_URL と SYNC_API_KEY を設定してください')
+    return
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet()
+  const sheet = ss.getSheetByName('連絡先一覧')
+  if (!sheet) {
+    Logger.log('エラー: シート「連絡先一覧」が見つかりません')
+    return
+  }
+
+  const data = sheet.getDataRange().getValues()
+  if (data.length < 2) {
+    Logger.log('データ行がありません')
+    return
+  }
+
+  const headers = data[0].map(function (h) { return String(h != null ? h : '').trim() })
+  const dateHeaderNames = ['日付', '登録日', '登録日時', '作成日']
+
+  function cellValueToString(val, header) {
+    if (val == null || val === '') return ''
+    var isDateColumn = dateHeaderNames.indexOf(header) !== -1
+    if (isDateColumn && Object.prototype.toString.call(val) === '[object Date]') {
+      var y = val.getFullYear()
+      var m = ('0' + (val.getMonth() + 1)).slice(-2)
+      var d = ('0' + val.getDate()).slice(-2)
+      return y + '-' + m + '-' + d
+    }
+    if (isDateColumn && typeof val === 'number' && val > 30000) {
+      var d2 = new Date((val - 25569) * 86400 * 1000)
+      if (!isNaN(d2.getTime())) {
+        var y2 = d2.getFullYear()
+        var m2 = ('0' + (d2.getMonth() + 1)).slice(-2)
+        var d3 = ('0' + d2.getDate()).slice(-2)
+        return y2 + '-' + m2 + '-' + d3
+      }
+    }
+    return String(val).trim()
+  }
+
+  const allRows = []
+  for (let i = 1; i < data.length; i++) {
+    const values = data[i]
+    const row = {}
+    for (let j = 0; j < headers.length; j++) {
+      var header = headers[j]
+      row[header] = cellValueToString(values[j], header)
+    }
+    if (!row['日付'] && dateHeaderNames.some(function (h) { return (row[h] || '').toString().trim() !== '' })) {
+      for (var k = 0; k < dateHeaderNames.length; k++) {
+        if ((row[dateHeaderNames[k]] || '').toString().trim() !== '') {
+          row['日付'] = (row[dateHeaderNames[k]] || '').toString().trim()
+          break
+        }
+      }
+    }
+    allRows.push(row)
+  }
+
+  const validRows = allRows.filter(function (row) {
+    const id = row['ID'] || ''
+    const name = row['氏名'] || ''
+    return id !== '' && id !== '125' && name !== ''
+  })
+
+  const BATCH = 200
+  let totalUpdated = 0
+  let totalInserted = 0
+  let totalSkipped = 0
+
+  Logger.log('連絡先・年齢の一括更新を開始（有効行: ' + validRows.length + '件、200行ずつ送信）')
+
+  for (let offset = 0; offset < validRows.length; offset += BATCH) {
+    const chunk = validRows.slice(offset, offset + BATCH)
+    const payload = JSON.stringify({ rows: chunk })
+    const options = {
+      method: 'post',
+      contentType: 'application/json',
+      payload: payload,
+      headers: { Authorization: 'Bearer ' + apiKey },
+      muteHttpExceptions: true
+    }
+
+    const response = UrlFetchApp.fetch(apiUrl, options)
+    const code = response.getResponseCode()
+    const body = response.getContentText()
+
+    try {
+      const json = JSON.parse(body)
+      if (code >= 200 && code < 300) {
+        totalUpdated += (json.updated || 0)
+        totalInserted += (json.inserted || 0)
+        totalSkipped += (json.skipped || 0)
+        var batchNum = Math.floor(offset / BATCH) + 1
+        Logger.log('バッチ ' + batchNum + ': 更新=' + (json.updated || 0) + ', 追加=' + (json.inserted || 0) + ', スキップ=' + (json.skipped || 0))
+        if (json.updatedLog && json.updatedLog.length > 0) {
+          json.updatedLog.forEach(function (r) {
+            Logger.log('  更新: ' + r.id + ' ' + r.name)
+          })
+        }
+      } else {
+        Logger.log('バッチ ' + (Math.floor(offset / BATCH) + 1) + ' エラー: ' + (json.error || body))
+      }
+    } catch (e) {
+      Logger.log('バッチ ' + (Math.floor(offset / BATCH) + 1) + ' レスポンス解析エラー: ' + body)
+    }
+
+    if (offset + BATCH < validRows.length) {
+      Utilities.sleep(500)
+    }
+  }
+
+  Logger.log('=== 完了 === 連絡先・年齢など更新: ' + totalUpdated + '件, 新規追加: ' + totalInserted + '件, スキップ: ' + totalSkipped + '件')
 }

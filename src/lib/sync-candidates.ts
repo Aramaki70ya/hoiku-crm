@@ -16,6 +16,8 @@ export interface SyncResult {
   skipped: number
   /** 登録日が空だった既存求職者に登録日を補完した件数 */
   backfilled: number
+  /** 連絡先・年齢などをシートの値で更新した件数 */
+  updated: number
   errors: { row: number; id?: string; message: string }[]
   /** 追加した人: { id, name } */
   insertedLog: { id: string; name: string }[]
@@ -23,6 +25,8 @@ export interface SyncResult {
   skippedLog: { id: string; name: string }[]
   /** 登録日を補完した人: { id, name } */
   backfilledLog: { id: string; name: string }[]
+  /** 連絡先・年齢などを更新した人: { id, name } */
+  updatedLog: { id: string; name: string }[]
 }
 
 /**
@@ -37,10 +41,12 @@ export async function syncCandidatesFromRows(
     inserted: 0,
     skipped: 0,
     backfilled: 0,
+    updated: 0,
     errors: [],
     insertedLog: [],
     skippedLog: [],
     backfilledLog: [],
+    updatedLog: [],
   }
 
   if (rows.length === 0) return result
@@ -101,17 +107,41 @@ export async function syncCandidatesFromRows(
     if (existingIds.has(id)) {
       const rowDate = parsed.registered_at ?? null
       const currentRegisteredAt = registeredAtById.get(id) ?? null
+      const normPhone = normalizePhone(parsed.phone ?? '')
+      // 既存者: 登録日補完 + 連絡先・年齢などシートに値があれば上書き更新
+      const updates: Record<string, unknown> = {}
       if (rowDate && !currentRegisteredAt) {
+        updates.registered_at = rowDate
+      }
+      if (normPhone) updates.phone = normPhone
+      if (parsed.email != null && parsed.email !== '') updates.email = parsed.email
+      if (parsed.age != null && parsed.age > 0 && parsed.age < 120) updates.age = parsed.age
+      if (parsed.birth_date != null && parsed.birth_date !== '') updates.birth_date = parsed.birth_date
+      if (parsed.prefecture != null && parsed.prefecture !== '') updates.prefecture = parsed.prefecture
+      if (parsed.address != null && parsed.address !== '') updates.address = parsed.address
+      if (parsed.qualification != null && parsed.qualification !== '') updates.qualification = parsed.qualification
+      if (parsed.desired_employment_type != null && parsed.desired_employment_type !== '') updates.desired_employment_type = parsed.desired_employment_type
+      if (parsed.desired_job_type != null && parsed.desired_job_type !== '') updates.desired_job_type = parsed.desired_job_type
+      if (parsed.memo != null && parsed.memo !== '') updates.memo = parsed.memo
+
+      if (Object.keys(updates).length > 0) {
         const { error: updateError } = await supabase
           .from('candidates')
-          .update({ registered_at: rowDate } as never)
+          .update(updates as never)
           .eq('id', id)
         if (updateError) {
-          result.errors.push({ row: i + 1, id, message: `登録日補完失敗: ${updateError.message}` })
+          result.errors.push({ row: i + 1, id, message: `更新失敗: ${updateError.message}` })
         } else {
-          result.backfilled += 1
-          result.backfilledLog.push({ id, name })
-          registeredAtById.set(id, rowDate)
+          if (updates.registered_at) {
+            result.backfilled += 1
+            result.backfilledLog.push({ id, name })
+            registeredAtById.set(id, rowDate)
+          }
+          const contactOrAgeUpdated = updates.phone ?? updates.email ?? updates.age ?? updates.birth_date ?? updates.prefecture ?? updates.address
+          if (contactOrAgeUpdated) {
+            result.updated += 1
+            result.updatedLog.push({ id, name })
+          }
         }
       } else {
         result.skipped += 1

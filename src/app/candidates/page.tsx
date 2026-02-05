@@ -650,7 +650,7 @@ function CandidatesPageContent() {
                         {candidate.name}
                       </Link>
                       <div className="text-sm text-slate-500 truncate">
-                        {candidate.age && `${candidate.age}歳`}
+                        {candidate.age != null ? `${candidate.age}歳` : '—'}
                         {candidate.prefecture && ` / ${candidate.prefecture}`}
                         {candidate.address && ` ${candidate.address}`}
                       </div>

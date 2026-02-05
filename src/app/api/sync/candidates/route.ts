@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
 
     if (rows.length === 0) {
       return NextResponse.json(
-        { inserted: 0, skipped: 0, backfilled: 0, errors: [], message: '行がありません' },
+        { inserted: 0, skipped: 0, backfilled: 0, updated: 0, errors: [], message: '行がありません' },
         { status: 200 }
       )
     }
@@ -54,7 +54,8 @@ export async function POST(request: NextRequest) {
     const msgParts = [
       `${result.inserted}件追加`,
       result.backfilled > 0 ? `${result.backfilled}件の登録日を補完` : null,
-      `${result.skipped}件は既に登録済み`,
+      result.updated > 0 ? `${result.updated}件の連絡先・年齢などを更新` : null,
+      `${result.skipped}件は既に登録済み（変更なし）`,
     ].filter(Boolean)
     return NextResponse.json({
       ...result,
