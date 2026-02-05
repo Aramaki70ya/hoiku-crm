@@ -520,7 +520,7 @@ export const mockCandidates: Candidate[] = [
   },
 ]
 
-export const mockProjects: Project[] = [
+export const mockProjects = [
   {
     id: 'p1',
     candidate_id: '20206444',
@@ -633,7 +633,7 @@ export const mockProjects: Project[] = [
     created_at: '2025-11-25T00:00:00Z',
     updated_at: '2025-11-25T00:00:00Z',
   },
-]
+] as Project[]
 
 export const mockInterviews: Interview[] = [
   {
