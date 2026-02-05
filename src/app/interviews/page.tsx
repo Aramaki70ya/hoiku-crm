@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { AppLayout } from '@/components/layout/app-layout'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -57,7 +57,7 @@ function generateMonthOptions() {
 
 const MONTH_REGEX = /^\d{4}-(0[1-9]|1[0-2])$/
 
-export default function InterviewsPage() {
+function InterviewsPageContent() {
   const searchParams = useSearchParams()
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [consultantFilter, setConsultantFilter] = useState<string>('all')
@@ -154,8 +154,8 @@ export default function InterviewsPage() {
       feedback: null,
       created_at: '',
       project: undefined,
-      candidate: c,
-      consultant: c.consultant || undefined,
+      candidate: { ...c, consultant: c.consultant ?? undefined },
+      consultant: c.consultant ?? undefined,
     }))
     return [...withInterview, ...placeholders]
   }, [enrichedInterviews, reschedulingOnlyCandidates])
@@ -360,6 +360,20 @@ export default function InterviewsPage() {
         </TabsContent>
       </Tabs>
     </AppLayout>
+  )
+}
+
+export default function InterviewsPage() {
+  return (
+    <Suspense fallback={
+      <AppLayout title="面接一覧" description="読み込み中...">
+        <div className="flex items-center justify-center h-64">
+          <p className="text-slate-500">読み込み中...</p>
+        </div>
+      </AppLayout>
+    }>
+      <InterviewsPageContent />
+    </Suspense>
   )
 }
 

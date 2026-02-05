@@ -43,6 +43,7 @@ import {
   Banknote,
   Loader2,
   X,
+  Trash2,
 } from 'lucide-react'
 import { mockMemos } from '@/lib/mock-data'
 import {
@@ -137,8 +138,8 @@ export default function CandidateDetailPage({ params }: PageProps) {
       ])
 
       if (usersRes.ok) {
-        const { data } = await usersRes.json()
-        setUsers(data || [])
+        const json = await usersRes.json()
+        setUsers(json.users ?? [])
       }
       
       let projectIds: string[] = []
@@ -474,7 +475,7 @@ export default function CandidateDetailPage({ params }: PageProps) {
     const corporationName = projectForm.corporation_name.trim()
     setProjectError(null)
     if (!candidate || !gardenName || !corporationName || !projectForm.interview_date) {
-      setProjectError('園名・法人名・面接日時を入力してね')
+      setProjectError('園名・法人名・面接日を入力してね')
       return
     }
     
@@ -504,6 +505,8 @@ export default function CandidateDetailPage({ params }: PageProps) {
         }
         setProjects(prev => [...prev, newProject])
         
+        const interviewDate = new Date(projectForm.interview_date)
+        
         // 面接データも作成
         const interviewRes = await fetch('/api/interviews', {
           method: 'POST',
@@ -520,8 +523,6 @@ export default function CandidateDetailPage({ params }: PageProps) {
         if (interviewRes.ok) {
           const interviewData = await interviewRes.json()
           setAllInterviews(prev => [...prev, interviewData.data])
-          // 面接一覧で同じ月を選ぶと表示されるよう案内する
-          const interviewDate = new Date(projectForm.interview_date)
           const yyyyMm = `${interviewDate.getFullYear()}-${String(interviewDate.getMonth() + 1).padStart(2, '0')}`
           setRegisteredInterviewMonth(yyyyMm)
         } else {
@@ -536,8 +537,9 @@ export default function CandidateDetailPage({ params }: PageProps) {
           alert(`面接一覧への登録に失敗しました（${interviewRes.status}）。案件は作成済みです。${interviewMessage ? `\n${interviewMessage}` : ''}`)
         }
         
-        // タイムラインにイベントを追加（interviewDate は上で定義済み）
-        const description = `${projectDisplay.combined || gardenName}（${interviewDate.toLocaleDateString('ja-JP')} ${interviewDate.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}）`
+        // タイムラインにイベントを追加（projectForm から直接参照してスコープを確実に）
+        const dateForTimeline = new Date(projectForm.interview_date)
+        const description = `${projectDisplay.combined || gardenName}（${dateForTimeline.toLocaleDateString('ja-JP')} ${dateForTimeline.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })})`
         addTimelineEvent('project_add', '面接追加', description)
         
         // フォームをリセット
@@ -1247,9 +1249,9 @@ export default function CandidateDetailPage({ params }: PageProps) {
                             {projectInterviews.map((interview) => (
                               <div
                                 key={interview.id}
-                                className="flex items-center gap-3 py-2"
+                                className="flex items-center gap-3 py-2 group"
                               >
-                                <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                                <div className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
                                 <span className="text-slate-700">
                                   {new Date(interview.start_at).toLocaleDateString('ja-JP', {
                                     month: 'long',
@@ -1263,9 +1265,32 @@ export default function CandidateDetailPage({ params }: PageProps) {
                                     minute: '2-digit',
                                   })}
                                 </span>
-                                <span className="text-slate-600">
+                                <span className="text-slate-600 min-w-0 truncate">
                                   @ {interview.location}
                                 </span>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 shrink-0 opacity-60 hover:opacity-100 hover:text-rose-600"
+                                  title="この面接を削除"
+                                  onClick={async () => {
+                                    if (!confirm('この面接を削除してよいですか？')) return
+                                    try {
+                                      const res = await fetch(`/api/interviews/${interview.id}`, { method: 'DELETE' })
+                                      if (res.ok) {
+                                        setAllInterviews((prev) => prev.filter((i) => i.id !== interview.id))
+                                      } else {
+                                        const err = await res.json().catch(() => ({}))
+                                        alert(err.details || err.error || '削除に失敗しました')
+                                      }
+                                    } catch (e) {
+                                      alert('削除に失敗しました')
+                                    }
+                                  }}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
                               </div>
                             ))}
                           </div>
@@ -1462,10 +1487,10 @@ export default function CandidateDetailPage({ params }: PageProps) {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="project-date">面接日時<span className="text-red-500">*</span></Label>
+                    <Label htmlFor="project-date">面接日（月・日）<span className="text-red-500">*</span></Label>
                     <Input 
                       id="project-date" 
-                      type="datetime-local" 
+                      type="date" 
                       value={projectForm.interview_date}
                       onChange={(e) => setProjectForm(prev => ({ ...prev, interview_date: e.target.value }))}
                     />
