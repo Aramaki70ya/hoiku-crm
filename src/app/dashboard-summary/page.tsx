@@ -363,11 +363,15 @@ export default function DashboardSummaryPage() {
     })
   }, [interviews, periodType, customStartDate, customEndDate])
 
-  // 期間内に「面接以上のステータス」になった求職者（その後クローズ等になってもカウントに含める）
-  const INTERVIEW_RELEVANT_STATUSES = [
+  // 期間内に「面接のステータス」になった求職者（面接数カウント用）
+  // ※成約のみその月の人は含めない（例: 1月面接→2月成約なら、2月の面接数には含めず成約のみ）
+  const INTERVIEW_PHASE_STATUSES = [
     '面接日程調整中',
     '面接確定済',
     '面接実施済（結果待ち）',
+  ]
+  const INTERVIEW_RELEVANT_STATUSES = [
+    ...INTERVIEW_PHASE_STATUSES,
     '内定獲得（承諾確認中）',
     '内定承諾（成約）',
     '内定辞退',
@@ -376,20 +380,28 @@ export default function DashboardSummaryPage() {
     const { startDate, endDate } = getPeriodDates
     const candidateIds = new Set<string>()
     
-    // status_historyから集計
+    // ソース1: status_historyから集計（面接フェーズのステータスに変わった人だけ。成約のみは含めない）
     statusHistory.forEach(h => {
-      if (!INTERVIEW_RELEVANT_STATUSES.includes(h.new_status) || !h.changed_at) return
+      if (!INTERVIEW_PHASE_STATUSES.includes(h.new_status) || !h.changed_at) return
       const changedDate = new Date(h.changed_at)
       if (changedDate >= startDate && changedDate <= endDate) {
         candidateIds.add(h.candidate_id)
       }
     })
     
-    // status_historyにデータがない場合のフォールバック: candidatesテーブルのstatusとupdated_atで判定
-    // 現在のステータスが面接関連で、updated_atが期間内にある求職者をカウント
+    // ソース2: interviewsテーブルから集計（start_atが期間内）
+    // status_historyに漏れがある可能性があるため、常にマージする
+    periodInterviews.forEach((i) => {
+      const project = projects.find((p) => p.id === i.project_id)
+      if (project) {
+        candidateIds.add(project.candidate_id)
+      }
+    })
+    
+    // ソース3: status_historyもinterviewsも空の場合のみ、candidatesテーブルで補完（面接フェーズのみ）
     if (candidateIds.size === 0 && statusHistory.length === 0) {
       candidates.forEach(c => {
-        if (!INTERVIEW_RELEVANT_STATUSES.includes(c.status) || !c.updated_at) return
+        if (!INTERVIEW_PHASE_STATUSES.includes(c.status) || !c.updated_at) return
         const updatedDate = new Date(c.updated_at)
         if (updatedDate >= startDate && updatedDate <= endDate) {
           candidateIds.add(c.id)
@@ -398,12 +410,15 @@ export default function DashboardSummaryPage() {
     }
     
     return candidateIds
-  }, [statusHistory, getPeriodDates, candidates])
+  }, [statusHistory, getPeriodDates, candidates, periodInterviews, projects])
 
   // 期間内に「内定承諾（成約）」になった求職者（成約数のカウント用）
+  // status_history + contracts の全ソースを統合して集計（どちらかに漏れがあっても拾える）
   const periodClosedStatusCandidateIds = useMemo(() => {
     const { startDate, endDate } = getPeriodDates
     const candidateIds = new Set<string>()
+    
+    // ソース1: status_historyから集計
     statusHistory.forEach(h => {
       if (h.new_status !== '内定承諾（成約）' || !h.changed_at) return
       const changedDate = new Date(h.changed_at)
@@ -411,8 +426,17 @@ export default function DashboardSummaryPage() {
         candidateIds.add(h.candidate_id)
       }
     })
+    
+    // ソース2: contractsテーブルから集計（常にマージ）
+    // status_historyに漏れがある可能性があるため、contractsも常に見る
+    periodContracts.forEach(c => {
+      if (c.candidate_id) {
+        candidateIds.add(c.candidate_id)
+      }
+    })
+    
     return candidateIds
-  }, [statusHistory, getPeriodDates])
+  }, [statusHistory, getPeriodDates, periodContracts])
 
   // 実際のデータから各ステータスの案件を集計（面接一覧ページと同じ candidate.status ベースで統一）
   const getStatusCases = useMemo(() => {
@@ -563,9 +587,10 @@ export default function DashboardSummaryPage() {
           closedCount = metric?.closed ?? 0
         } else {
           // フォールバック: DBから計算
-          // status_history ベースで集計（期間内にステータスが変わった求職者をカウント）
+          // periodInterviewStatusCandidateIds / periodClosedStatusCandidateIds は
+          // 既に status_history + interviews/contracts の全ソースを統合済み
           
-          // 面接数 = 期間内に status_history で面接以上のステータスになった求職者のユニーク数
+          // 面接数 = 期間内に面接以上のステータスになった、このユーザー担当の求職者のユニーク数
           const interviewCandidateIds = new Set<string>()
           periodInterviewStatusCandidateIds.forEach((candidateId) => {
             const candidate = candidates.find((c) => c.id === candidateId)
@@ -573,24 +598,9 @@ export default function DashboardSummaryPage() {
               interviewCandidateIds.add(candidateId)
             }
           })
-          
-          // status_history にデータがない場合の追加フォールバック（interviews.start_atベース）
-          // periodInterviewStatusCandidateIdsのuseMemo内で既にcandidatesテーブルから判定しているが、
-          // それでもデータがない場合はinterviewsテーブルから判定
-          if (periodInterviewStatusCandidateIds.size === 0 && statusHistory.length === 0) {
-            periodInterviews.forEach((i) => {
-              const project = projects.find((p) => p.id === i.project_id)
-              if (project) {
-                const candidate = candidates.find((c) => c.id === project.candidate_id)
-                if (candidate && candidate.consultant_id === user.id) {
-                  interviewCandidateIds.add(candidate.id)
-                }
-              }
-            })
-          }
           interviewCount = interviewCandidateIds.size
           
-          // 成約数 = 期間内に status_history で「内定承諾（成約）」になった求職者のユニーク数
+          // 成約数 = 期間内に成約になった、このユーザー担当の求職者のユニーク数
           const closedCandidateIds = new Set<string>()
           periodClosedStatusCandidateIds.forEach((candidateId) => {
             const candidate = candidates.find((c) => c.id === candidateId)
@@ -598,16 +608,6 @@ export default function DashboardSummaryPage() {
               closedCandidateIds.add(candidateId)
             }
           })
-          
-          // status_history にデータがない場合のフォールバック（過去月など）
-          if (periodClosedStatusCandidateIds.size === 0) {
-            periodContracts.forEach((c) => {
-              const candidate = candidates.find((ca) => ca.id === c.candidate_id)
-              if (candidate && candidate.consultant_id === user.id) {
-                closedCandidateIds.add(candidate.id)
-              }
-            })
-          }
           closedCount = closedCandidateIds.size
         }
 
