@@ -380,7 +380,8 @@ export default function DashboardSummaryPage() {
     const { startDate, endDate } = getPeriodDates
     const candidateIds = new Set<string>()
     
-    // ソース1: status_historyから集計（面接フェーズのステータスに変わった人だけ。成約のみは含めない）
+    // status_historyから集計: 期間内に面接フェーズのステータスに変わった人だけ
+    // ※ interviews テーブルは使わない（面接の日時ではなく、ステータス変更のタイミングで期間を絞る）
     statusHistory.forEach(h => {
       if (!INTERVIEW_PHASE_STATUSES.includes(h.new_status) || !h.changed_at) return
       const changedDate = new Date(h.changed_at)
@@ -389,16 +390,7 @@ export default function DashboardSummaryPage() {
       }
     })
     
-    // ソース2: interviewsテーブルから集計（start_atが期間内）
-    // status_historyに漏れがある可能性があるため、常にマージする
-    periodInterviews.forEach((i) => {
-      const project = projects.find((p) => p.id === i.project_id)
-      if (project) {
-        candidateIds.add(project.candidate_id)
-      }
-    })
-    
-    // ソース3: status_historyもinterviewsも空の場合のみ、candidatesテーブルで補完（面接フェーズのみ）
+    // フォールバック: status_historyが空の場合のみ、candidatesテーブルで補完
     if (candidateIds.size === 0 && statusHistory.length === 0) {
       candidates.forEach(c => {
         if (!INTERVIEW_PHASE_STATUSES.includes(c.status) || !c.updated_at) return
@@ -410,7 +402,7 @@ export default function DashboardSummaryPage() {
     }
     
     return candidateIds
-  }, [statusHistory, getPeriodDates, candidates, periodInterviews, projects])
+  }, [statusHistory, getPeriodDates, candidates])
 
   // 期間内に「内定承諾（成約）」になった求職者（成約数のカウント用）
   // status_history + contracts の全ソースを統合して集計（どちらかに漏れがあっても拾える）
@@ -556,12 +548,13 @@ export default function DashboardSummaryPage() {
   }, [getPeriodDates])
 
   // 営業進捗を計算（担当・初回は「期間内に登録した」求職者のみで集計）
+  // 【面接・成約の表示ロジックの詳細】→ docs/DASHBOARD_面接・成約の集計ロジック.md を参照
   // 【指標の定義】
   // 担当 = 期間内に登録した かつ その担当者に割り当てられている求職者数
   // 初回 = 上記のうち、ステータスが「初回連絡中」「連絡つかず」以外（＝初回コンタクト済み）の数
-  // 面接 = 下記いずれか。(1)月次マージシート: その月の面接数 (2)DB: 期間内に面接日(start_at)が含まれる面接に紐づく「ユニークな求職者数」（同一人で複数回面接しても1カウント）
-  // 成約 = 下記いずれか。(1)月次マージシート: その月の成約数 (2)DB: 期間内に承諾日等が含まれる契約のうち、その担当者の求職者に紐づく件数
-  // ※期間で切るため「今月成約した人」の面接が先月だと、今月の面接数には入らず成約だけ増えることがあり、成約＞面接になり得る。表示上は成約を面接以下にクリップする。
+  // 面接 = (1)月次マージシートにその月データがあればマージシートの値 (2)なければDB: 期間内に status_history で「面接フェーズ」ステータスに変わった人のユニーク数を担当者ごとに集計（interviews テーブルは使わない）
+  // 成約 = (1)同上マージシート (2)なければDB: 期間内の成約(status_history＋contracts)のユニーク求職者数を担当者ごとに集計
+  // ※表示上は成約を面接以下にクリップする。
   const salesProgress = useMemo(() => {
     // ローディング中は古いデータを表示しない（空配列を返す）
     if (monthlyMetricsLoading) {
@@ -587,10 +580,10 @@ export default function DashboardSummaryPage() {
           closedCount = metric?.closed ?? 0
         } else {
           // フォールバック: DBから計算
-          // periodInterviewStatusCandidateIds / periodClosedStatusCandidateIds は
-          // 既に status_history + interviews/contracts の全ソースを統合済み
+          // periodInterviewStatusCandidateIds は status_history のみ（interviews は使わない）
+          // periodClosedStatusCandidateIds は status_history + contracts を統合
           
-          // 面接数 = 期間内に面接以上のステータスになった、このユーザー担当の求職者のユニーク数
+          // 面接数 = 期間内に status_history で面接フェーズのステータスになった、このユーザー担当の求職者のユニーク数
           const interviewCandidateIds = new Set<string>()
           periodInterviewStatusCandidateIds.forEach((candidateId) => {
             const candidate = candidates.find((c) => c.id === candidateId)
@@ -627,7 +620,7 @@ export default function DashboardSummaryPage() {
     return progress
       .filter((p) => p.totalCount > 0)
       .sort((a, b) => b.totalCount - a.totalCount)
-  }, [users, periodCandidates, periodInterviews, periodInterviewStatusCandidateIds, periodClosedStatusCandidateIds, periodContracts, projects, candidates, monthlyMetrics, monthlyMetricsLoading, isUserActiveInPeriod])
+  }, [users, periodCandidates, periodInterviewStatusCandidateIds, periodClosedStatusCandidateIds, candidates, monthlyMetrics, monthlyMetricsLoading, isUserActiveInPeriod])
 
   // 全体集計
   const totalProgress = useMemo(() => {
