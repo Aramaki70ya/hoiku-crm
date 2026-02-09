@@ -22,25 +22,41 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Calendar, Clock, MapPin, User as UserIcon, Building, CheckCircle, XCircle, Trash2 } from 'lucide-react'
+import { Calendar, Clock, MapPin, User as UserIcon, Building, CheckCircle, XCircle, Trash2, Gift } from 'lucide-react'
 import {
   interviewStatusLabels,
   interviewStatusColors,
-} from '@/lib/mock-data'
-
-// 求職者ステータス → 面接一覧での表示（求職者詳細のステータスのみと連動）
-const CANDIDATE_STATUS_TO_DISPLAY: Record<string, { label: string; className: string }> = {
-  '面接日程調整中': { label: '調整中', className: interviewStatusColors.rescheduling },
-  '面接確定済': { label: '面接確定済み', className: interviewStatusColors.scheduled },
-  '面接実施済（結果待ち）': { label: '面接実施済み', className: interviewStatusColors.completed },
-}
-function getDisplayStatusFromCandidate(candidateStatus: string | undefined) {
-  return candidateStatus ? CANDIDATE_STATUS_TO_DISPLAY[candidateStatus] : null
-}
+  statusColors,
+} from '@/lib/status-mapping'
 import { useInterviews } from '@/hooks/useInterviews'
 import { useUsers } from '@/hooks/useUsers'
 import { useCandidates } from '@/hooks/useCandidates'
 import type { Candidate, User } from '@/types/database'
+
+// 面接一覧に表示する求職者ステータス（この4つのいずれかのみ「面接レコードの全件」に含む）
+const INTERVIEW_RELEVANT_STATUSES = [
+  '面接日程調整中',
+  '面接確定済',
+  '面接実施済（結果待ち）',
+  '内定獲得（承諾確認中）',
+] as const
+
+// 求職者ステータス → 面接一覧での表示ラベル
+const CANDIDATE_STATUS_TO_DISPLAY: Record<string, { label: string; className: string }> = {
+  '面接日程調整中': { label: '調整中', className: interviewStatusColors['調整中'] },
+  '面接確定済': { label: '面接確定済み', className: interviewStatusColors['予定'] },
+  '面接実施済（結果待ち）': { label: '面接実施済み', className: interviewStatusColors['実施済'] },
+  '内定獲得（承諾確認中）': { label: '内定獲得', className: statusColors['内定獲得（承諾確認中）'] },
+}
+
+function getDisplayStatusFromCandidate(candidateStatus: string | undefined) {
+  if (!candidateStatus) return null
+  return CANDIDATE_STATUS_TO_DISPLAY[candidateStatus] || null
+}
+
+function isInterviewRelevant(candidateStatus: string | undefined) {
+  return candidateStatus ? INTERVIEW_RELEVANT_STATUSES.includes(candidateStatus as (typeof INTERVIEW_RELEVANT_STATUSES)[number]) : false
+}
 
 // 年月の選択肢を生成
 function generateMonthOptions() {
@@ -66,7 +82,6 @@ function InterviewsPageContent() {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   })
   const monthOptions = generateMonthOptions()
-  const [localInterviewStatuses, setLocalInterviewStatuses] = useState<Record<string, string>>({})
   const [localInterviewConsultants, setLocalInterviewConsultants] = useState<Record<string, string>>({})
   const [localCandidateConsultants, setLocalCandidateConsultants] = useState<Record<string, string>>({})
 
@@ -79,7 +94,7 @@ function InterviewsPageContent() {
   }, [searchParams])
 
   // API経由でデータを取得
-  const { interviews: apiInterviews, isLoading, updateInterview, refetch } = useInterviews({
+  const { interviews: apiInterviews, isLoading, refetch } = useInterviews({
     month: selectedMonth,
     status: statusFilter,
     consultantId: consultantFilter,
@@ -118,21 +133,22 @@ function InterviewsPageContent() {
       const candidate = project?.candidate
       const currentConsultantId = localInterviewConsultants[interview.id] || localCandidateConsultants[candidate?.id || ''] || candidate?.consultant_id || null
       const consultant = users.find(u => u.id === currentConsultantId) || candidate?.consultant
-      const currentStatus = localInterviewStatuses[interview.id] || interview.status
       return {
         ...interview,
-        status: currentStatus,
         project,
         candidate: candidate || undefined,
         consultant,
       }
     }).sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime())
-  }, [apiInterviews, localInterviewStatuses, localInterviewConsultants, localCandidateConsultants, users])
+  }, [apiInterviews, localInterviewConsultants, localCandidateConsultants, users])
 
-  // フィルタリング（API側で既にフィルタリングされている）
-  const filteredInterviews = enrichedInterviews
+  // 面接レコードの全件 = 求職者ステータスが「調整中」「面接確定済」「実施済」「内定獲得」のいずれかのみ
+  const filteredInterviews = useMemo(
+    () => enrichedInterviews.filter((i) => isInterviewRelevant(i.candidate?.status)),
+    [enrichedInterviews]
+  )
 
-  // 調整中タブ用: 面接レコードが rescheduling のもの + 面接未登録の「面接日程調整中」候補
+  // 調整中タブ用: candidate.status === '面接日程調整中' + 面接未登録の「面接日程調整中」候補
   const candidateIdsInInterviewsList = useMemo(
     () => new Set(enrichedInterviews.map((i) => i.candidate?.id).filter(Boolean) as string[]),
     [enrichedInterviews]
@@ -150,7 +166,7 @@ function InterviewsPageContent() {
       start_at: '',
       end_at: null,
       location: null,
-      status: 'rescheduling',
+      status: '調整中',
       feedback: null,
       created_at: '',
       project: undefined,
@@ -160,16 +176,11 @@ function InterviewsPageContent() {
     return [...withInterview, ...placeholders]
   }, [enrichedInterviews, reschedulingOnlyCandidates])
 
-  // ステータス別集計（求職者ステータス基準。調整中は面接未登録の候補も含む）
+  // ステータス別集計（candidate.status 基準）
   const reschedulingCount = reschedulingList.length
   const scheduledCount = enrichedInterviews.filter((i) => i.candidate?.status === '面接確定済').length
   const completedCount = enrichedInterviews.filter((i) => i.candidate?.status === '面接実施済（結果待ち）').length
-
-  // ステータス変更ハンドラー
-  const handleStatusChange = useCallback(async (interviewId: string, newStatus: string) => {
-    setLocalInterviewStatuses(prev => ({ ...prev, [interviewId]: newStatus }))
-    await updateInterview(interviewId, { status: newStatus as 'scheduled' | 'completed' | 'cancelled' | 'rescheduling' })
-  }, [updateInterview])
+  const offerCount = enrichedInterviews.filter((i) => i.candidate?.status === '内定獲得（承諾確認中）').length
 
   // 担当者変更ハンドラー
   const handleConsultantChange = useCallback(async (interviewId: string, candidateId: string, consultantId: string) => {
@@ -222,7 +233,7 @@ function InterviewsPageContent() {
   return (
     <AppLayout title="面接一覧" description={`${filteredInterviews.length}件の面接`}>
       {/* サマリーカード */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
         <Card className="bg-white border-slate-200 shadow-sm">
           <CardContent className="pt-4">
             <div className="flex items-center gap-3">
@@ -258,6 +269,19 @@ function InterviewsPageContent() {
               <div>
                 <p className="text-xs text-slate-500">面接実施済み</p>
                 <p className="text-2xl font-bold text-slate-800">{completedCount}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="bg-white border-slate-200 shadow-sm">
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-pink-100 flex items-center justify-center">
+                <Gift className="w-5 h-5 text-pink-600" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-500">内定獲得（返事待ち）</p>
+                <p className="text-2xl font-bold text-slate-800">{offerCount}</p>
               </div>
             </div>
           </CardContent>
@@ -311,13 +335,19 @@ function InterviewsPageContent() {
             value="scheduled"
             className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-500 data-[state=active]:to-cyan-600 data-[state=active]:text-white"
           >
-            面接確定済み ({filteredInterviews.filter((i) => i.candidate?.status === '面接確定済').length})
+            面接確定済み ({scheduledCount})
           </TabsTrigger>
           <TabsTrigger 
             value="completed"
             className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-green-500 data-[state=active]:to-emerald-600 data-[state=active]:text-white"
           >
-            面接実施済み ({filteredInterviews.filter((i) => i.candidate?.status === '面接実施済（結果待ち）').length})
+            面接実施済み ({completedCount})
+          </TabsTrigger>
+          <TabsTrigger 
+            value="offer"
+            className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-pink-500 data-[state=active]:to-rose-600 data-[state=active]:text-white"
+          >
+            内定獲得（返事待ち） ({offerCount})
           </TabsTrigger>
         </TabsList>
 
@@ -325,7 +355,6 @@ function InterviewsPageContent() {
           <InterviewTable 
             interviews={filteredInterviews}
             users={users}
-            onStatusChange={handleStatusChange}
             onConsultantChange={handleConsultantChange}
             onDelete={handleDeleteInterview}
           />
@@ -334,7 +363,6 @@ function InterviewsPageContent() {
           <InterviewTable 
             interviews={reschedulingList}
             users={users}
-            onStatusChange={handleStatusChange}
             onConsultantChange={handleConsultantChange}
             onDelete={handleDeleteInterview}
             isReschedulingTab
@@ -344,7 +372,6 @@ function InterviewsPageContent() {
           <InterviewTable 
             interviews={filteredInterviews.filter((i) => i.candidate?.status === '面接確定済')}
             users={users}
-            onStatusChange={handleStatusChange}
             onConsultantChange={handleConsultantChange}
             onDelete={handleDeleteInterview}
           />
@@ -353,7 +380,14 @@ function InterviewsPageContent() {
           <InterviewTable 
             interviews={filteredInterviews.filter((i) => i.candidate?.status === '面接実施済（結果待ち）')}
             users={users}
-            onStatusChange={handleStatusChange}
+            onConsultantChange={handleConsultantChange}
+            onDelete={handleDeleteInterview}
+          />
+        </TabsContent>
+        <TabsContent value="offer">
+          <InterviewTable 
+            interviews={filteredInterviews.filter((i) => i.candidate?.status === '内定獲得（承諾確認中）')}
+            users={users}
             onConsultantChange={handleConsultantChange}
             onDelete={handleDeleteInterview}
           />
@@ -424,7 +458,6 @@ interface EnrichedInterview {
 interface InterviewTableProps {
   interviews: EnrichedInterview[]
   users: User[]
-  onStatusChange: (interviewId: string, newStatus: string) => Promise<void>
   onConsultantChange: (interviewId: string, candidateId: string, consultantId: string) => Promise<void>
   onDelete: (interviewId: string) => Promise<void>
   /** 調整中タブ用。面接未登録の候補行（プレースホルダー）を含む */
@@ -434,7 +467,6 @@ interface InterviewTableProps {
 function InterviewTable({ 
   interviews, 
   users,
-  onStatusChange,
   onConsultantChange,
   onDelete,
   isReschedulingTab = false,
@@ -564,23 +596,24 @@ function InterviewTable({
                   </Select>
                   )}
                 </TableCell>
-                <TableCell title="求職者詳細で変更するステータスと連動しています">
+                <TableCell>
                   {isPlaceholder ? (
-                    <Badge variant="outline" className={interviewStatusColors.rescheduling}>
+                    <Badge variant="outline" className={interviewStatusColors['調整中']}>
                       調整中
                     </Badge>
                   ) : (() => {
-                    const fromCandidate = getDisplayStatusFromCandidate(interview.candidate?.status)
-                    if (fromCandidate) {
+                    const displayStatus = getDisplayStatusFromCandidate(interview.candidate?.status)
+                    if (displayStatus) {
                       return (
-                        <Badge variant="outline" className={fromCandidate.className}>
-                          {fromCandidate.label}
+                        <Badge variant="outline" className={displayStatus.className}>
+                          {displayStatus.label}
                         </Badge>
                       )
                     }
+                    // 面接関連以外のステータスの場合は候補者ステータスをそのまま表示
                     return (
-                      <Badge variant="outline" className={interviewStatusColors[interview.status] || ''}>
-                        {interviewStatusLabels[interview.status] || interview.status || '-'}
+                      <Badge variant="outline" className={statusColors[interview.candidate?.status as keyof typeof statusColors] || 'bg-slate-100 text-slate-700 border-slate-200'}>
+                        {interview.candidate?.status || '-'}
                       </Badge>
                     )
                   })()}
