@@ -463,6 +463,8 @@ export default function DashboardPage() {
 
   // 成約統計（期間内）
   const periodTotalSales = periodContracts.reduce((sum, c) => sum + (c.revenue_including_tax || 0), 0)
+  // 売上表示用：税抜（税込÷1.1、消費税10%想定）
+  const periodTotalSalesExcludingTax = Math.round(periodTotalSales / 1.1)
 
   // 実際の転換率（期間内のデータを使用）
   const actualFirstContactRate = periodRegistrations > 0 ? (periodFirstContacts / periodRegistrations) * 100 : 0
@@ -528,7 +530,7 @@ export default function DashboardPage() {
   }, [periodProjects, periodType])
 
   // 不足金額 = 予算 - 売上
-  const shortfall = budget - periodTotalSales
+  const shortfall = budget - periodTotalSalesExcludingTax
 
   // 選択期間内の応募数
   const now = new Date()
@@ -704,7 +706,7 @@ export default function DashboardPage() {
                 <div className="flex items-center gap-2 mb-3">
                   <p className="text-sm text-slate-500">予算達成状況（全体）</p>
                   <Badge className="bg-violet-100 text-violet-700 text-base px-3 py-1 font-semibold">
-                    {((periodTotalSales / budget) * 100).toFixed(1)}%
+                    {(budget > 0 ? (periodTotalSalesExcludingTax / budget) * 100 : 0).toFixed(1)}%
                   </Badge>
                 </div>
                 <div className="flex items-end gap-4">
@@ -756,8 +758,8 @@ export default function DashboardPage() {
                     )}
                   </div>
                   <div>
-                    <p className="text-xs text-slate-400">売上</p>
-                    <p className="text-xl font-bold text-emerald-600">¥{Math.round(periodTotalSales / 10000).toLocaleString()}万</p>
+                    <p className="text-xs text-slate-400">売上（税抜）</p>
+                    <p className="text-xl font-bold text-emerald-600">¥{Math.round(periodTotalSalesExcludingTax / 10000).toLocaleString()}万</p>
                   </div>
                   <div>
                     <p className="text-xs text-slate-400">Aヨミ</p>
@@ -768,7 +770,7 @@ export default function DashboardPage() {
                     <p className="text-xl font-bold text-orange-600">¥{Math.round(totalYomiB / 10000).toLocaleString()}万</p>
                   </div>
                 </div>
-                <Progress value={(periodTotalSales / budget) * 100} className="mt-3 h-2" />
+                <Progress value={budget > 0 ? (periodTotalSalesExcludingTax / budget) * 100 : 0} className="mt-3 h-2" />
               </div>
               
               {/* 右側: 不足金額カード */}

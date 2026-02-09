@@ -18,7 +18,10 @@ export async function POST(request: NextRequest) {
   }
 
   const supabase = await createClient()
-  const { error } = await supabase.auth.resetPasswordForEmail(email)
+  // メール内リンクを本番URLにする（未設定だとSupabaseのSite URL＝localhostになりがち）
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null)
+  const redirectTo = appUrl ? `${appUrl}/auth/callback` : undefined
+  const { error } = await supabase.auth.resetPasswordForEmail(email, redirectTo ? { redirectTo } : {})
 
   if (error) {
     return NextResponse.json({ message: error.message }, { status: 500 })
