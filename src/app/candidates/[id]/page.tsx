@@ -714,11 +714,7 @@ export default function CandidateDetailPage({ params }: PageProps) {
                       setCandidateStatus(oldStatus)
                       return
                     }
-                    await addTimelineEvent(
-                      'status_change',
-                      'ステータス変更',
-                      `${statusLabels[oldStatus] || oldStatus} → ${statusLabels[value as StatusType] || value}`
-                    )
+                    // タイムラインイベントはAPIが自動で記録するため、ここでは不要
                   } catch (err) {
                     console.error('ステータス更新エラー:', err)
                     setCandidateStatus(oldStatus)

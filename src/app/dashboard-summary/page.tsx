@@ -47,8 +47,9 @@ import {
   getContractsClient as getContracts,
   getUsersClient as getUsers,
   getInterviewsClient as getInterviews,
+  getStatusHistoryClient as getStatusHistory,
 } from '@/lib/supabase/queries-client-with-fallback'
-import type { Candidate, Project, Interview, User, Contract } from '@/types/database'
+import type { Candidate, Project, Interview, User, Contract, StatusHistory } from '@/types/database'
 
 type PeriodType = 'current_month' | 'previous_month' | 'custom'
 
@@ -63,6 +64,15 @@ export default function DashboardSummaryPage() {
   const [contracts, setContracts] = useState<Contract[]>([])
   const [interviews, setInterviews] = useState<Interview[]>([])
   const [users, setUsers] = useState<User[]>([])
+  const [statusHistory, setStatusHistory] = useState<StatusHistory[]>([])
+  const [timelineEvents, setTimelineEvents] = useState<Array<{
+    id: string
+    candidate_id: string
+    event_type: string
+    title: string
+    metadata: Record<string, unknown> | null
+    created_at: string
+  }>>([])
   const [loading, setLoading] = useState(true)
   
   // 月次マージシートから計算した営業進捗指標
@@ -97,18 +107,20 @@ export default function DashboardSummaryPage() {
   // データ再取得関数
   const fetchData = useCallback(async () => {
     try {
-      const [candidatesData, projectsData, contractsData, interviewsData, usersData] = await Promise.all([
+      const [candidatesData, projectsData, contractsData, interviewsData, usersData, statusHistoryData] = await Promise.all([
         getCandidates(),
         getProjects(),
         getContracts(),
         getInterviews(),
         getUsers(),
+        getStatusHistory(),
       ])
       setCandidates(candidatesData)
       setProjects(projectsData)
       setContracts(contractsData)
       setInterviews(interviewsData)
       setUsers(usersData)
+      setStatusHistory(statusHistoryData)
     } catch (error) {
       console.error('Error fetching data:', error)
       setCandidates([])
@@ -116,6 +128,7 @@ export default function DashboardSummaryPage() {
       setContracts([])
       setInterviews([])
       setUsers([])
+      setStatusHistory([])
     } finally {
       setLoading(false)
     }
@@ -350,32 +363,90 @@ export default function DashboardSummaryPage() {
     })
   }, [interviews, periodType, customStartDate, customEndDate])
 
-  // 実際のデータから各ステータスの案件を集計
+  // 期間内に「面接以上のステータス」になった求職者（その後クローズ等になってもカウントに含める）
+  const INTERVIEW_RELEVANT_STATUSES = [
+    '面接日程調整中',
+    '面接確定済',
+    '面接実施済（結果待ち）',
+    '内定獲得（承諾確認中）',
+    '内定承諾（成約）',
+    '内定辞退',
+  ]
+  const periodInterviewStatusCandidateIds = useMemo(() => {
+    const { startDate, endDate } = getPeriodDates
+    const candidateIds = new Set<string>()
+    
+    // status_historyから集計
+    statusHistory.forEach(h => {
+      if (!INTERVIEW_RELEVANT_STATUSES.includes(h.new_status) || !h.changed_at) return
+      const changedDate = new Date(h.changed_at)
+      if (changedDate >= startDate && changedDate <= endDate) {
+        candidateIds.add(h.candidate_id)
+      }
+    })
+    
+    // status_historyにデータがない場合のフォールバック: candidatesテーブルのstatusとupdated_atで判定
+    // 現在のステータスが面接関連で、updated_atが期間内にある求職者をカウント
+    if (candidateIds.size === 0 && statusHistory.length === 0) {
+      candidates.forEach(c => {
+        if (!INTERVIEW_RELEVANT_STATUSES.includes(c.status) || !c.updated_at) return
+        const updatedDate = new Date(c.updated_at)
+        if (updatedDate >= startDate && updatedDate <= endDate) {
+          candidateIds.add(c.id)
+        }
+      })
+    }
+    
+    return candidateIds
+  }, [statusHistory, getPeriodDates, candidates])
+
+  // 期間内に「内定承諾（成約）」になった求職者（成約数のカウント用）
+  const periodClosedStatusCandidateIds = useMemo(() => {
+    const { startDate, endDate } = getPeriodDates
+    const candidateIds = new Set<string>()
+    statusHistory.forEach(h => {
+      if (h.new_status !== '内定承諾（成約）' || !h.changed_at) return
+      const changedDate = new Date(h.changed_at)
+      if (changedDate >= startDate && changedDate <= endDate) {
+        candidateIds.add(h.candidate_id)
+      }
+    })
+    return candidateIds
+  }, [statusHistory, getPeriodDates])
+
+  // 実際のデータから各ステータスの案件を集計（面接一覧ページと同じ candidate.status ベースで統一）
   const getStatusCases = useMemo(() => {
     const statusCases: Record<
       string,
       {
         adjusting: Array<{ name: string; yomi: string; amount: number }>
-        beforeInterview: Array<{ name: string; yomi: string; amount: number }>
-        waitingResult: Array<{ name: string; yomi: string; amount: number }>
-        waitingReply: Array<{ name: string; yomi: string; amount: number }>
+        scheduled: Array<{ name: string; yomi: string; amount: number }>
+        completed: Array<{ name: string; yomi: string; amount: number }>
+        offer: Array<{ name: string; yomi: string; amount: number }>
       }
     > = {}
+
+    // 面接関連ステータス（面接一覧ページと同じ定義）
+    const INTERVIEW_RELEVANT_STATUSES = [
+      '面接日程調整中',
+      '面接確定済',
+      '面接実施済（結果待ち）',
+      '内定獲得（承諾確認中）',
+    ]
 
     // 各担当者ごとに集計
     users
       .filter((u) => u.role !== 'admin')
       .forEach((user) => {
-        const userCandidates = candidates.filter((c) => c.consultant_id === user.id)
-        const userProjects = projects.filter((p) =>
-          userCandidates.some((c) => c.id === p.candidate_id)
+        const userCandidates = candidates.filter(
+          (c) => c.consultant_id === user.id && INTERVIEW_RELEVANT_STATUSES.includes(c.status)
         )
 
         // 同一求職者は最新のヨミ（project.updated_at）1件だけ表示するため Map で保持
         const adjustingMap = new Map<string, { caseInfo: { name: string; yomi: string; amount: number }; updated_at: string }>()
-        const beforeInterviewMap = new Map<string, { caseInfo: { name: string; yomi: string; amount: number }; updated_at: string }>()
-        const waitingResultMap = new Map<string, { caseInfo: { name: string; yomi: string; amount: number }; updated_at: string }>()
-        const waitingReplyMap = new Map<string, { caseInfo: { name: string; yomi: string; amount: number }; updated_at: string }>()
+        const scheduledMap = new Map<string, { caseInfo: { name: string; yomi: string; amount: number }; updated_at: string }>()
+        const completedMap = new Map<string, { caseInfo: { name: string; yomi: string; amount: number }; updated_at: string }>()
+        const offerMap = new Map<string, { caseInfo: { name: string; yomi: string; amount: number }; updated_at: string }>()
 
         const setIfNewer = (
           map: Map<string, { caseInfo: { name: string; yomi: string; amount: number }; updated_at: string }>,
@@ -389,27 +460,26 @@ export default function DashboardSummaryPage() {
           }
         }
 
-        userProjects.forEach((project) => {
-          const candidate = userCandidates.find((c) => c.id === project.candidate_id)
-          if (!candidate) return
+        userCandidates.forEach((candidate) => {
+          // その求職者に紐づく最新のプロジェクトを取得（ヨミ・金額表示用）
+          const candidateProjects = projects.filter((p) => p.candidate_id === candidate.id)
+          if (candidateProjects.length === 0) return
 
-          // 面接状況（調整中/前/結果待ち）は「今の状態」を表示するため、全期間の面接で判定する（期間フィルタしない）
-          const projectInterviews = interviews.filter((i) => i.project_id === project.id)
-          if (projectInterviews.length === 0) return
-
-          // 各ステータスごとにフィルタ
-          const reschedulingInterviews = projectInterviews.filter((i) => i.status === '調整中')
-          const scheduledInterviews = projectInterviews.filter((i) => i.status === '予定')
-          const completedInterviews = projectInterviews.filter((i) => i.status === '実施済')
+          // 最新の project を取得（updated_at でソート）
+          const latestProject = candidateProjects.sort((a, b) => {
+            const aTime = a.updated_at || a.created_at || ''
+            const bTime = b.updated_at || b.created_at || ''
+            return bTime.localeCompare(aTime)
+          })[0]
 
           // ヨミの表示用フォーマット
-          const yomiLabel = project.probability
-            ? `${project.probability}ヨミ(${
-                project.probability === 'A'
+          const yomiLabel = latestProject.probability
+            ? `${latestProject.probability}ヨミ(${
+                latestProject.probability === 'A'
                   ? '80%'
-                  : project.probability === 'B'
+                  : latestProject.probability === 'B'
                   ? '50%'
-                  : project.probability === 'C'
+                  : latestProject.probability === 'C'
                   ? '30%'
                   : '10%'
               })`
@@ -418,38 +488,37 @@ export default function DashboardSummaryPage() {
           const caseInfo = {
             name: candidate.name,
             yomi: yomiLabel,
-            amount: project.expected_amount || 0,
+            amount: latestProject.expected_amount || 0,
           }
-          const updated_at = project.updated_at || project.created_at || ''
+          const updated_at = latestProject.updated_at || latestProject.created_at || ''
 
-          // 調整中: 面接日程を調整している案件（reschedulingステータスの面接がある）
-          if (reschedulingInterviews.length > 0) {
-            setIfNewer(adjustingMap, candidate.id, caseInfo, updated_at)
-          }
-          // 面接前: 面接が予定されているが、まだ実施されていない案件
-          else if (scheduledInterviews.length > 0 && completedInterviews.length === 0) {
-            setIfNewer(beforeInterviewMap, candidate.id, caseInfo, updated_at)
-          }
-          // 結果待ち: 面接が終了し、結果を待っている案件
-          else if (completedInterviews.length > 0 && candidate.status !== '内定獲得（承諾確認中）') {
-            setIfNewer(waitingResultMap, candidate.id, caseInfo, updated_at)
-          }
-          // 本人返事待ち: 内定が出て、本人からの返事を待っている案件
-          if (project.phase === '内定' || candidate.status === '内定獲得（承諾確認中）') {
-            setIfNewer(waitingReplyMap, candidate.id, caseInfo, updated_at)
+          // candidate.status で振り分け（面接一覧ページと同じロジック）
+          switch (candidate.status) {
+            case '面接日程調整中':
+              setIfNewer(adjustingMap, candidate.id, caseInfo, updated_at)
+              break
+            case '面接確定済':
+              setIfNewer(scheduledMap, candidate.id, caseInfo, updated_at)
+              break
+            case '面接実施済（結果待ち）':
+              setIfNewer(completedMap, candidate.id, caseInfo, updated_at)
+              break
+            case '内定獲得（承諾確認中）':
+              setIfNewer(offerMap, candidate.id, caseInfo, updated_at)
+              break
           }
         })
 
         statusCases[user.id] = {
           adjusting: Array.from(adjustingMap.values()).map((v) => v.caseInfo),
-          beforeInterview: Array.from(beforeInterviewMap.values()).map((v) => v.caseInfo),
-          waitingResult: Array.from(waitingResultMap.values()).map((v) => v.caseInfo),
-          waitingReply: Array.from(waitingReplyMap.values()).map((v) => v.caseInfo),
+          scheduled: Array.from(scheduledMap.values()).map((v) => v.caseInfo),
+          completed: Array.from(completedMap.values()).map((v) => v.caseInfo),
+          offer: Array.from(offerMap.values()).map((v) => v.caseInfo),
         }
       })
 
     return statusCases
-  }, [users, candidates, projects, interviews])
+  }, [users, candidates, projects])
 
   // 退職者フィルタリング用ヘルパー（選択期間に応じて退職者を含める/除外する）
   const isUserActiveInPeriod = useCallback((user: User) => {
@@ -463,9 +532,12 @@ export default function DashboardSummaryPage() {
   }, [getPeriodDates])
 
   // 営業進捗を計算（担当・初回は「期間内に登録した」求職者のみで集計）
-  // 担当 = 期間内に登録した かつ 担当者に割り当てられている求職者数
-  // 初回 = 上記のうち、初回コンタクト済みの数
-  // 面接・成約 = 月次マージシートがあればそれを使用、なければDBから計算
+  // 【指標の定義】
+  // 担当 = 期間内に登録した かつ その担当者に割り当てられている求職者数
+  // 初回 = 上記のうち、ステータスが「初回連絡中」「連絡つかず」以外（＝初回コンタクト済み）の数
+  // 面接 = 下記いずれか。(1)月次マージシート: その月の面接数 (2)DB: 期間内に面接日(start_at)が含まれる面接に紐づく「ユニークな求職者数」（同一人で複数回面接しても1カウント）
+  // 成約 = 下記いずれか。(1)月次マージシート: その月の成約数 (2)DB: 期間内に承諾日等が含まれる契約のうち、その担当者の求職者に紐づく件数
+  // ※期間で切るため「今月成約した人」の面接が先月だと、今月の面接数には入らず成約だけ増えることがあり、成約＞面接になり得る。表示上は成約を面接以下にクリップする。
   const salesProgress = useMemo(() => {
     // ローディング中は古いデータを表示しない（空配列を返す）
     if (monthlyMetricsLoading) {
@@ -491,22 +563,56 @@ export default function DashboardSummaryPage() {
           closedCount = metric?.closed ?? 0
         } else {
           // フォールバック: DBから計算
+          // status_history ベースで集計（期間内にステータスが変わった求職者をカウント）
+          
+          // 面接数 = 期間内に status_history で面接以上のステータスになった求職者のユニーク数
           const interviewCandidateIds = new Set<string>()
-          periodInterviews.forEach((i) => {
-            const project = projects.find((p) => p.id === i.project_id)
-            if (project) {
-              const candidate = candidates.find((c) => c.id === project.candidate_id)
-              if (candidate && candidate.consultant_id === user.id) {
-                interviewCandidateIds.add(candidate.id)
-              }
+          periodInterviewStatusCandidateIds.forEach((candidateId) => {
+            const candidate = candidates.find((c) => c.id === candidateId)
+            if (candidate && candidate.consultant_id === user.id) {
+              interviewCandidateIds.add(candidateId)
             }
           })
+          
+          // status_history にデータがない場合の追加フォールバック（interviews.start_atベース）
+          // periodInterviewStatusCandidateIdsのuseMemo内で既にcandidatesテーブルから判定しているが、
+          // それでもデータがない場合はinterviewsテーブルから判定
+          if (periodInterviewStatusCandidateIds.size === 0 && statusHistory.length === 0) {
+            periodInterviews.forEach((i) => {
+              const project = projects.find((p) => p.id === i.project_id)
+              if (project) {
+                const candidate = candidates.find((c) => c.id === project.candidate_id)
+                if (candidate && candidate.consultant_id === user.id) {
+                  interviewCandidateIds.add(candidate.id)
+                }
+              }
+            })
+          }
           interviewCount = interviewCandidateIds.size
-          closedCount = periodContracts.filter((c) => {
-            const candidate = candidates.find((ca) => ca.id === c.candidate_id)
-            return candidate && candidate.consultant_id === user.id
-          }).length
+          
+          // 成約数 = 期間内に status_history で「内定承諾（成約）」になった求職者のユニーク数
+          const closedCandidateIds = new Set<string>()
+          periodClosedStatusCandidateIds.forEach((candidateId) => {
+            const candidate = candidates.find((c) => c.id === candidateId)
+            if (candidate && candidate.consultant_id === user.id) {
+              closedCandidateIds.add(candidateId)
+            }
+          })
+          
+          // status_history にデータがない場合のフォールバック（過去月など）
+          if (periodClosedStatusCandidateIds.size === 0) {
+            periodContracts.forEach((c) => {
+              const candidate = candidates.find((ca) => ca.id === c.candidate_id)
+              if (candidate && candidate.consultant_id === user.id) {
+                closedCandidateIds.add(candidate.id)
+              }
+            })
+          }
+          closedCount = closedCandidateIds.size
         }
+
+        // ファネル整合: 成約は面接を超えない（期間ずれで成約＞面接になることがあるため表示用にクリップ）
+        const closedCountClipped = Math.min(closedCount, interviewCount)
 
         return {
           userId: user.id,
@@ -514,14 +620,14 @@ export default function DashboardSummaryPage() {
           totalCount,
           firstContactCount,
           interviewCount,
-          closedCount,
+          closedCount: closedCountClipped,
         }
       })
 
     return progress
       .filter((p) => p.totalCount > 0)
       .sort((a, b) => b.totalCount - a.totalCount)
-  }, [users, periodCandidates, periodInterviews, periodContracts, projects, candidates, monthlyMetrics, monthlyMetricsLoading, isUserActiveInPeriod])
+  }, [users, periodCandidates, periodInterviews, periodInterviewStatusCandidateIds, periodClosedStatusCandidateIds, periodContracts, projects, candidates, monthlyMetrics, monthlyMetricsLoading, isUserActiveInPeriod])
 
   // 全体集計
   const totalProgress = useMemo(() => {
@@ -1149,25 +1255,25 @@ export default function DashboardSummaryPage() {
                     <TableHead className="text-slate-700 font-semibold bg-orange-50">
                       調整中
                     </TableHead>
-                    <TableHead className="text-slate-700 font-semibold bg-orange-50">
-                      面接前
+                    <TableHead className="text-slate-700 font-semibold bg-blue-50">
+                      面接確定済
                     </TableHead>
-                    <TableHead className="text-slate-700 font-semibold bg-orange-50">
-                      結果待ち
+                    <TableHead className="text-slate-700 font-semibold bg-green-50">
+                      面接実施済（結果待ち）
                     </TableHead>
-                    <TableHead className="text-slate-700 font-semibold bg-orange-50">
-                      本人返事待ち
+                    <TableHead className="text-slate-700 font-semibold bg-pink-50">
+                      内定獲得（返事待ち）
                     </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {salesProgress.map((progress) => {
-                    // CRM データ（DB）から面接状況を取得（月次マージシートではなくリアルタイムのデータを表示）
+                    // CRM データ（DB）から面接状況を取得（candidate.status ベースで面接一覧と統一）
                     const cases = getStatusCases[progress.userId] || {
                       adjusting: [],
-                      beforeInterview: [],
-                      waitingResult: [],
-                      waitingReply: [],
+                      scheduled: [],
+                      completed: [],
+                      offer: [],
                     }
 
                     return (
@@ -1189,9 +1295,9 @@ export default function DashboardSummaryPage() {
                           )}
                         </TableCell>
                         <TableCell className="text-sm text-slate-600">
-                          {cases.beforeInterview.length > 0 ? (
+                          {cases.scheduled.length > 0 ? (
                             <div className="space-y-1">
-                              {cases.beforeInterview.map((case_, idx) => (
+                              {cases.scheduled.map((case_, idx) => (
                                 <div key={idx}>
                                   {case_.name} {case_.yomi} {formatAmount(case_.amount)}
                                 </div>
@@ -1202,9 +1308,9 @@ export default function DashboardSummaryPage() {
                           )}
                         </TableCell>
                         <TableCell className="text-sm text-slate-600">
-                          {cases.waitingResult.length > 0 ? (
+                          {cases.completed.length > 0 ? (
                             <div className="space-y-1">
-                              {cases.waitingResult.map((case_, idx) => (
+                              {cases.completed.map((case_, idx) => (
                                 <div key={idx}>
                                   {case_.name} {case_.yomi} {formatAmount(case_.amount)}
                                 </div>
@@ -1215,9 +1321,9 @@ export default function DashboardSummaryPage() {
                           )}
                         </TableCell>
                         <TableCell className="text-sm text-slate-600">
-                          {cases.waitingReply.length > 0 ? (
+                          {cases.offer.length > 0 ? (
                             <div className="space-y-1">
-                              {cases.waitingReply.map((case_, idx) => (
+                              {cases.offer.map((case_, idx) => (
                                 <div key={idx}>
                                   {case_.name} {case_.yomi} {formatAmount(case_.amount)}
                                 </div>

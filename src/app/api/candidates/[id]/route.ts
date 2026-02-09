@@ -114,6 +114,17 @@ export async function PATCH(
       'rank',
     ] as const
 
+    // ステータス変更の場合、変更前のステータスを取得
+    let oldStatus: string | null = null
+    if (body.status !== undefined) {
+      const { data: oldData } = await supabase
+        .from('candidates')
+        .select('status')
+        .eq('id', id)
+        .single()
+      oldStatus = oldData?.status || null
+    }
+
     const updatePayload: Record<string, unknown> = { updated_at: new Date().toISOString() }
     for (const k of ALLOWED_KEYS) {
       if (body[k] !== undefined) updatePayload[k] = body[k]
@@ -133,6 +144,34 @@ export async function PATCH(
       }
       console.error('PATCH candidates error:', error.message, error.details)
       throw error
+    }
+
+    // ステータスが変更された場合、status_history と timeline_events に記録
+    if (body.status !== undefined && oldStatus && oldStatus !== body.status) {
+      const now = new Date().toISOString()
+
+      const { error: historyError } = await supabase.from('status_history').insert({
+        candidate_id: id,
+        old_status: oldStatus,
+        new_status: body.status as string,
+        changed_by: user.id,
+        changed_at: now,
+      })
+      if (historyError) {
+        console.error('status_history insert error:', historyError.message, { candidate_id: id })
+      }
+
+      const { error: timelineError } = await supabase.from('timeline_events').insert({
+        candidate_id: id,
+        event_type: 'status_change',
+        title: 'ステータス変更',
+        description: `${oldStatus} → ${body.status}`,
+        metadata: { from_status: oldStatus, to_status: body.status },
+        created_by: user.id,
+      })
+      if (timelineError) {
+        console.error('timeline_events insert error:', timelineError.message, { candidate_id: id })
+      }
     }
 
     // 求職者ステータスを「面接〜」にしたとき、面接一覧・ダッシュボードに反映するため interviews.status を同期する

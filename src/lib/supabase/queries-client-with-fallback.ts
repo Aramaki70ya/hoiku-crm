@@ -5,7 +5,7 @@
 
 import { isDemoMode } from './config'
 import { createClient } from './client'
-import type { Candidate, Project, Interview, User, Source, Contract } from '@/types/database'
+import type { Candidate, Project, Interview, User, Source, Contract, StatusHistory } from '@/types/database'
 
 // デモモード時はmock-data.tsからインポート
 let mockData: {
@@ -313,6 +313,34 @@ export async function getContractsClient(): Promise<Contract[]> {
       }
     }
     throw err instanceof Error ? err : new Error(`Failed to fetch contracts: ${String(err)}`)
+  }
+}
+
+// ========================================
+// StatusHistory (ステータス変更履歴)
+// ========================================
+
+export async function getStatusHistoryClient(): Promise<StatusHistory[]> {
+  if (isDemoMode()) {
+    return []
+  }
+
+  try {
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from('status_history')
+      .select('id, candidate_id, project_id, old_status, new_status, changed_by, changed_at, note')
+      .order('changed_at', { ascending: false })
+      .range(0, 49999)
+
+    if (error) {
+      logSupabaseError('status_history', error)
+      return []
+    }
+    return (data || []) as StatusHistory[]
+  } catch (err) {
+    logSupabaseError('status_history', err)
+    return []
   }
 }
 

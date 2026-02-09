@@ -156,11 +156,46 @@ export async function POST(request: NextRequest) {
 
     if (error) throw error
     
+    // 候補者のステータスを成約に更新する前に、現在のステータスを取得
+    const { data: oldCandidate } = await supabase
+      .from('candidates')
+      .select('status')
+      .eq('id', body.candidate_id)
+      .single()
+    
+    const oldStatus = oldCandidate?.status || null
+    
     // 候補者のステータスを成約に更新
     await supabase
       .from('candidates')
       .update({ status: '内定承諾（成約）', updated_at: now })
       .eq('id', body.candidate_id)
+    
+    // ステータスが変更された場合、status_history と timeline_events に記録
+    if (oldStatus && oldStatus !== '内定承諾（成約）') {
+      const { error: historyError } = await supabase.from('status_history').insert({
+        candidate_id: body.candidate_id,
+        old_status: oldStatus,
+        new_status: '内定承諾（成約）',
+        changed_by: user.id,
+        changed_at: now,
+      })
+      if (historyError) {
+        console.error('status_history insert error:', historyError.message, { candidate_id: body.candidate_id })
+      }
+
+      const { error: timelineError } = await supabase.from('timeline_events').insert({
+        candidate_id: body.candidate_id,
+        event_type: 'status_change',
+        title: 'ステータス変更',
+        description: `${oldStatus} → 内定承諾（成約）`,
+        metadata: { from_status: oldStatus, to_status: '内定承諾（成約）' },
+        created_by: user.id,
+      })
+      if (timelineError) {
+        console.error('timeline_events insert error:', timelineError.message, { candidate_id: body.candidate_id })
+      }
+    }
     
     return NextResponse.json({ data, message: '成約を登録しました' }, { status: 201 })
   } catch (error) {
