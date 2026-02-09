@@ -99,7 +99,9 @@ export type CandidateStatus =
 export interface Project {
   id: string
   candidate_id: string
-  client_name: string // 園名/法人名
+  client_name: string // 園名/法人名（互換用）
+  corporation_name: string | null // 法人名
+  garden_name: string | null // 園名
   phase: ProjectPhase
   expected_amount: number | null // ヨミ金額
   probability: 'A' | 'B' | 'C' | null // 確度
@@ -321,6 +323,7 @@ export interface UserMonthlyTarget {
   user_id: string
   sales_budget: number // 売上予算（円）
   interview_target: number // 面接設定目標
+  contract_target: number // 成約件数目標
   created_at: string
   updated_at: string
 }

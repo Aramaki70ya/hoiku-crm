@@ -13,15 +13,15 @@ export async function GET(request: NextRequest) {
       // デモモードではモックデータを返す
       return NextResponse.json({
         data: [
-          { user_id: '1', sales_budget: 3000000, interview_target: 8 },
-          { user_id: '2', sales_budget: 3000000, interview_target: 8 },
-          { user_id: '3', sales_budget: 3500000, interview_target: 8 },
-          { user_id: '4', sales_budget: 3500000, interview_target: 8 },
-          { user_id: '5', sales_budget: 3000000, interview_target: 8 },
-          { user_id: '6', sales_budget: 3000000, interview_target: 8 },
-          { user_id: '7', sales_budget: 3000000, interview_target: 8 },
-          { user_id: '8', sales_budget: 3000000, interview_target: 8 },
-          { user_id: '9', sales_budget: 3000000, interview_target: 8 },
+          { user_id: '1', sales_budget: 3000000, interview_target: 8, contract_target: 2 },
+          { user_id: '2', sales_budget: 3000000, interview_target: 8, contract_target: 2 },
+          { user_id: '3', sales_budget: 3500000, interview_target: 8, contract_target: 2 },
+          { user_id: '4', sales_budget: 3500000, interview_target: 8, contract_target: 2 },
+          { user_id: '5', sales_budget: 3000000, interview_target: 8, contract_target: 2 },
+          { user_id: '6', sales_budget: 3000000, interview_target: 8, contract_target: 2 },
+          { user_id: '7', sales_budget: 3000000, interview_target: 8, contract_target: 2 },
+          { user_id: '8', sales_budget: 3000000, interview_target: 8, contract_target: 2 },
+          { user_id: '9', sales_budget: 3000000, interview_target: 8, contract_target: 2 },
         ],
       })
     }
@@ -91,6 +91,7 @@ export async function POST(request: NextRequest) {
         user_id: body.user_id,
         sales_budget: body.sales_budget,
         interview_target: body.interview_target,
+        contract_target: body.contract_target,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'year_month,user_id' })
       .select()

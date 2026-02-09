@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS user_monthly_targets (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   sales_budget BIGINT NOT NULL DEFAULT 0, -- 売上予算（円）
   interview_target INT NOT NULL DEFAULT 8, -- 面接設定目標
+  contract_target INT NOT NULL DEFAULT 0, -- 成約件数目標
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE(year_month, user_id)
@@ -59,39 +60,39 @@ ON CONFLICT (year_month) DO NOTHING;
 
 -- 個人別初期データ（サンプル）
 -- 1課
-INSERT INTO user_monthly_targets (year_month, user_id, sales_budget, interview_target)
-SELECT '2026-01', id, 3000000, 8 FROM users WHERE name = '瀧澤'
+INSERT INTO user_monthly_targets (year_month, user_id, sales_budget, interview_target, contract_target)
+SELECT '2026-01', id, 3000000, 8, 2 FROM users WHERE name = '瀧澤'
 ON CONFLICT (year_month, user_id) DO NOTHING;
 
-INSERT INTO user_monthly_targets (year_month, user_id, sales_budget, interview_target)
-SELECT '2026-01', id, 3000000, 8 FROM users WHERE name = '戸部'
+INSERT INTO user_monthly_targets (year_month, user_id, sales_budget, interview_target, contract_target)
+SELECT '2026-01', id, 3000000, 8, 2 FROM users WHERE name = '戸部'
 ON CONFLICT (year_month, user_id) DO NOTHING;
 
-INSERT INTO user_monthly_targets (year_month, user_id, sales_budget, interview_target)
-SELECT '2026-01', id, 3000000, 8 FROM users WHERE name = '大塚'
+INSERT INTO user_monthly_targets (year_month, user_id, sales_budget, interview_target, contract_target)
+SELECT '2026-01', id, 3000000, 8, 2 FROM users WHERE name = '大塚'
 ON CONFLICT (year_month, user_id) DO NOTHING;
 
-INSERT INTO user_monthly_targets (year_month, user_id, sales_budget, interview_target)
-SELECT '2026-01', id, 3000000, 8 FROM users WHERE name = '松澤'
+INSERT INTO user_monthly_targets (year_month, user_id, sales_budget, interview_target, contract_target)
+SELECT '2026-01', id, 3000000, 8, 2 FROM users WHERE name = '松澤'
 ON CONFLICT (year_month, user_id) DO NOTHING;
 
 -- 2課
-INSERT INTO user_monthly_targets (year_month, user_id, sales_budget, interview_target)
-SELECT '2026-01', id, 3500000, 8 FROM users WHERE name = '西田'
+INSERT INTO user_monthly_targets (year_month, user_id, sales_budget, interview_target, contract_target)
+SELECT '2026-01', id, 3500000, 8, 2 FROM users WHERE name = '西田'
 ON CONFLICT (year_month, user_id) DO NOTHING;
 
-INSERT INTO user_monthly_targets (year_month, user_id, sales_budget, interview_target)
-SELECT '2026-01', id, 3500000, 8 FROM users WHERE name = '鈴木'
+INSERT INTO user_monthly_targets (year_month, user_id, sales_budget, interview_target, contract_target)
+SELECT '2026-01', id, 3500000, 8, 2 FROM users WHERE name = '鈴木'
 ON CONFLICT (year_month, user_id) DO NOTHING;
 
-INSERT INTO user_monthly_targets (year_month, user_id, sales_budget, interview_target)
-SELECT '2026-01', id, 3000000, 8 FROM users WHERE name = '後藤'
+INSERT INTO user_monthly_targets (year_month, user_id, sales_budget, interview_target, contract_target)
+SELECT '2026-01', id, 3000000, 8, 2 FROM users WHERE name = '後藤'
 ON CONFLICT (year_month, user_id) DO NOTHING;
 
-INSERT INTO user_monthly_targets (year_month, user_id, sales_budget, interview_target)
-SELECT '2026-01', id, 3000000, 8 FROM users WHERE name = '小畦'
+INSERT INTO user_monthly_targets (year_month, user_id, sales_budget, interview_target, contract_target)
+SELECT '2026-01', id, 3000000, 8, 2 FROM users WHERE name = '小畦'
 ON CONFLICT (year_month, user_id) DO NOTHING;
 
-INSERT INTO user_monthly_targets (year_month, user_id, sales_budget, interview_target)
-SELECT '2026-01', id, 3000000, 8 FROM users WHERE name = '吉田'
+INSERT INTO user_monthly_targets (year_month, user_id, sales_budget, interview_target, contract_target)
+SELECT '2026-01', id, 3000000, 8, 2 FROM users WHERE name = '吉田'
 ON CONFLICT (year_month, user_id) DO NOTHING;
