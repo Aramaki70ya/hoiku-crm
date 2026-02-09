@@ -11,6 +11,18 @@ type CandidateInsert = Database['public']['Tables']['candidates']['Insert']
 /** 1リクエストあたりの最大処理行数（連絡先一覧CSV 2000行超を想定） */
 const MAX_ROWS = 3000
 
+/**
+ * 氏名比較用の正規化（スペースのみ無視）
+ * シート「東浦 美結」とDB「東浦美結」は同一とみなす。
+ * 「(再登録)」は除去しない＝再登録は別人物として扱い、同じIDなら更新せずスキップ（シート側で別IDの新行として追加する想定）
+ */
+function normalizeNameForCompare(name: string): string {
+  if (!name || typeof name !== 'string') return ''
+  const s = name.trim()
+  // すべてのスペース（半角・全角）を除去するだけ。（再登録）は残す
+  return s.replace(/[\s\u3000]/g, '')
+}
+
 export interface SyncResult {
   inserted: number
   skipped: number
@@ -75,12 +87,6 @@ export async function syncCandidatesFromRows(
   const registeredAtById = new Map<string, string | null>(
     existingList.map((r) => [r.id, r.registered_at ?? null])
   )
-  // 電話番号重複チェック用（正規化済みの番号を収集）
-  const existingPhones = new Set<string>()
-  for (const r of existingList) {
-    const norm = normalizePhone(r.phone ?? '')
-    if (norm) existingPhones.add(norm)
-  }
 
   const { data: users } = await supabase.from('users').select('id, name')
   const userList = (users ?? []) as { id: string; name: string }[]
@@ -106,10 +112,12 @@ export async function syncCandidatesFromRows(
 
     const name = parsed.name ?? ''
     if (existingIds.has(id)) {
-      // 誤上書き防止: シートの氏名とDBの氏名が一致しない場合は更新しない（行ずれ・IDずれの疑い）
+      // 誤上書き防止: 氏名は「スペース無視・(再登録)等無視」で正規化して比較。一致しない場合のみスキップ
       const dbName = (nameById.get(id) ?? '').trim()
       const sheetName = (parsed.name ?? '').trim()
-      if (dbName !== '' && sheetName !== '' && dbName !== sheetName) {
+      const dbNorm = normalizeNameForCompare(dbName)
+      const sheetNorm = normalizeNameForCompare(sheetName)
+      if (dbNorm !== '' && sheetNorm !== '' && dbNorm !== sheetNorm) {
         result.errors.push({
           row: i + 1,
           id,
@@ -170,14 +178,9 @@ export async function syncCandidatesFromRows(
       continue
     }
 
-    // 電話番号重複チェック（ID は新規だが同一電話番号が既存ならスキップ）
-    const normPhone = normalizePhone(parsed.phone ?? '')
-    if (normPhone && existingPhones.has(normPhone)) {
-      result.skipped += 1
-      result.skippedLog.push({ id, name })
-      continue
-    }
+    // 重複判定は ID と氏名のみ。電話番号でのスキップは行わない。
 
+    const normPhone = normalizePhone(parsed.phone ?? '')
     const consultantName = (row['担当者'] ?? '').toString().trim()
     const primaryConsultant = consultantName.split(/[・\s]/)[0]?.trim()
     const consultant_id = primaryConsultant ? nameToUserId.get(primaryConsultant) ?? null : null
@@ -216,7 +219,6 @@ export async function syncCandidatesFromRows(
     result.inserted += 1
     result.insertedLog.push({ id, name })
     existingIds.add(id)
-    if (normPhone) existingPhones.add(normPhone)
   }
 
   return result
