@@ -50,13 +50,12 @@ import {
   STATUS_LIST,
   statusLabels,
   statusColors,
-  mapLegacyStatusToNewStatus,
   type StatusType
 } from '@/lib/status-mapping'
 import { useCandidates } from '@/hooks/useCandidates'
 import { useUsers } from '@/hooks/useUsers'
 import { useSources } from '@/hooks/useSources'
-import type { CandidateWithRelations } from '@/types/database'
+import type { CandidateWithRelations, CandidateStatus } from '@/types/database'
 
 // アプローチ優先度を取得する関数（タスク画面用）
 const getApproachPriority = (candidate: CandidateWithRelations) => {
@@ -191,6 +190,11 @@ function CandidatesPageContent() {
     await updateCandidate(candidateId, { desired_employment_type: value })
   }, [updateCandidate])
 
+  // ステータス変更ハンドラー
+  const handleStatusChange = useCallback(async (candidateId: string, newStatus: string) => {
+    await updateCandidate(candidateId, { status: newStatus as CandidateStatus })
+  }, [updateCandidate])
+
   // 新規登録ハンドラー
   const handleCreateCandidate = async () => {
     if (!newCandidate.name.trim()) {
@@ -268,8 +272,7 @@ function CandidatesPageContent() {
     const counts: Record<string, number> = { S: 0, A: 0, B: 0, C: 0 }
     rawCandidates
       .filter(c => {
-        const mappedStatus = mapLegacyStatusToNewStatus(c.status)
-        return activeStatuses.includes(mappedStatus)
+        return activeStatuses.includes(c.status as StatusType)
       })
       .forEach(c => {
         const priority = localPriorities[c.id] || getApproachPriority(c)
@@ -281,7 +284,7 @@ function CandidatesPageContent() {
   // フィルタリング（ステータスは DB のみ参照）
   const filteredCandidates = useMemo(() => {
     let filtered = rawCandidates.filter((candidate) => {
-      const currentStatus = mapLegacyStatusToNewStatus(candidate.status)
+      const currentStatus = candidate.status as StatusType
 
       // タブによるフィルタ
       if (activeTab === 'tasks' && !activeStatuses.includes(currentStatus)) {
@@ -328,8 +331,8 @@ function CandidatesPageContent() {
         const nameB = (b.kana || b.name || '').toLowerCase()
         compare = nameA.localeCompare(nameB, 'ja')
       } else if (sortBy === 'status') {
-        const statusA = mapLegacyStatusToNewStatus(a.status)
-        const statusB = mapLegacyStatusToNewStatus(b.status)
+        const statusA = a.status ?? ''
+        const statusB = b.status ?? ''
         compare = statusA.localeCompare(statusB, 'ja')
       }
       
@@ -341,8 +344,7 @@ function CandidatesPageContent() {
 
   const allCount = rawCandidates.length
   const taskCount = rawCandidates.filter(c => {
-    const mappedStatus = mapLegacyStatusToNewStatus(c.status)
-    return activeStatuses.includes(mappedStatus)
+    return activeStatuses.includes(c.status as StatusType)
   }).length
 
   const today = new Date().toLocaleDateString('ja-JP', {
@@ -710,17 +712,32 @@ function CandidatesPageContent() {
                     </Select>
                   </TableCell>
                   <TableCell>
-                    {(() => {
-                      const currentStatus = mapLegacyStatusToNewStatus(candidate.status)
-                      return (
-                        <Badge
-                          variant="outline"
-                          className={statusColors[currentStatus] || 'bg-slate-100 text-slate-700 border-slate-200'}
-                        >
-                          {statusLabels[currentStatus] || currentStatus}
-                        </Badge>
-                      )
-                    })()}
+                    <Select
+                      value={candidate.status}
+                      onValueChange={(value) => handleStatusChange(candidate.id, value)}
+                    >
+                      <SelectTrigger className="h-7 w-fit p-0 border-0 bg-transparent hover:bg-slate-50">
+                        <SelectValue>
+                          <Badge
+                            variant="outline"
+                            className={statusColors[candidate.status as StatusType] || 'bg-slate-100 text-slate-700 border-slate-200'}
+                          >
+                            {statusLabels[candidate.status as StatusType] || candidate.status}
+                          </Badge>
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent className="bg-white border-slate-200">
+                        {STATUS_LIST.map((status) => (
+                          <SelectItem key={status} value={status}>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className={statusColors[status]}>
+                                {statusLabels[status]}
+                              </Badge>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </TableCell>
                   <TableCell className="w-[200px] max-w-[200px] p-2 align-middle">
                     {candidate.memo ? (
