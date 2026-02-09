@@ -10,7 +10,7 @@
 
 **含まれるデータ**:
 - `mockCandidates`: 求職者マスタ
-- `mockProjects`: 案件（選考プロセス）
+- `mockProjects`: 案件（選考プロセス、園名/法人名を分けて保持）
 - `mockInterviews`: 面接ログ
 - `mockUsers`: ユーザー（コンサルタント）
 - `mockContracts`: 成約情報

@@ -8,8 +8,8 @@ import { rowToCandidateForSync, normalizePhone, type SpreadsheetRow } from './cs
 
 type CandidateInsert = Database['public']['Tables']['candidates']['Insert']
 
-/** 1リクエストあたりの最大処理行数 */
-const MAX_ROWS = 200
+/** 1リクエストあたりの最大処理行数（連絡先一覧CSV 2000行超を想定） */
+const MAX_ROWS = 3000
 
 export interface SyncResult {
   inserted: number
@@ -58,19 +58,20 @@ export async function syncCandidatesFromRows(
 
   // Supabase はデフォルトで最大1000件しか返さないため、全件取得するまでページングする
   const PAGE_SIZE = 1000
-  const existingList: { id: string; registered_at: string | null; phone: string | null }[] = []
+  const existingList: { id: string; name: string | null; registered_at: string | null; phone: string | null }[] = []
   let offset = 0
   while (true) {
     const { data: page } = await supabase
       .from('candidates')
-      .select('id, registered_at, phone')
+      .select('id, name, registered_at, phone')
       .range(offset, offset + PAGE_SIZE - 1)
-    const pageRows = (page ?? []) as { id: string; registered_at: string | null; phone: string | null }[]
+    const pageRows = (page ?? []) as { id: string; name: string | null; registered_at: string | null; phone: string | null }[]
     existingList.push(...pageRows)
     if (pageRows.length < PAGE_SIZE) break
     offset += PAGE_SIZE
   }
   const existingIds = new Set(existingList.map((r) => r.id))
+  const nameById = new Map<string, string>(existingList.map((r) => [r.id, (r.name ?? '').trim()]))
   const registeredAtById = new Map<string, string | null>(
     existingList.map((r) => [r.id, r.registered_at ?? null])
   )
@@ -105,6 +106,20 @@ export async function syncCandidatesFromRows(
 
     const name = parsed.name ?? ''
     if (existingIds.has(id)) {
+      // 誤上書き防止: シートの氏名とDBの氏名が一致しない場合は更新しない（行ずれ・IDずれの疑い）
+      const dbName = (nameById.get(id) ?? '').trim()
+      const sheetName = (parsed.name ?? '').trim()
+      if (dbName !== '' && sheetName !== '' && dbName !== sheetName) {
+        result.errors.push({
+          row: i + 1,
+          id,
+          message: `氏名不一致のため更新をスキップしました。シート「${sheetName}」／DB「${dbName}」。行ずれ・ID列の誤りがないか確認してください。`,
+        })
+        result.skipped += 1
+        result.skippedLog.push({ id, name: sheetName })
+        continue
+      }
+
       const rowDate = parsed.registered_at ?? null
       const currentRegisteredAt = registeredAtById.get(id) ?? null
       const normPhone = normalizePhone(parsed.phone ?? '')
@@ -115,7 +130,12 @@ export async function syncCandidatesFromRows(
       }
       if (normPhone) updates.phone = normPhone
       if (parsed.email != null && parsed.email !== '') updates.email = parsed.email
-      if (parsed.age != null && parsed.age > 0 && parsed.age < 120) updates.age = parsed.age
+      // 有効な年齢なら更新。CSVで126/125/空は「不明」なので null で上書き（DBの不正値をクリア）
+      if (parsed.age != null && parsed.age > 0 && parsed.age < 120) {
+        updates.age = parsed.age
+      } else {
+        updates.age = null
+      }
       if (parsed.birth_date != null && parsed.birth_date !== '') updates.birth_date = parsed.birth_date
       if (parsed.prefecture != null && parsed.prefecture !== '') updates.prefecture = parsed.prefecture
       if (parsed.address != null && parsed.address !== '') updates.address = parsed.address
@@ -178,7 +198,7 @@ export async function syncCandidatesFromRows(
       qualification: parsed.qualification ?? null,
       desired_employment_type: parsed.desired_employment_type ?? null,
       desired_job_type: parsed.desired_job_type ?? null,
-      status: parsed.status ?? 'new',
+      status: parsed.status ?? '初回連絡中',
       source_id,
       registered_at: parsed.registered_at ?? null,
       consultant_id,

@@ -82,18 +82,25 @@ export interface Candidate {
   updated_at: string
 }
 
-// 求職者ステータス
+// 求職者ステータス（新体系・日本語）
 export type CandidateStatus =
-  | 'new' // 新規
-  | 'contacting' // 連絡中
-  | 'first_contact_done' // 初回済み
-  | 'proposing' // 提案中
-  | 'interviewing' // 面接中
-  | 'offer' // 内定
-  | 'closed_won' // 成約
-  | 'closed_lost' // NG
-  | 'pending' // 追客中
-  | 'on_hold' // 意向回収
+  | '初回連絡中'
+  | '連絡つかず（初回未接触）'
+  | '提案求人選定中'
+  | '求人提案済（返信待ち）'
+  | '書類選考中'
+  | '面接日程調整中'
+  | '面接確定済'
+  | '面接実施済（結果待ち）'
+  | '内定獲得（承諾確認中）'
+  | '内定承諾（成約）'
+  | '内定辞退'
+  | '音信不通'
+  | '追客中（中長期フォロー）'
+  | 'クローズ（終了）'
+  | '見学提案~設定'
+  | '再ヒアリング・条件変更あり'
+  | '初回ヒアリング実施済'
 
 // 案件（選考プロセス）
 export interface Project {
@@ -113,16 +120,16 @@ export interface Project {
   updated_at: string
 }
 
-// 案件フェーズ
+// 案件フェーズ（新体系・日本語）
 export type ProjectPhase =
-  | 'proposed' // 提案済
-  | 'document_screening' // 書類選考中
-  | 'interview_scheduled' // 面接予定
-  | 'interviewing' // 面接中
-  | 'offer' // 内定
-  | 'accepted' // 入社確定
-  | 'rejected' // 不採用
-  | 'withdrawn' // 辞退
+  | '提案済'
+  | '書類選考中'
+  | '面接予定'
+  | '面接中'
+  | '内定'
+  | '入社確定'
+  | '不採用'
+  | '辞退'
 
 // 面接・面談ログ
 export interface Interview {
@@ -144,11 +151,12 @@ export type InterviewType =
   | 'second_interview' // 二次面接
   | 'final_interview' // 最終面接
 
+// 面接ステータス（新体系・日本語）
 export type InterviewStatus =
-  | 'scheduled' // 予定
-  | 'completed' // 完了
-  | 'cancelled' // キャンセル
-  | 'rescheduling' // リスケ中
+  | '予定'
+  | '実施済'
+  | 'キャンセル'
+  | '調整中'
 
 // ユーザー（コンサルタント）
 export interface User {

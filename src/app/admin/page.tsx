@@ -33,7 +33,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { statusLabels } from '@/lib/mock-data'
+import { statusLabels } from '@/lib/status-mapping'
 import { useUsers } from '@/hooks/useUsers'
 import { useSources } from '@/hooks/useSources'
 import type { User, Source } from '@/types/database'

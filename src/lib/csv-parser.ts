@@ -3,7 +3,8 @@
  * 既存のCSVファイルからデータを読み込み、システムの型に変換する
  */
 
-import type { Candidate, CandidateStatus } from '@/types/database'
+import type { Candidate } from '@/types/database'
+import type { StatusType } from '@/lib/status-mapping'
 
 // CSVの1行を表す型（連絡先一覧.csv）
 interface CsvRow {
@@ -31,17 +32,35 @@ interface CsvRow {
 }
 
 // ステータスのマッピング（スプレッドシート取り込み用にエクスポート）
-export const spreadsheetStatusMap: Record<string, CandidateStatus> = {
-  '新規': 'new',
-  '連絡中': 'contacting',
-  '初回済み': 'first_contact_done',
-  '提案中': 'proposing',
-  '面接中': 'interviewing',
-  '内定': 'offer',
-  '成約': 'closed_won',
-  'NG': 'closed_lost',
-  '追客中': 'pending',
-  '意向回収': 'on_hold',
+export const spreadsheetStatusMap: Record<string, StatusType> = {
+  '新規': '初回連絡中',
+  '連絡中': '初回連絡中',
+  '初回済み': '初回ヒアリング実施済',
+  '提案中': '提案求人選定中',
+  '面接中': '面接確定済',
+  '内定': '内定獲得（承諾確認中）',
+  '成約': '内定承諾（成約）',
+  'NG': 'クローズ（終了）',
+  '追客中': '追客中（中長期フォロー）',
+  '意向回収': '音信不通',
+  // 新体系のステータスがそのまま来る場合もマッピング
+  '初回連絡中': '初回連絡中',
+  '連絡つかず（初回未接触）': '連絡つかず（初回未接触）',
+  '提案求人選定中': '提案求人選定中',
+  '求人提案済（返信待ち）': '求人提案済（返信待ち）',
+  '書類選考中': '書類選考中',
+  '面接日程調整中': '面接日程調整中',
+  '面接確定済': '面接確定済',
+  '面接実施済（結果待ち）': '面接実施済（結果待ち）',
+  '内定獲得（承諾確認中）': '内定獲得（承諾確認中）',
+  '内定承諾（成約）': '内定承諾（成約）',
+  '内定辞退': '内定辞退',
+  '音信不通': '音信不通',
+  '追客中（中長期フォロー）': '追客中（中長期フォロー）',
+  'クローズ（終了）': 'クローズ（終了）',
+  '見学提案~設定': '見学提案~設定',
+  '再ヒアリング・条件変更あり': '再ヒアリング・条件変更あり',
+  '初回ヒアリング実施済': '初回ヒアリング実施済',
 }
 
 /**
@@ -111,18 +130,20 @@ export function csvRowToCandidate(row: CsvRow): Partial<Candidate> | null {
   if (!row.ID || row.ID === '' || row.ID === '125') return null
   
   // ステータスの変換
-  const status = spreadsheetStatusMap[row.ステータス] || 'new'
+  const status = spreadsheetStatusMap[row.ステータス] || '初回連絡中'
   
-  // 年齢の計算（125は無効値）
-  const age = row.年齢 && row.年齢 !== '125' ? parseInt(row.年齢, 10) : null
+  const birth_date = parseDateString(row.生年月日)
+  // 年齢: 125・126 は「不明」のダミー値なので null。有効範囲は 1〜119
+  const rawAge = row.年齢 && row.年齢 !== '125' && row.年齢 !== '126' ? parseInt(row.年齢, 10) : null
+  const age = rawAge != null && !isNaN(rawAge) && rawAge > 0 && rawAge < 120 ? rawAge : null
   
   return {
     id: row.ID,
     name: row.氏名 || '',
     phone: normalizePhone(row.電話番号),
     email: row.メールアドレス || null,
-    birth_date: parseDateString(row.生年月日),
-    age: age && !isNaN(age) ? age : null,
+    birth_date,
+    age,
     prefecture: row.都道府県 || null,
     address: row.市区町村 || null,
     qualification: row.保有資格 || null,

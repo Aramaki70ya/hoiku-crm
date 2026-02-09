@@ -140,7 +140,7 @@ export async function POST(request: NextRequest) {
         qualification: body.qualification || null,
         desired_employment_type: body.desired_employment_type || null,
         desired_job_type: body.desired_job_type || null,
-        status: body.status || 'new',
+        status: body.status || '初回連絡中',
         source_id: body.source_id || null,
         registered_at: body.registered_at || now.split('T')[0],
         consultant_id: body.consultant_id || null,

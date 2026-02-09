@@ -80,13 +80,25 @@ export async function PATCH(
     }
     
     const body = await request.json()
-    
+    const gardenName = typeof body.garden_name === 'string' ? body.garden_name.trim() : ''
+    const corporationName = typeof body.corporation_name === 'string' ? body.corporation_name.trim() : ''
+    const clientName = typeof body.client_name === 'string' ? body.client_name.trim() : ''
+    const displayName = clientName || [gardenName, corporationName].filter(Boolean).join(' / ')
+    const updateRow: Record<string, unknown> = {
+      garden_name: gardenName || null,
+      corporation_name: corporationName || null,
+      phase: body.phase,
+      ...(displayName && { client_name: displayName }),
+      expected_amount: body.expected_amount ?? null,
+      probability: body.probability ?? null,
+      probability_month: body.probability_month ?? null,
+      expected_entry_date: body.expected_entry_date ?? null,
+      note: body.note ?? null,
+      updated_at: new Date().toISOString(),
+    }
     const { data, error } = await supabase
       .from('projects')
-      .update({
-        ...body,
-        updated_at: new Date().toISOString()
-      })
+      .update(updateRow)
       .eq('id', id)
       .select()
       .single()
@@ -101,7 +113,8 @@ export async function PATCH(
     return NextResponse.json({ data, message: 'プロジェクト情報を更新しました' })
   } catch (error) {
     console.error('Error updating project:', error)
-    return NextResponse.json({ error: 'サーバーエラー' }, { status: 500 })
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+    return NextResponse.json({ error: 'サーバーエラー', details: errorMessage }, { status: 500 })
   }
 }
 

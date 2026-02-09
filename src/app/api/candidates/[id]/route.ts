@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { isDemoMode } from '@/lib/supabase/config'
-import { mapNewStatusToLegacy } from '@/lib/status-mapping'
+import { candidateStatusToInterviewStatus } from '@/lib/status-mapping'
 
 // Next.js サーバーレベルのキャッシュを完全に無効化
 export const dynamic = 'force-dynamic'
@@ -118,9 +118,7 @@ export async function PATCH(
     for (const k of ALLOWED_KEYS) {
       if (body[k] !== undefined) updatePayload[k] = body[k]
     }
-    if (typeof updatePayload.status === 'string') {
-      updatePayload.status = mapNewStatusToLegacy(updatePayload.status)
-    }
+    // 新体系ではDBにそのまま日本語で保存（変換不要）
 
     const { data, error } = await supabase
       .from('candidates')
@@ -139,12 +137,7 @@ export async function PATCH(
 
     // 求職者ステータスを「面接〜」にしたとき、面接一覧・ダッシュボードに反映するため interviews.status を同期する
     const rawStatus = body.status as string | undefined
-    const interviewStatusByCandidateStatus: Record<string, 'rescheduling' | 'scheduled' | 'completed'> = {
-      '面接日程調整中': 'rescheduling',
-      '面接確定済': 'scheduled',
-      '面接実施済（結果待ち）': 'completed',
-    }
-    const targetInterviewStatus = rawStatus ? interviewStatusByCandidateStatus[rawStatus] : null
+    const targetInterviewStatus = rawStatus ? candidateStatusToInterviewStatus[rawStatus] : null
     if (targetInterviewStatus) {
       const { data: projects } = await supabase.from('projects').select('id').eq('candidate_id', id)
       if (projects && projects.length > 0) {
@@ -153,7 +146,7 @@ export async function PATCH(
           .from('interviews')
           .select('id, start_at')
           .in('project_id', projectIds)
-          .neq('status', 'cancelled')
+          .neq('status', 'キャンセル')
           .order('start_at', { ascending: false })
         const toUpdate = candidateInterviews && candidateInterviews.length > 0 ? candidateInterviews[0] : null
         if (toUpdate?.id) {

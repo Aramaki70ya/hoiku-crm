@@ -99,7 +99,9 @@ CREATE TRIGGER update_candidates_updated_at
 CREATE TABLE IF NOT EXISTS projects (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   candidate_id TEXT NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
-  client_name TEXT NOT NULL, -- 園名/法人名
+  client_name TEXT NOT NULL, -- 園名/法人名（互換用）
+  corporation_name TEXT, -- 法人名
+  garden_name TEXT, -- 園名
   phase TEXT NOT NULL DEFAULT 'proposed' CHECK (phase IN (
     'proposed', 'document_screening', 'interview_scheduled',
     'interviewing', 'offer', 'accepted', 'rejected', 'withdrawn'
@@ -180,6 +182,9 @@ CREATE POLICY "Authenticated users can insert interviews"
 
 CREATE POLICY "Authenticated users can update interviews"
   ON interviews FOR UPDATE TO authenticated USING (true);
+
+CREATE POLICY "Authenticated users can delete interviews"
+  ON interviews FOR DELETE TO authenticated USING (true);
 
 -- ========================================
 -- 7. 成約テーブル

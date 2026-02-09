@@ -119,13 +119,20 @@ export async function DELETE(
       return NextResponse.json({ error: '認証が必要です' }, { status: 401 })
     }
     
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('interviews')
       .delete()
       .eq('id', id)
+      .select('id')
 
     if (error) throw error
-    
+    if (!data || data.length === 0) {
+      return NextResponse.json(
+        { error: '面接が見つからないか、削除権限がありません', details: 'RLSのDELETEポリシーを確認してください' },
+        { status: 404 }
+      )
+    }
+
     return NextResponse.json({ message: '面接を削除しました' })
   } catch (error) {
     console.error('Error deleting interview:', error)

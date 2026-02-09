@@ -81,9 +81,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '候補者IDは必須です' }, { status: 400 })
     }
     
-    if (!body.client_name) {
-      return NextResponse.json({ error: '園名/法人名は必須です' }, { status: 400 })
+    const gardenName = typeof body.garden_name === 'string' ? body.garden_name.trim() : ''
+    const corporationName = typeof body.corporation_name === 'string' ? body.corporation_name.trim() : ''
+    const clientName = typeof body.client_name === 'string' ? body.client_name.trim() : ''
+
+    if (!clientName && (!gardenName || !corporationName)) {
+      return NextResponse.json({ error: '園名と法人名は必須です' }, { status: 400 })
     }
+
+    const displayName = clientName || [gardenName, corporationName].filter(Boolean).join(' / ')
     
     const now = new Date().toISOString()
     
@@ -91,8 +97,10 @@ export async function POST(request: NextRequest) {
       .from('projects')
       .insert({
         candidate_id: body.candidate_id,
-        client_name: body.client_name,
-        phase: body.phase || 'proposed',
+        client_name: displayName,
+        garden_name: gardenName || null,
+        corporation_name: corporationName || null,
+        phase: body.phase || '提案済',
         expected_amount: body.expected_amount || null,
         probability: body.probability || null,
         probability_month: body.probability_month || 'current',
@@ -107,8 +115,10 @@ export async function POST(request: NextRequest) {
     if (error) throw error
     
     return NextResponse.json({ data, message: 'プロジェクトを登録しました' }, { status: 201 })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error creating project:', error)
-    return NextResponse.json({ error: 'サーバーエラー' }, { status: 500 })
+    const err = error as { message?: string; details?: string; code?: string }
+    const details = err?.message ?? err?.details ?? (error instanceof Error ? error.message : String(error))
+    return NextResponse.json({ error: 'サーバーエラー', details: details || 'Unknown error' }, { status: 500 })
   }
 }

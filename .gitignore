@@ -40,3 +40,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# DBバックアップ（scripts/backup-db.js の出力）
+/supabase/backups/

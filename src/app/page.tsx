@@ -49,11 +49,13 @@ import {
 import type { Candidate, Project, User, Contract, Source, Interview } from '@/types/database'
 import {
   totalBudget as defaultBudget,
+  kpiAssumptions as defaultKpiAssumptions,
+} from '@/lib/mock-data'
+import {
   statusLabels,
   statusColors,
   processStatusLabels,
-  kpiAssumptions as defaultKpiAssumptions,
-} from '@/lib/mock-data'
+} from '@/lib/status-mapping'
 import type { MonthlyTarget } from '@/types/database'
 
 type PeriodType = 'current_month' | 'previous_month' | 'custom'
@@ -367,7 +369,7 @@ export default function DashboardPage() {
       }
       
       // candidate.statusが確定状態（NG、追客中、意向回収）の場合は、それを優先
-      if (['closed_lost', 'pending', 'on_hold'].includes(c.status)) {
+      if (['クローズ（終了）', '追客中（中長期フォロー）', '音信不通'].includes(c.status)) {
         const process = processStatusLabels[c.status] || c.status
         counts[process] = (counts[process] || 0) + 1
         return
@@ -385,14 +387,14 @@ export default function DashboardPage() {
       if (candidateProjects.length > 0) {
         // プロジェクトのフェーズを優先度順に並べる
         const phasePriority: Record<string, number> = {
-          'accepted': 7,
-          'offer': 6,
-          'interviewing': 5,
-          'interview_scheduled': 4,
-          'document_screening': 3,
-          'proposed': 2,
-          'rejected': 1,
-          'withdrawn': 1,
+          '入社確定': 7,
+          '内定': 6,
+          '面接中': 5,
+          '面接予定': 4,
+          '書類選考中': 3,
+          '提案済': 2,
+          '不採用': 1,
+          '辞退': 1,
         }
         
         // 最も進んでいるプロジェクトを取得
@@ -404,24 +406,24 @@ export default function DashboardPage() {
         
         // プロジェクトのフェーズに基づいてプロセスを決定
         switch (mostAdvancedProject.phase) {
-          case 'proposed':
-          case 'document_screening':
+          case '提案済':
+          case '書類選考中':
             process = '提案フェーズ'
             break
-          case 'interview_scheduled':
-          case 'interviewing':
+          case '面接予定':
+          case '面接中':
             process = '面接フェーズ'
             break
-          case 'offer':
+          case '内定':
             process = '内定確認中'
             break
-          case 'accepted':
-            // project.phase === 'accepted'は「入社確定」だが、contractsに存在しない場合は「内定確認中」として扱う
+          case '入社確定':
+            // project.phase === '入社確定'だが、contractsに存在しない場合は「内定確認中」として扱う
             // （実際の成約管理ではcontractsテーブルが基準）
             process = '内定確認中'
             break
-          case 'rejected':
-          case 'withdrawn':
+          case '不採用':
+          case '辞退':
             process = '内定辞退'
             break
           default:
@@ -442,7 +444,7 @@ export default function DashboardPage() {
   // 期間内の実績計算
   const periodRegistrations = periodCandidates.length
   const periodFirstContacts = periodCandidates.filter(c => 
-    !['new', 'contacting'].includes(c.status)
+    !['初回連絡中', '連絡つかず（初回未接触）'].includes(c.status)
   ).length
   
   // 期間内に面接を設定したユニークな求職者数

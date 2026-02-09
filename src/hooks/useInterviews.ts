@@ -8,6 +8,8 @@ interface EnrichedInterview extends Interview {
     id: string
     candidate_id: string
     client_name: string
+    garden_name?: string | null
+    corporation_name?: string | null
     phase: string
     candidate?: {
       id: string

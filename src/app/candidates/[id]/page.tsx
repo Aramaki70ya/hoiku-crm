@@ -50,7 +50,6 @@ import {
   STATUS_LIST,
   statusLabels,
   statusColors,
-  mapLegacyStatusToNewStatus,
   type StatusType,
 } from '@/lib/status-mapping'
 import type { Contract, Candidate, Project, Interview, User, Source } from '@/types/database'
@@ -122,7 +121,7 @@ export default function CandidateDetailPage({ params }: PageProps) {
       const { data: candidateData } = await candidateRes.json()
       setCandidate(candidateData)
       setCandidateStatus(
-        mapLegacyStatusToNewStatus(candidateData.status || 'new') as StatusType
+        (candidateData.status || '初回連絡中') as StatusType
       )
       
       // 求職者情報が取得できたら、すぐにローディングを解除（段階的ローディング）
@@ -180,9 +179,9 @@ export default function CandidateDetailPage({ params }: PageProps) {
     fetchData()
   }, [fetchData])
 
-  // DBのステータスを正とする。レガシー値は new 体系に変換（一覧と同じ）
-  const currentStatus = mapLegacyStatusToNewStatus(
-    candidateStatus || candidate?.status || 'new'
+  // DBのステータスを正とする（日本語ステータス値をそのまま使用）
+  const currentStatus = (
+    candidateStatus || candidate?.status || '初回連絡中'
   ) as StatusType
   
   const from = searchParams.get('from')
@@ -333,7 +332,7 @@ export default function CandidateDetailPage({ params }: PageProps) {
   const [projectForm, setProjectForm] = useState({
     garden_name: '',
     corporation_name: '',
-    phase: 'interview_scheduled',
+    phase: '面接予定',
     interview_date: '',
     probability: '' as '' | 'A' | 'B' | 'C',
     expected_amount: '',
@@ -491,7 +490,7 @@ export default function CandidateDetailPage({ params }: PageProps) {
           client_name: projectDisplay.combined || gardenName,
           garden_name: gardenName,
           corporation_name: corporationName,
-          phase: 'interview_scheduled',
+          phase: '面接予定',
         }),
       })
       
@@ -516,7 +515,7 @@ export default function CandidateDetailPage({ params }: PageProps) {
             type: 'interview',
             start_at: projectForm.interview_date,
             location: projectDisplay.combined || gardenName,
-            status: 'rescheduling',
+            status: '調整中',
           }),
         })
         
@@ -546,13 +545,13 @@ export default function CandidateDetailPage({ params }: PageProps) {
         setProjectForm({
           garden_name: '',
           corporation_name: '',
-          phase: 'interview_scheduled',
-          interview_date: '',
-          probability: '',
-          expected_amount: '',
-        })
-        setIsEditDialogOpen(false)
-        setEditType(null)
+                  phase: '面接予定',
+                  interview_date: '',
+                  probability: '',
+                  expected_amount: '',
+                })
+                setIsEditDialogOpen(false)
+                setEditType(null)
       } else {
         const errorText = await projectRes.text()
         let errorMessage = errorText
@@ -616,7 +615,7 @@ export default function CandidateDetailPage({ params }: PageProps) {
           body: JSON.stringify({
             candidate_id: candidate.id,
             client_name: '未設定',
-            phase: 'proposed',
+            phase: '提案済',
             probability: yomiForm.probability,
             probability_month: yomiForm.probability_month,
             expected_amount: yomiForm.expected_amount,
@@ -1139,7 +1138,7 @@ export default function CandidateDetailPage({ params }: PageProps) {
                 setProjectForm({
                   garden_name: '',
                   corporation_name: '',
-                  phase: 'interview_scheduled',
+                  phase: '面接予定',
                   interview_date: '',
                   probability: '',
                   expected_amount: '',
@@ -1235,9 +1234,9 @@ export default function CandidateDetailPage({ params }: PageProps) {
                             </p>
                           </div>
                           <Badge className="bg-cyan-100 text-cyan-700 border-cyan-200">
-                            {project.phase === 'interview_scheduled'
+                            {project.phase === '面接予定'
                               ? '面接予定'
-                              : project.phase === 'accepted'
+                              : project.phase === '入社確定'
                               ? '入社確定'
                               : project.phase}
                           </Badge>

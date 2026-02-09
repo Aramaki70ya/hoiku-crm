@@ -159,7 +159,7 @@ export async function POST(request: NextRequest) {
     // 候補者のステータスを成約に更新
     await supabase
       .from('candidates')
-      .update({ status: 'closed_won', updated_at: now })
+      .update({ status: '内定承諾（成約）', updated_at: now })
       .eq('id', body.candidate_id)
     
     return NextResponse.json({ data, message: '成約を登録しました' }, { status: 201 })

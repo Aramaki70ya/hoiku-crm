@@ -43,6 +43,7 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status') || 'all'
     const consultantId = searchParams.get('consultant_id') || 'all'
     
+    // projects に garden_name/corporation_name がないDBでも動くよう、まずは client_name のみ取得
     let query = supabase
       .from('interviews')
       .select(`
@@ -128,7 +129,7 @@ export async function POST(request: NextRequest) {
       start_at: body.start_at,
       end_at: body.end_at || null,
       location: body.location || null,
-      status: body.status || 'scheduled',
+      status: body.status || '予定',
       feedback: body.feedback || null,
       created_at: now,
     }

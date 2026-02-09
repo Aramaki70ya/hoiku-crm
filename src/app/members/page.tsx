@@ -35,12 +35,23 @@ import { Plus, Edit2, MessageSquare, TrendingUp, Users, ChevronLeft, ChevronRigh
 import { Label } from '@/components/ui/label'
 import {
   mockMemberStats,
+} from '@/lib/mock-data'
+import {
   statusLabels,
   statusColors,
-} from '@/lib/mock-data'
+} from '@/lib/status-mapping'
 import { useCandidates } from '@/hooks/useCandidates'
 import { useUsers } from '@/hooks/useUsers'
-import type { Project } from '@/types/database'
+import type { Project, CandidateStatus } from '@/types/database'
+
+const getProjectDisplayName = (project?: Project) => {
+  const gardenName = project?.garden_name?.trim() || ''
+  const corporationName = project?.corporation_name?.trim() || ''
+  const fallbackName = project?.client_name?.trim() || ''
+  const title = gardenName || fallbackName || corporationName || '-'
+  const subtitle = gardenName && corporationName ? corporationName : ''
+  return { title, subtitle }
+}
 
 function MembersPageContent() {
   const searchParams = useSearchParams()
@@ -115,7 +126,7 @@ function MembersPageContent() {
   const handleSaveEdit = useCallback(async (candidateId: string, status: string, memo: string) => {
     setLocalCandidateStatuses(prev => ({ ...prev, [candidateId]: status }))
     setLocalCandidateMemos(prev => ({ ...prev, [candidateId]: memo }))
-    await updateCandidate(candidateId, { status: status as 'new' | 'contacting' | 'first_contact_done' | 'proposing' | 'interviewing' | 'offer' | 'closed_won' | 'closed_lost' | 'pending' | 'on_hold', memo })
+    await updateCandidate(candidateId, { status: status as CandidateStatus, memo })
   }, [updateCandidate])
 
   // ローディング中の表示
@@ -292,13 +303,23 @@ function MembersPageContent() {
                               <TableCell className="px-6">
                                 <Badge
                                   variant="outline"
-                                  className={statusColors[candidate.status]}
+                                  className={statusColors[candidate.status as CandidateStatus]}
                                 >
-                                  {statusLabels[candidate.status]}
+                                  {statusLabels[candidate.status as CandidateStatus]}
                                 </Badge>
                               </TableCell>
                               <TableCell className="text-slate-700 text-sm px-6">
-                                {project?.client_name || '-'}
+                                {(() => {
+                                  const destination = getProjectDisplayName(project)
+                                  return (
+                                    <div className="flex flex-col">
+                                      <span>{destination.title}</span>
+                                      {destination.subtitle && (
+                                        <span className="text-xs text-slate-500">法人: {destination.subtitle}</span>
+                                      )}
+                                    </div>
+                                  )
+                                })()}
                               </TableCell>
                               <TableCell className="px-6">
                                 {project && (
@@ -360,7 +381,7 @@ function MembersPageContent() {
                                             {Object.entries(statusLabels).map(([value, label]) => (
                                               <SelectItem key={value} value={value}>
                                                 <div className="flex items-center gap-2">
-                                                  <Badge variant="outline" className={statusColors[value]}>
+                                                  <Badge variant="outline" className={statusColors[value as CandidateStatus]}>
                                                     {label}
                                                   </Badge>
                                                 </div>

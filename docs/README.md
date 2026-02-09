@@ -236,6 +236,7 @@ A: [AIエージェント向け判断ガイド](./AI_AGENT_GUIDE.md) を参照。
 - [プロジェクトルートのREADME](../README.md) - プロジェクトの概要
 - [DATABASE_DESIGN.md](../DATABASE_DESIGN.md) - データベース設計の詳細
 - [SETUP.md](../SETUP.md) - 開発環境のセットアップ
+- [二人開発セットアップ（GitHub・Vercel・Cursor）](../../二人開発セットアップ_GitHub_Vercel_Cursor.md) - 二人で開発するときの GitHub / Vercel / Cursor の共有手順
 
 ---
 

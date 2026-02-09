@@ -398,9 +398,9 @@ export default function DashboardSummaryPage() {
           if (projectInterviews.length === 0) return
 
           // 各ステータスごとにフィルタ
-          const reschedulingInterviews = projectInterviews.filter((i) => i.status === 'rescheduling')
-          const scheduledInterviews = projectInterviews.filter((i) => i.status === 'scheduled')
-          const completedInterviews = projectInterviews.filter((i) => i.status === 'completed')
+          const reschedulingInterviews = projectInterviews.filter((i) => i.status === '調整中')
+          const scheduledInterviews = projectInterviews.filter((i) => i.status === '予定')
+          const completedInterviews = projectInterviews.filter((i) => i.status === '実施済')
 
           // ヨミの表示用フォーマット
           const yomiLabel = project.probability
@@ -431,11 +431,11 @@ export default function DashboardSummaryPage() {
             setIfNewer(beforeInterviewMap, candidate.id, caseInfo, updated_at)
           }
           // 結果待ち: 面接が終了し、結果を待っている案件
-          else if (completedInterviews.length > 0 && candidate.status !== 'offer') {
+          else if (completedInterviews.length > 0 && candidate.status !== '内定獲得（承諾確認中）') {
             setIfNewer(waitingResultMap, candidate.id, caseInfo, updated_at)
           }
           // 本人返事待ち: 内定が出て、本人からの返事を待っている案件
-          if (project.phase === 'offer' || candidate.status === 'offer') {
+          if (project.phase === '内定' || candidate.status === '内定獲得（承諾確認中）') {
             setIfNewer(waitingReplyMap, candidate.id, caseInfo, updated_at)
           }
         })
@@ -462,78 +462,51 @@ export default function DashboardSummaryPage() {
     return retiredDate >= periodStart
   }, [getPeriodDates])
 
-  // 月次マージシートから営業進捗を計算（期間対応）
-  // 月次マージシートのデータが利用可能な場合はそれを使用、そうでない場合は従来のロジックにフォールバック
+  // 営業進捗を計算（担当・初回は「期間内に登録した」求職者のみで集計）
+  // 担当 = 期間内に登録した かつ 担当者に割り当てられている求職者数
+  // 初回 = 上記のうち、初回コンタクト済みの数
+  // 面接・成約 = 月次マージシートがあればそれを使用、なければDBから計算
   const salesProgress = useMemo(() => {
     // ローディング中は古いデータを表示しない（空配列を返す）
     if (monthlyMetricsLoading) {
       return []
     }
-    
-    // 月次マージシートのデータが利用可能な場合
-    if (monthlyMetrics.length > 0) {
-      return users
-        .filter((u) => u.role !== 'admin' && isUserActiveInPeriod(u))
-        .map((user) => {
-          // 月次マージシートから該当ユーザーのデータを取得
-          const metric = monthlyMetrics.find((m) => m.consultant === user.name)
-          
-          if (metric) {
-            return {
-              userId: user.id,
-              userName: user.name,
-              totalCount: metric.assigned,
-              firstContactCount: metric.firstContact,
-              interviewCount: metric.interview,
-              closedCount: metric.closed,
-            }
-          }
-          
-          // 月次マージシートにデータがない場合は0を返す
-          return {
-            userId: user.id,
-            userName: user.name,
-            totalCount: 0,
-            firstContactCount: 0,
-            interviewCount: 0,
-            closedCount: 0,
-          }
-        })
-        .filter((p) => p.totalCount > 0) // 担当数が0のメンバーを除外
-        .sort((a, b) => b.totalCount - a.totalCount)
-    }
-    
-    // フォールバック: 従来のロジック（月次マージシートのデータが利用できない場合）
+
     const progress = users
       .filter((u) => u.role !== 'admin' && isUserActiveInPeriod(u))
       .map((user) => {
-        // 期間内に登録された求職者（担当件数）
+        // 担当・初回は常に「期間内に登録した」求職者ベースで計算
         const userPeriodCandidates = periodCandidates.filter((c) => c.consultant_id === user.id)
         const totalCount = userPeriodCandidates.length
-
-        // 初回連絡済み（ステータスがfirst_contact_done以降）
         const firstContactCount = userPeriodCandidates.filter(
-          (c) => !['new', 'contacting'].includes(c.status)
+          (c) => !['初回連絡中', '連絡つかず（初回未接触）'].includes(c.status)
         ).length
 
-        // 期間内に面接を設定したユニークな求職者数（start_atで判定）
-        const interviewCandidateIds = new Set<string>()
-        periodInterviews.forEach((i) => {
-          const project = projects.find((p) => p.id === i.project_id)
-          if (project) {
-            const candidate = candidates.find((c) => c.id === project.candidate_id)
-            if (candidate && candidate.consultant_id === user.id) {
-              interviewCandidateIds.add(candidate.id)
+        // 面接・成約は月次マージシートがあればそれを使用
+        let interviewCount: number
+        let closedCount: number
+        if (monthlyMetrics.length > 0) {
+          const metric = monthlyMetrics.find((m) => m.consultant === user.name)
+          interviewCount = metric?.interview ?? 0
+          closedCount = metric?.closed ?? 0
+        } else {
+          // フォールバック: DBから計算
+          const interviewCandidateIds = new Set<string>()
+          periodInterviews.forEach((i) => {
+            const project = projects.find((p) => p.id === i.project_id)
+            if (project) {
+              const candidate = candidates.find((c) => c.id === project.candidate_id)
+              if (candidate && candidate.consultant_id === user.id) {
+                interviewCandidateIds.add(candidate.id)
+              }
             }
-          }
-        })
-        const interviewCount = interviewCandidateIds.size
-
-        // 期間内に成約を設定した数（contracted_at/accepted_dateで判定）
-        const closedCount = periodContracts.filter((c) => {
-          const candidate = candidates.find((ca) => ca.id === c.candidate_id)
-          return candidate && candidate.consultant_id === user.id
-        }).length
+          })
+          interviewCount = interviewCandidateIds.size
+          closedCount = periodContracts.filter((c) => {
+            const candidate = candidates.find((ca) => ca.id === c.candidate_id)
+            return candidate && candidate.consultant_id === user.id
+          }).length
+        }
 
         return {
           userId: user.id,
@@ -544,12 +517,11 @@ export default function DashboardSummaryPage() {
           closedCount,
         }
       })
-    
-    // 担当が多い順（totalCount降順）でソートし、担当数が0のメンバーを除外
+
     return progress
-      .filter((p) => p.totalCount > 0) // 担当数が0のメンバーを除外
+      .filter((p) => p.totalCount > 0)
       .sort((a, b) => b.totalCount - a.totalCount)
-  }, [users, periodCandidates, periodInterviews, periodContracts, projects, candidates, periodType, monthlyMetrics, monthlyMetricsLoading, isUserActiveInPeriod])
+  }, [users, periodCandidates, periodInterviews, periodContracts, projects, candidates, monthlyMetrics, monthlyMetricsLoading, isUserActiveInPeriod])
 
   // 全体集計
   const totalProgress = useMemo(() => {
