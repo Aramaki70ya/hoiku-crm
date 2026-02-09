@@ -554,7 +554,7 @@ export default function DashboardSummaryPage() {
   // 初回 = 上記のうち、ステータスが「初回連絡中」「連絡つかず」以外（＝初回コンタクト済み）の数
   // 面接 = (1)月次マージシートにその月データがあればマージシートの値 (2)なければDB: 期間内に status_history で「面接フェーズ」ステータスに変わった人のユニーク数を担当者ごとに集計（interviews テーブルは使わない）
   // 成約 = (1)同上マージシート (2)なければDB: 期間内の成約(status_history＋contracts)のユニーク求職者数を担当者ごとに集計
-  // ※表示上は成約を面接以下にクリップする。
+  // ※「先月面接→今月成約」のケースで成約＞面接は正当に起きるため、クリップしない。
   const salesProgress = useMemo(() => {
     // ローディング中は古いデータを表示しない（空配列を返す）
     if (monthlyMetricsLoading) {
@@ -604,16 +604,14 @@ export default function DashboardSummaryPage() {
           closedCount = closedCandidateIds.size
         }
 
-        // ファネル整合: 成約は面接を超えない（期間ずれで成約＞面接になることがあるため表示用にクリップ）
-        const closedCountClipped = Math.min(closedCount, interviewCount)
-
+        // 成約＞面接は「先月面接→今月成約」で正当に起きるため、クリップしない
         return {
           userId: user.id,
           userName: user.name,
           totalCount,
           firstContactCount,
           interviewCount,
-          closedCount: closedCountClipped,
+          closedCount,
         }
       })
 
