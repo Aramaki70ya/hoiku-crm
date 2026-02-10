@@ -89,12 +89,29 @@ export default function DashboardPage() {
     revenuePerClosed: defaultKpiAssumptions.revenuePerClosed,
   })
 
-  // 現在の年月を取得
-  const getCurrentYearMonth = () => {
+  // 選択期間に対応するyear_monthを取得
+  const getTargetYearMonth = useMemo(() => {
     const now = new Date()
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-  }
+    switch (periodType) {
+      case 'current_month':
+        return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+      case 'previous_month': {
+        const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+        return `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`
+      }
+      case 'custom': {
+        if (customStartDate) {
+          const customDate = new Date(customStartDate)
+          return `${customDate.getFullYear()}-${String(customDate.getMonth() + 1).padStart(2, '0')}`
+        }
+        return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+      }
+      default:
+        return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    }
+  }, [periodType, customStartDate])
 
+  // データ取得（初回のみ）
   useEffect(() => {
     async function fetchData() {
       try {
@@ -129,32 +146,6 @@ export default function DashboardPage() {
             }))
           })
         }
-        
-        // 月次目標を取得
-        try {
-          const yearMonth = getCurrentYearMonth()
-          const targetsRes = await fetch(`/api/targets?year_month=${yearMonth}`)
-          if (targetsRes.ok) {
-            const { data: targetsData } = await targetsRes.json()
-            if (targetsData) {
-              setBudget(targetsData.total_sales_budget || defaultBudget)
-              setKpiAssumptions({
-                registrationToFirstContactRate: Number(targetsData.registration_to_first_contact_rate) || defaultKpiAssumptions.registrationToFirstContactRate,
-                firstContactToInterviewRate: Number(targetsData.first_contact_to_interview_rate) || defaultKpiAssumptions.firstContactToInterviewRate,
-                interviewToClosedRate: Number(targetsData.interview_to_closed_rate) || defaultKpiAssumptions.interviewToClosedRate,
-                revenuePerClosed: targetsData.closed_unit_price || defaultKpiAssumptions.revenuePerClosed,
-              })
-              setKpiForm({
-                registrationToFirstContactRate: Number(targetsData.registration_to_first_contact_rate) * 100 || defaultKpiAssumptions.registrationToFirstContactRate * 100,
-                firstContactToInterviewRate: Number(targetsData.first_contact_to_interview_rate) * 100 || defaultKpiAssumptions.firstContactToInterviewRate * 100,
-                interviewToClosedRate: Number(targetsData.interview_to_closed_rate) * 100 || defaultKpiAssumptions.interviewToClosedRate * 100,
-                revenuePerClosed: targetsData.closed_unit_price || defaultKpiAssumptions.revenuePerClosed,
-              })
-            }
-          }
-        } catch (err) {
-          console.error('目標データ取得エラー:', err)
-        }
       } catch (error) {
         console.error('Error fetching data:', error)
         // エラー時は空配列を設定（既存の動作を維持）
@@ -171,15 +162,54 @@ export default function DashboardPage() {
     fetchData()
   }, [])
 
-  // 目標データを保存する関数
+  // 月次目標を期間に応じて取得（期間変更時に再取得）
+  useEffect(() => {
+    async function fetchTargets() {
+      try {
+        const targetsRes = await fetch(`/api/targets?year_month=${getTargetYearMonth}`)
+        if (targetsRes.ok) {
+          const { data: targetsData } = await targetsRes.json()
+          if (targetsData) {
+            setBudget(targetsData.total_sales_budget || defaultBudget)
+            setKpiAssumptions({
+              registrationToFirstContactRate: Number(targetsData.registration_to_first_contact_rate) || defaultKpiAssumptions.registrationToFirstContactRate,
+              firstContactToInterviewRate: Number(targetsData.first_contact_to_interview_rate) || defaultKpiAssumptions.firstContactToInterviewRate,
+              interviewToClosedRate: Number(targetsData.interview_to_closed_rate) || defaultKpiAssumptions.interviewToClosedRate,
+              revenuePerClosed: targetsData.closed_unit_price || defaultKpiAssumptions.revenuePerClosed,
+            })
+            setKpiForm({
+              registrationToFirstContactRate: Number(targetsData.registration_to_first_contact_rate) * 100 || defaultKpiAssumptions.registrationToFirstContactRate * 100,
+              firstContactToInterviewRate: Number(targetsData.first_contact_to_interview_rate) * 100 || defaultKpiAssumptions.firstContactToInterviewRate * 100,
+              interviewToClosedRate: Number(targetsData.interview_to_closed_rate) * 100 || defaultKpiAssumptions.interviewToClosedRate * 100,
+              revenuePerClosed: targetsData.closed_unit_price || defaultKpiAssumptions.revenuePerClosed,
+            })
+          } else {
+            // 該当月の目標が未設定の場合はデフォルト値に戻す
+            setBudget(defaultBudget)
+            setKpiAssumptions(defaultKpiAssumptions)
+            setKpiForm({
+              registrationToFirstContactRate: defaultKpiAssumptions.registrationToFirstContactRate * 100,
+              firstContactToInterviewRate: defaultKpiAssumptions.firstContactToInterviewRate * 100,
+              interviewToClosedRate: defaultKpiAssumptions.interviewToClosedRate * 100,
+              revenuePerClosed: defaultKpiAssumptions.revenuePerClosed,
+            })
+          }
+        }
+      } catch (err) {
+        console.error('目標データ取得エラー:', err)
+      }
+    }
+    fetchTargets()
+  }, [getTargetYearMonth])
+
+  // 目標データを保存する関数（選択期間の月に保存）
   const saveTargets = async (newBudget?: number, newKpi?: typeof kpiAssumptions) => {
     try {
-      const yearMonth = getCurrentYearMonth()
       await fetch('/api/targets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          year_month: yearMonth,
+          year_month: getTargetYearMonth,
           total_sales_budget: newBudget ?? budget,
           registration_to_first_contact_rate: (newKpi ?? kpiAssumptions).registrationToFirstContactRate,
           first_contact_to_interview_rate: (newKpi ?? kpiAssumptions).firstContactToInterviewRate,
