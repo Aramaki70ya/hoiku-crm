@@ -7,6 +7,7 @@ interface UseCandidatesOptions {
   status?: string
   consultantId?: string
   search?: string
+  month?: string
   limit?: number
   offset?: number
 }
@@ -57,6 +58,7 @@ export function useCandidates(options: UseCandidatesOptions = {}): UseCandidates
       if (options.status && options.status !== 'all') params.set('status', options.status)
       if (options.consultantId && options.consultantId !== 'all') params.set('consultant_id', options.consultantId)
       if (options.search) params.set('search', options.search)
+      if (options.month) params.set('month', options.month)
       if (options.limit) params.set('limit', options.limit.toString())
       if (options.offset) params.set('offset', options.offset.toString())
       // キャッシュを完全に回避するためタイムスタンプを付与
@@ -79,7 +81,7 @@ export function useCandidates(options: UseCandidatesOptions = {}): UseCandidates
     } finally {
       setIsLoading(false)
     }
-  }, [options.status, options.consultantId, options.search, options.limit, options.offset])
+  }, [options.status, options.consultantId, options.search, options.month, options.limit, options.offset])
 
   const createCandidate = useCallback(async (data: CreateCandidateInput): Promise<CandidateWithRelations | null> => {
     try {

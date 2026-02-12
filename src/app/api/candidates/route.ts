@@ -68,6 +68,15 @@ export async function GET(request: NextRequest) {
       query = query.or(`name.ilike.%${search}%,id.ilike.%${search}%,phone.ilike.%${search}%`)
     }
 
+    // 登録月フィルタ（例: month=2025-02）
+    const month = searchParams.get('month') || ''
+    if (month && /^\d{4}-\d{2}$/.test(month)) {
+      const [y, m] = month.split('-').map(Number)
+      const startDate = `${y}-${String(m).padStart(2, '0')}-01`
+      const nextMonth = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`
+      query = query.gte('registered_at', startDate).lt('registered_at', nextMonth)
+    }
+
     if (limit) {
       query = query.range(offset, offset + limit - 1)
     }

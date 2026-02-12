@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useCallback, useEffect, Suspense } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef, Suspense } from 'react'
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { AppLayout } from '@/components/layout/app-layout'
@@ -31,6 +31,7 @@ import {
   Search, 
   Phone, 
   Mail, 
+  ChevronLeft,
   ChevronRight, 
   Users, 
   Star, 
@@ -102,6 +103,8 @@ function CandidatesPageContent() {
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [priorityFilter, setPriorityFilter] = useState<string>('all')
   const [activeTab, setActiveTab] = useState<'all' | 'tasks'>('all')
+  const [monthFilter, setMonthFilter] = useState<string>('all')
+  const [currentPage, setCurrentPage] = useState(1)
   const [sortBy, setSortBy] = useState<'registered_at' | 'priority' | 'name' | 'status'>('registered_at')
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc')
   const [localConsultants, setLocalConsultants] = useState<Record<string, string>>({})
@@ -137,12 +140,37 @@ function CandidatesPageContent() {
     return 'all'
   }, [searchParams, consultants])
 
+  const PAGE_SIZE = 50
   const { candidates: rawCandidates, total: apiTotal, isLoading, createCandidate, updateCandidate, refetch } = useCandidates({
     search: searchQuery,
     consultantId: consultantFilter,
-    // 担当フィルタ時は全件出したいので上限を上げる（Supabase は 1000 までなので 1000）
-    limit: consultantFilter !== 'all' ? 1000 : 100,
+    month: monthFilter !== 'all' ? monthFilter : undefined,
+    limit: PAGE_SIZE,
+    offset: (currentPage - 1) * PAGE_SIZE,
   })
+
+  // フィルタ変更時にページを1にリセット
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchQuery, consultantFilter, statusFilter, monthFilter, activeTab, priorityFilter])
+
+  // ページ変更時に画面上部へスクロール
+  const isFirstRender = useRef(true)
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false
+      return
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }, [currentPage])
+
+  // 現在のページにデータがない場合、1ページ目に戻す
+  useEffect(() => {
+    if (rawCandidates.length === 0 && currentPage > 1 && !isLoading) {
+      setCurrentPage(1)
+    }
+  }, [rawCandidates.length, currentPage, isLoading])
+
   const { sources } = useSources()
   const consultantLabel = consultantFilter !== 'all' ? consultants.find((u) => u.id === consultantFilter)?.name : null
 
@@ -266,6 +294,23 @@ function CandidatesPageContent() {
     })
     setIsNewDialogOpen(true)
   }
+
+  // 登録月の一覧（DB 全体から取得）
+  const [availableMonths, setAvailableMonths] = useState<string[]>([])
+  useEffect(() => {
+    const fetchMonths = async () => {
+      try {
+        const res = await fetch('/api/candidates/months')
+        if (res.ok) {
+          const { months } = await res.json()
+          setAvailableMonths(months || [])
+        }
+      } catch {
+        // エラー時は空のまま
+      }
+    }
+    fetchMonths()
+  }, [])
 
   // 優先度別カウント（タスクタブ用）
   const priorityCounts = useMemo(() => {
@@ -392,6 +437,28 @@ function CandidatesPageContent() {
           </TabsTrigger>
         </TabsList>
       </Tabs>
+
+      {/* 登録月フィルター */}
+      <div className="flex items-center gap-2 mb-4">
+        <span className="text-sm text-slate-600 font-medium">登録月:</span>
+        <Select value={monthFilter} onValueChange={setMonthFilter}>
+          <SelectTrigger className="w-44 bg-white border-slate-200 text-slate-700 shadow-sm">
+            <SelectValue placeholder="すべて" />
+          </SelectTrigger>
+          <SelectContent className="bg-white border-slate-200">
+            <SelectItem value="all">すべて</SelectItem>
+            {availableMonths.map((ym) => {
+              const [y, m] = ym.split('-')
+              const label = `${y}年${parseInt(m, 10)}月`
+              return (
+                <SelectItem key={ym} value={ym}>
+                  {label}
+                </SelectItem>
+              )
+            })}
+          </SelectContent>
+        </Select>
+      </div>
 
       {/* タスクタブの場合：優先度サマリーカード（コンパクト版） */}
       {activeTab === 'tasks' && (
@@ -551,9 +618,92 @@ function CandidatesPageContent() {
           {searchQuery && <span>{consultantLabel ? ' さらに検索「' : '検索「'}{searchQuery}」を適用しています。検索欄を空にすると該当担当の全員が表示されます。</span>}
         </div>
       )}
-      {consultantFilter !== 'all' && apiTotal > rawCandidates.length && (
+      {consultantFilter !== 'all' && apiTotal > 1000 && (
         <div className="mb-3 px-1 text-sm text-amber-600">
           該当は全{apiTotal}件あります。表示は最大1000件までです。検索で絞ると一覧しやすくなります。
+        </div>
+      )}
+
+      {/* ページネーション（テーブル上部） */}
+      {apiTotal > 0 && (
+        <div className="flex items-center justify-between gap-4 mb-4 p-3 bg-white rounded-lg border border-slate-200 shadow-sm">
+          <span className="text-sm text-slate-600">
+            全{apiTotal}件中 {(currentPage - 1) * PAGE_SIZE + 1}〜{Math.min(currentPage * PAGE_SIZE, apiTotal)}件を表示
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage <= 1}
+              className="h-8 gap-1"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              前へ
+            </Button>
+            <div className="flex items-center gap-1">
+              {(() => {
+                const totalPages = Math.ceil(apiTotal / PAGE_SIZE)
+                const maxVisible = 5
+                let start = Math.max(1, currentPage - Math.floor(maxVisible / 2))
+                let end = Math.min(totalPages, start + maxVisible - 1)
+                if (end - start + 1 < maxVisible) start = Math.max(1, end - maxVisible + 1)
+                const pages: number[] = []
+                for (let i = start; i <= end; i++) pages.push(i)
+                return (
+                  <>
+                    {start > 1 && (
+                      <>
+                        <Button
+                          variant={currentPage === 1 ? 'default' : 'outline'}
+                          size="sm"
+                          className="h-8 w-8 p-0"
+                          onClick={() => setCurrentPage(1)}
+                        >
+                          1
+                        </Button>
+                        {start > 2 && <span className="px-1 text-slate-400">…</span>}
+                      </>
+                    )}
+                    {pages.map((p) => (
+                      <Button
+                        key={p}
+                        variant={currentPage === p ? 'default' : 'outline'}
+                        size="sm"
+                        className="h-8 w-8 p-0"
+                        onClick={() => setCurrentPage(p)}
+                      >
+                        {p}
+                      </Button>
+                    ))}
+                    {end < totalPages && (
+                      <>
+                        {end < totalPages - 1 && <span className="px-1 text-slate-400">…</span>}
+                        <Button
+                          variant={currentPage === totalPages ? 'default' : 'outline'}
+                          size="sm"
+                          className="h-8 w-8 p-0"
+                          onClick={() => setCurrentPage(totalPages)}
+                        >
+                          {totalPages}
+                        </Button>
+                      </>
+                    )}
+                  </>
+                )
+              })()}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage((p) => Math.min(Math.ceil(apiTotal / PAGE_SIZE), p + 1))}
+              disabled={currentPage >= Math.ceil(apiTotal / PAGE_SIZE)}
+              className="h-8 gap-1"
+            >
+              次へ
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          </div>
         </div>
       )}
 
