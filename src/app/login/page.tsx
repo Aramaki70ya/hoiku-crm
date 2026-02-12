@@ -2,7 +2,9 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { getSupabaseUrl, getSupabaseAnonKey, hasSupabaseConfig } from '@/lib/supabase/config'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -22,7 +24,29 @@ export default function LoginPage() {
     setError(null)
 
     try {
-      // createBrowserClient は window 依存のため、イベントハンドラ内で取得（SSR 回避）
+      // Supabase に届くか先に確認（Failed to fetch の原因切り分け）
+      const url = getSupabaseUrl()
+      const key = getSupabaseAnonKey()
+      if (hasSupabaseConfig() && url.includes('supabase.co') && !url.includes('demo.supabase.co')) {
+        try {
+          const healthRes = await fetch(`${url}/auth/v1/health`, {
+            method: 'GET',
+            headers: { apikey: key },
+          })
+          if (!healthRes.ok) {
+            setError(
+              `Supabaseに接続できましたがエラーです（${healthRes.status}）。プロジェクトが一時停止している可能性があります。ダッシュボードで「Restore project」を実行してください。`
+            )
+            return
+          }
+        } catch (healthErr) {
+          setError(
+            'SupabaseのURLに接続できません。.env.local の NEXT_PUBLIC_SUPABASE_URL が正しいか、Supabaseダッシュボードでプロジェクトが「Paused」でないか確認し、開発サーバーを再起動してください。'
+          )
+          return
+        }
+      }
+
       const supabase = createClient()
       const { error } = await supabase.auth.signInWithPassword({
         email,
@@ -88,7 +112,14 @@ export default function LoginPage() {
       router.push('/')
       router.refresh()
     } catch (err) {
-      setError('ログインに失敗しました')
+      const message = err instanceof Error ? err.message : 'ログインに失敗しました'
+      if (message.includes('Failed to fetch') || message.includes('fetch')) {
+        setError(
+          'Supabaseに接続できません。.env.local の設定、Supabaseプロジェクトの稼働、開発サーバーの再起動を確認してください。詳しくは /debug-auth の「Supabase接続テスト」を実行してください。'
+        )
+      } else {
+        setError(message)
+      }
     } finally {
       setLoading(false)
     }
@@ -136,8 +167,16 @@ export default function LoginPage() {
             </div>
             
             {error && (
-              <div className="text-sm text-red-500 text-center bg-red-50 p-2 rounded">
-                {error}
+              <div className="text-sm text-red-500 text-center bg-red-50 p-2 rounded space-y-2">
+                <p>{error}</p>
+                {error.includes('Supabaseに接続できません') && (
+                  <Link
+                    href="/debug-auth"
+                    className="text-violet-600 hover:underline block"
+                  >
+                    → 接続診断ページで確認
+                  </Link>
+                )}
               </div>
             )}
 
