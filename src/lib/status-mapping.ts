@@ -124,7 +124,18 @@ export const FIRST_CONTACT_STATUSES: StatusType[] = [
 ]
 
 /**
- * 面接設定済みとみなすステータス一覧
+ * 面接フェーズに入ったとみなすステータス一覧（当月の面接数カウント用）
+ * 「その月に面接フェーズに入った人」を判定する際に使用
+ */
+export const INTERVIEW_PHASE_STATUSES: StatusType[] = [
+  '面接日程調整中',
+  '面接確定済',
+  '面接実施済（結果待ち）',
+]
+
+/**
+ * 面接設定済みとみなすステータス一覧（過去の面接経験判定用）
+ * 面接日程調整中のみの場合は「面接経験あり」としない（日程調整だけでキャンセルのケースを考慮）
  */
 export const INTERVIEW_SET_STATUSES: StatusType[] = [
   '面接確定済',
