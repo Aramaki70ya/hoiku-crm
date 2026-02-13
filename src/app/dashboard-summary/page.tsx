@@ -49,6 +49,7 @@ import {
   getInterviewsClient as getInterviews,
   getStatusHistoryClient as getStatusHistory,
 } from '@/lib/supabase/queries-client-with-fallback'
+import { INTERVIEW_PHASE_STATUSES, INTERVIEW_SET_STATUSES } from '@/lib/status-mapping'
 import type { Candidate, Project, Interview, User, Contract, StatusHistory } from '@/types/database'
 
 type PeriodType = 'current_month' | 'previous_month' | 'custom'
@@ -290,7 +291,7 @@ export default function DashboardSummaryPage() {
   }
 
   // 期間の開始日・終了日を計算
-  const getPeriodDates = useMemo(() => {
+  const periodDates = useMemo(() => {
     const now = new Date()
     let startDate: Date
     let endDate: Date
@@ -325,17 +326,17 @@ export default function DashboardSummaryPage() {
   }, [periodType, customStartDate, customEndDate])
   // 期間内のデータをフィルタリング
   const periodCandidates = useMemo(() => {
-    const { startDate, endDate } = getPeriodDates
+    const { startDate, endDate } = periodDates
     return candidates.filter(c => {
       if (!c.registered_at) return false
       const registeredDate = new Date(c.registered_at)
       return registeredDate >= startDate && registeredDate <= endDate
     })
-  }, [candidates, periodType, customStartDate, customEndDate])
+  }, [candidates, periodDates])
 
   // 期間内に成約を設定した数（created_atで判定）
   const periodContracts = useMemo(() => {
-    const { startDate, endDate } = getPeriodDates
+    const { startDate, endDate } = periodDates
     return contracts.filter(c => {
       // contracted_at（成約確定日時）、accepted_date（承諾日）、created_at の順で判定
       const dateStr = c.contracted_at || c.accepted_date || c.created_at
@@ -343,7 +344,7 @@ export default function DashboardSummaryPage() {
       const contractDate = new Date(dateStr)
       return contractDate >= startDate && contractDate <= endDate
     })
-  }, [contracts, periodType, customStartDate, customEndDate])
+  }, [contracts, periodDates])
 
   // 期間内成約の売上合計（目標数値・成約単価実績用）
   const periodTotalSales = useMemo(() => {
@@ -355,42 +356,49 @@ export default function DashboardSummaryPage() {
 
   // 期間内に面接を設定した数（start_atで判定）
   const periodInterviews = useMemo(() => {
-    const { startDate, endDate } = getPeriodDates
+    const { startDate, endDate } = periodDates
     return interviews.filter(i => {
       if (!i.start_at) return false
       const interviewDate = new Date(i.start_at)
       return interviewDate >= startDate && interviewDate <= endDate
     })
-  }, [interviews, periodType, customStartDate, customEndDate])
+  }, [interviews, periodDates])
 
   // 期間内に「面接のステータス」になった求職者（面接数カウント用）
   // ※成約のみその月の人は含めない（例: 1月面接→2月成約なら、2月の面接数には含めず成約のみ）
-  const INTERVIEW_PHASE_STATUSES = [
-    '面接日程調整中',
-    '面接確定済',
-    '面接実施済（結果待ち）',
-  ]
-  const INTERVIEW_RELEVANT_STATUSES = [
-    ...INTERVIEW_PHASE_STATUSES,
-    '内定獲得（承諾確認中）',
-    '内定承諾（成約）',
-    '内定辞退',
-  ]
+  // ※ INTERVIEW_PHASE_STATUSES, INTERVIEW_SET_STATUSES は @/lib/status-mapping からインポート
   const periodInterviewStatusCandidateIds = useMemo(() => {
-    const { startDate, endDate } = getPeriodDates
+    const { startDate, endDate } = periodDates
     const candidateIds = new Set<string>()
+    
+    // 過去に面接経験がある candidate_id を集める（初回面接のみカウントするため）
+    // ※ 面接確定済以降のステータスを「面接経験あり」とする（面接日程調整中のみは除外しない）
+    // ※ API（マージシート）側の INTERVIEW_SET_STATUSES と統一
+    const previouslyInterviewedIds = new Set<string>()
+    statusHistory.forEach(h => {
+      if (!(INTERVIEW_SET_STATUSES as string[]).includes(h.new_status) || !h.changed_at) return
+      const changedDate = new Date(h.changed_at)
+      if (changedDate < startDate) {
+        previouslyInterviewedIds.add(h.candidate_id)
+      }
+    })
     
     // status_historyから集計: 期間内に面接フェーズのステータスに変わった人だけ
     // ※ interviews テーブルは使わない（面接の日時ではなく、ステータス変更のタイミングで期間を絞る）
+    // ※ 過去に面接経験がある求職者は除外（初回面接のみカウント）
     statusHistory.forEach(h => {
-      if (!INTERVIEW_PHASE_STATUSES.includes(h.new_status) || !h.changed_at) return
+      if (!(INTERVIEW_PHASE_STATUSES as string[]).includes(h.new_status) || !h.changed_at) return
       const changedDate = new Date(h.changed_at)
       if (changedDate >= startDate && changedDate <= endDate) {
-        candidateIds.add(h.candidate_id)
+        // 過去に面接経験がある場合はスキップ
+        if (!previouslyInterviewedIds.has(h.candidate_id)) {
+          candidateIds.add(h.candidate_id)
+        }
       }
     })
     
     // フォールバック: status_historyが空の場合のみ、candidatesテーブルで補完
+    // ※ status_historyがない場合は過去の面接経験を判定できないため、従来通り全件カウント
     if (candidateIds.size === 0 && statusHistory.length === 0) {
       candidates.forEach(c => {
         if (!INTERVIEW_PHASE_STATUSES.includes(c.status) || !c.updated_at) return
@@ -402,12 +410,12 @@ export default function DashboardSummaryPage() {
     }
     
     return candidateIds
-  }, [statusHistory, getPeriodDates, candidates])
+  }, [statusHistory, periodDates, candidates])
 
   // 期間内に「内定承諾（成約）」になった求職者（成約数のカウント用）
   // status_history + contracts の全ソースを統合して集計（どちらかに漏れがあっても拾える）
   const periodClosedStatusCandidateIds = useMemo(() => {
-    const { startDate, endDate } = getPeriodDates
+    const { startDate, endDate } = periodDates
     const candidateIds = new Set<string>()
     
     // ソース1: status_historyから集計
@@ -428,7 +436,7 @@ export default function DashboardSummaryPage() {
     })
     
     return candidateIds
-  }, [statusHistory, getPeriodDates, periodContracts])
+  }, [statusHistory, periodDates, periodContracts])
 
   // 実際のデータから各ステータスの案件を集計（面接一覧ページと同じ candidate.status ベースで統一）
   const getStatusCases = useMemo(() => {
@@ -541,11 +549,11 @@ export default function DashboardSummaryPage() {
     if (!user.retired_at) return true // 退職日が設定されていない場合は現役
     const retiredDate = new Date(user.retired_at)
     retiredDate.setHours(0, 0, 0, 0)
-    const periodStart = new Date(getPeriodDates.startDate)
+    const periodStart = new Date(periodDates.startDate)
     periodStart.setHours(0, 0, 0, 0)
     // 選択期間の開始日より前に退職した場合は非表示（退職日が期間開始日より前なら非表示）
     return retiredDate >= periodStart
-  }, [getPeriodDates])
+  }, [periodDates])
 
   // 営業進捗を計算（担当・初回は「期間内に登録した」求職者のみで集計）
   // 【面接・成約の表示ロジックの詳細】→ docs/DASHBOARD_面接・成約の集計ロジック.md を参照
@@ -706,7 +714,7 @@ export default function DashboardSummaryPage() {
       })
     
     return stats
-  }, [users, candidates, projects, getPeriodDates])
+  }, [users, candidates, projects, periodDates])
 
   // 実データからメンバーごとのヨミ金額を計算（翌月）
   const memberYomiStatsNext = useMemo(() => {
@@ -740,7 +748,7 @@ export default function DashboardSummaryPage() {
       })
     
     return stats
-  }, [users, candidates, projects, getPeriodDates])
+  }, [users, candidates, projects, periodDates])
 
   // 2課のヨミ数字（当月）- 実データ使用に変更
   const team2YomiCurrent = useMemo(() => {
@@ -758,7 +766,7 @@ export default function DashboardSummaryPage() {
       },
       { yomiA: 0, yomiB: 0, yomiC: 0, yomiD: 0 }
     )
-  }, [users, memberYomiStats, getPeriodDates])
+  }, [users, memberYomiStats, periodDates])
 
   // 2課のヨミ数字（翌月）- 実データ使用に変更
   const team2YomiNext = useMemo(() => {
@@ -775,7 +783,7 @@ export default function DashboardSummaryPage() {
       },
       { yomiA: 0, yomiB: 0, yomiC: 0, yomiD: 0 }
     )
-  }, [users, memberYomiStatsNext, getPeriodDates])
+  }, [users, memberYomiStatsNext, periodDates])
 
   // 転換率の表示用フォーマット
   const formatRate = (rate: number) => {

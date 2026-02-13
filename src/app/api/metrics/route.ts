@@ -83,6 +83,46 @@ export async function GET(request: NextRequest) {
   const monthStart = new Date(year, monthNum - 1, 1)
   const monthEnd = new Date(year, monthNum, 0, 23, 59, 59, 999)
 
+  // 過去月に面接経験がある candidate_id を取得（初回面接のみカウントするため）
+  // 対象月より前の全月で interview_flag=TRUE かつ面接確定以降のステータスの candidate_id を集める
+  // ※ PostgREST の max-rows 制限（デフォルト1000行）を回避するためページネーションで全件取得
+  const PAGE_SIZE = 1000
+  let allPastMonthlyData: { candidate_id: string | null; status: string | null; interview_flag: unknown }[] = []
+  let pageFrom = 0
+  let pastFetchError = false
+
+  while (true) {
+    const { data: pageData, error: pageError } = await supabase
+      .from('stg_member_monthly')
+      .select('candidate_id, status, interview_flag')
+      .lt('month_text', month)
+      .range(pageFrom, pageFrom + PAGE_SIZE - 1)
+
+    if (pageError) {
+      console.error('[metrics] 過去月データ取得エラー:', pageError.message)
+      pastFetchError = true
+      break
+    }
+    if (!pageData || pageData.length === 0) break
+
+    allPastMonthlyData = allPastMonthlyData.concat(pageData)
+    if (pageData.length < PAGE_SIZE) break
+    pageFrom += PAGE_SIZE
+  }
+
+  const previouslyInterviewedCandidateIds = new Set<string>()
+  if (!pastFetchError) {
+    allPastMonthlyData.forEach(d => {
+      if (!d.interview_flag || !d.status || !d.candidate_id) return
+      const flagStr = d.interview_flag.toString().toUpperCase().trim()
+      if (flagStr !== 'TRUE' && flagStr !== '1' && flagStr !== 'YES') return
+      const systemStatus = mapMonthlyStatusToSystemStatus(d.status)
+      if (systemStatus && INTERVIEW_SET_STATUSES.includes(systemStatus)) {
+        previouslyInterviewedCandidateIds.add(d.candidate_id)
+      }
+    })
+  }
+
   // 担当者ごとに集計
   const consultantNames = [...new Set(monthlyData.map(d => d.member_name))].filter(Boolean)
   
@@ -137,12 +177,16 @@ export async function GET(request: NextRequest) {
     const firstContactCount = firstContactCandidateIds.size
 
     // 3. 面接: 面接フラグ=TRUEかつ、ステータスが面接確定以降
+    //    ※ 過去月に既に面接経験がある求職者は除外（初回面接のみカウント）
     const interviewCandidateIds = new Set<string>()
     memberData.forEach(d => {
       if (!d.interview_flag || !d.status || !d.candidate_id) return
       
       const flagStr = d.interview_flag.toString().toUpperCase().trim()
       if (flagStr !== 'TRUE' && flagStr !== '1' && flagStr !== 'YES') return
+      
+      // 過去月に面接経験がある場合はスキップ
+      if (previouslyInterviewedCandidateIds.has(d.candidate_id)) return
       
       // ステータスをシステム内のステータスに変換して判定
       const systemStatus = mapMonthlyStatusToSystemStatus(d.status)
