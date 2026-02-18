@@ -524,6 +524,23 @@ export default function CandidateDetailPage({ params }: PageProps) {
           setAllInterviews(prev => [...prev, interviewData.data])
           const yyyyMm = `${interviewDate.getFullYear()}-${String(interviewDate.getMonth() + 1).padStart(2, '0')}`
           setRegisteredInterviewMonth(yyyyMm)
+
+          // 面接追加時に候補者ステータスを「面接確定済」へ自動更新（status_history に確実に記録するため）
+          const INTERVIEW_PHASE_STATUSES = [
+            '面接確定済', '面接実施済（結果待ち）', '内定獲得（承諾確認中）', '内定承諾（成約）',
+          ]
+          const currentCandidateStatus = candidate.status as string
+          if (!INTERVIEW_PHASE_STATUSES.includes(currentCandidateStatus)) {
+            const statusRes = await fetch(`/api/candidates/${candidate.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ status: '面接確定済' }),
+            })
+            if (statusRes.ok) {
+              setCandidateStatus('面接確定済')
+              setCandidate(prev => prev ? { ...prev, status: '面接確定済' } : prev)
+            }
+          }
         } else {
           const interviewText = await interviewRes.text()
           let interviewMessage = interviewText
