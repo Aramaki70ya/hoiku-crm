@@ -176,8 +176,11 @@ export async function GET(request: NextRequest) {
     })
     const firstContactCount = firstContactCandidateIds.size
 
-    // 3. 面接: 面接フラグ=TRUEかつ、ステータスが面接確定以降
+    // 3. 面接: 面接フラグ=TRUEかつ、ステータスが面接確定済・実施済のみ
+    //    ※ 面接日程調整中は除外（調整段階辞退・未成立を除外）
     //    ※ 過去月に既に面接経験がある求職者は除外（初回面接のみカウント）
+    //    ※ 無効化された面接（is_voided=true）を持つ候補者は除外
+    const INTERVIEW_CONFIRMED_STATUSES = ['面接確定済', '面接実施済（結果待ち）']
     const interviewCandidateIds = new Set<string>()
     memberData.forEach(d => {
       if (!d.interview_flag || !d.status || !d.candidate_id) return
@@ -190,7 +193,7 @@ export async function GET(request: NextRequest) {
       
       // ステータスをシステム内のステータスに変換して判定
       const systemStatus = mapMonthlyStatusToSystemStatus(d.status)
-      if (systemStatus && INTERVIEW_SET_STATUSES.includes(systemStatus)) {
+      if (systemStatus && INTERVIEW_CONFIRMED_STATUSES.includes(systemStatus)) {
         interviewCandidateIds.add(d.candidate_id)
       }
     })

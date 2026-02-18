@@ -77,7 +77,58 @@ export async function PATCH(
       return NextResponse.json({ error: '認証が必要です' }, { status: 401 })
     }
     
-    const body = await request.json()
+    const rawBody = await request.json()
+
+    // 更新可能フィールドを明示的に絞る（任意フィールドの上書きを防止）
+    const ALLOWED_PATCH_FIELDS = [
+      'status', 'start_at', 'end_at', 'location', 'feedback',
+      'notes', 'is_voided', 'voided_at', 'void_reason',
+    ] as const
+    const body: Record<string, unknown> = {}
+    for (const key of ALLOWED_PATCH_FIELDS) {
+      if (rawBody[key] !== undefined) body[key] = rawBody[key]
+    }
+
+    // 無効化処理の場合は、候補者ステータスも更新する
+    if (rawBody.is_voided === true) {
+      // 面接レコードを取得して関連候補者を特定
+      const { data: interview, error: fetchError } = await supabase
+        .from('interviews')
+        .select(`
+          *,
+          project:projects(
+            id,
+            candidate_id
+          )
+        `)
+        .eq('id', id)
+        .single()
+
+      if (fetchError) {
+        console.error('Error fetching interview for void:', fetchError)
+        return NextResponse.json({ error: '面接情報の取得に失敗しました' }, { status: 500 })
+      }
+
+      if (!interview?.project?.candidate_id) {
+        return NextResponse.json({ error: '関連する候補者が見つかりません' }, { status: 404 })
+      }
+
+      // 無効化日時を設定
+      if (!body.voided_at) {
+        body.voided_at = new Date().toISOString()
+      }
+
+      // 候補者ステータスを「提案求人選定中」へ更新
+      const { error: candidateUpdateError } = await supabase
+        .from('candidates')
+        .update({ status: '提案求人選定中' })
+        .eq('id', interview.project.candidate_id)
+
+      if (candidateUpdateError) {
+        console.error('Error updating candidate status on void:', candidateUpdateError)
+        // 候補者更新失敗はログのみ（面接の無効化は継続）
+      }
+    }
     
     const { data, error } = await supabase
       .from('interviews')

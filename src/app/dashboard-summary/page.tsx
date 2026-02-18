@@ -12,6 +12,13 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
   Table,
   TableBody,
   TableCell,
@@ -31,6 +38,7 @@ import {
   ChevronDown,
   PhoneCall,
   UserCheck,
+  XCircle,
 } from 'lucide-react'
 import {
   mockMemberStats,
@@ -58,6 +66,20 @@ export default function DashboardSummaryPage() {
   const [periodType, setPeriodType] = useState<PeriodType>('current_month')
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')
+  
+  // 面接詳細モーダル用 state
+  const [interviewModalOpen, setInterviewModalOpen] = useState(false)
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null)
+  const [interviewModalData, setInterviewModalData] = useState<Array<{
+    candidateId: string
+    candidateName: string
+    interviewDate: string | null
+    status: string
+    hasInterview: boolean
+    interviewId?: string
+    projectId?: string
+  }>>([])
+  const [voidingKey, setVoidingKey] = useState<string | null>(null)
   
   // Supabaseデータ取得
   const [candidates, setCandidates] = useState<Candidate[]>([])
@@ -367,6 +389,8 @@ export default function DashboardSummaryPage() {
   // 期間内に「面接のステータス」になった求職者（面接数カウント用）
   // ※成約のみその月の人は含めない（例: 1月面接→2月成約なら、2月の面接数には含めず成約のみ）
   // ※ INTERVIEW_PHASE_STATUSES, INTERVIEW_SET_STATUSES は @/lib/status-mapping からインポート
+  // ※ 無効化された面接（is_voided=true）は除外
+  // ※ 面接確定済・実施済のみカウント（調整中は除外）
   const periodInterviewStatusCandidateIds = useMemo(() => {
     const { startDate, endDate } = periodDates
     const candidateIds = new Set<string>()
@@ -383,25 +407,41 @@ export default function DashboardSummaryPage() {
       }
     })
     
-    // status_historyから集計: 期間内に面接フェーズのステータスに変わった人だけ
-    // ※ interviews テーブルは使わない（面接の日時ではなく、ステータス変更のタイミングで期間を絞る）
+    // status_historyから集計: 期間内に面接確定済・実施済のステータスに変わった人
+    // ※ 面接日程調整中は除外（調整段階辞退・未成立を除外）
+    // ※ 設定後キャンセルはカウントする（一度確定した時点でカウント。渡邊・新井など）
+    // ※ 無効化（is_voided）した面接のみ除外（ダッシュボードで手動無効化した人）
     // ※ 過去に面接経験がある求職者は除外（初回面接のみカウント）
+    const INTERVIEW_CONFIRMED_STATUSES = ['面接確定済', '面接実施済（結果待ち）'] as const
     statusHistory.forEach(h => {
-      if (!(INTERVIEW_PHASE_STATUSES as string[]).includes(h.new_status) || !h.changed_at) return
+      if (!INTERVIEW_CONFIRMED_STATUSES.includes(h.new_status as typeof INTERVIEW_CONFIRMED_STATUSES[number]) || !h.changed_at) return
       const changedDate = new Date(h.changed_at)
       if (changedDate >= startDate && changedDate <= endDate) {
-        // 過去に面接経験がある場合はスキップ
         if (!previouslyInterviewedIds.has(h.candidate_id)) {
-          candidateIds.add(h.candidate_id)
+          // 期間内の面接が1件以上あって、かつ全部手動無効化（is_voided）されている場合のみ除外
+          // ※ 面接レコードがない（未登録）場合は status_history を根拠にカウントする
+          const candidateProjects = projects.filter(p => p.candidate_id === h.candidate_id)
+          const periodInterviewsForCandidate = candidateProjects.flatMap(project =>
+            interviews.filter(i =>
+              i.project_id === project.id &&
+              new Date(i.start_at) >= startDate &&
+              new Date(i.start_at) <= endDate
+            )
+          )
+          const allVoided =
+            periodInterviewsForCandidate.length > 0 &&
+            periodInterviewsForCandidate.every(iv => (iv as { is_voided?: boolean }).is_voided === true)
+          if (!allVoided) {
+            candidateIds.add(h.candidate_id)
+          }
         }
       }
     })
     
     // フォールバック: status_historyが空の場合のみ、candidatesテーブルで補完
-    // ※ status_historyがない場合は過去の面接経験を判定できないため、従来通り全件カウント
     if (candidateIds.size === 0 && statusHistory.length === 0) {
       candidates.forEach(c => {
-        if (!INTERVIEW_PHASE_STATUSES.includes(c.status) || !c.updated_at) return
+        if (!INTERVIEW_CONFIRMED_STATUSES.includes(c.status as typeof INTERVIEW_CONFIRMED_STATUSES[number]) || !c.updated_at) return
         const updatedDate = new Date(c.updated_at)
         if (updatedDate >= startDate && updatedDate <= endDate) {
           candidateIds.add(c.id)
@@ -410,7 +450,7 @@ export default function DashboardSummaryPage() {
     }
     
     return candidateIds
-  }, [statusHistory, periodDates, candidates])
+  }, [statusHistory, periodDates, candidates, projects, interviews])
 
   // 期間内に「内定承諾（成約）」になった求職者（成約数のカウント用）
   // status_history + contracts の全ソースを統合して集計（どちらかに漏れがあっても拾える）
@@ -796,6 +836,135 @@ export default function DashboardSummaryPage() {
     return `¥${(amount / 10000).toFixed(0)}万`
   }
 
+  // 面接詳細モーダルを開く
+  const handleOpenInterviewModal = useCallback((userId: string) => {
+    setSelectedUserId(userId)
+    
+    // 対象メンバーの面接候補者を抽出
+    const userCandidateIds = Array.from(periodInterviewStatusCandidateIds).filter(candidateId => {
+      const candidate = candidates.find(c => c.id === candidateId)
+      return candidate?.consultant_id === userId
+    })
+    
+    // 候補者ごとに面接情報を集める
+    const modalData = userCandidateIds.map(candidateId => {
+      const candidate = candidates.find(c => c.id === candidateId)
+      if (!candidate) return null
+      
+      // この候補者の案件を取得
+      const candidateProjects = projects.filter(p => p.candidate_id === candidateId)
+      
+      // この候補者の面接を取得（期間内）
+      const candidateInterviews = candidateProjects.flatMap(project => 
+        interviews.filter(i => 
+          i.project_id === project.id &&
+          new Date(i.start_at) >= periodDates.startDate &&
+          new Date(i.start_at) <= periodDates.endDate &&
+          !i.is_voided // 無効化されていない面接のみ
+        )
+      )
+      
+      // 最新の面接を取得
+      const latestInterview = candidateInterviews.sort((a, b) => 
+        new Date(b.start_at).getTime() - new Date(a.start_at).getTime()
+      )[0]
+      
+      return {
+        candidateId: candidate.id,
+        candidateName: candidate.name,
+        interviewDate: latestInterview?.start_at || null,
+        status: candidate.status,
+        hasInterview: !!latestInterview,
+        interviewId: latestInterview?.id,
+        projectId: candidateProjects[0]?.id
+      }
+    }).filter((item): item is NonNullable<typeof item> => item !== null)
+    
+    setInterviewModalData(modalData)
+    setInterviewModalOpen(true)
+  }, [periodInterviewStatusCandidateIds, candidates, projects, interviews, periodDates])
+
+  // 面接フラグを削除（面接レコードあり・なし両対応）
+  const handleVoidInterview = useCallback(async (
+    candidateName: string,
+    candidateId: string,
+    interviewId?: string,
+    projectId?: string,
+  ) => {
+    if (!confirm(`${candidateName}さんの面接フラグを削除（件数から除外）しますか？\n\n候補者ステータスは「提案求人選定中」へ戻ります。`)) {
+      return
+    }
+    
+    const key = interviewId ?? candidateId
+    setVoidingKey(key)
+    
+    try {
+      if (interviewId) {
+        // 面接レコードがある場合：既存レコードを無効化（APIが候補者ステータスも更新）
+        const response = await fetch(`/api/interviews/${interviewId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            is_voided: true,
+            void_reason: '面接設定件数から除外（ダッシュボードから削除）'
+          })
+        })
+        if (!response.ok) {
+          const errBody = await response.json().catch(() => ({}))
+          throw new Error(errBody?.error ?? '面接フラグ削除に失敗しました')
+        }
+      } else {
+        // 面接レコードがない場合：ダミーの無効化面接を作成 ＋ 候補者ステータスを更新
+        const now = new Date().toISOString()
+        if (projectId) {
+          const createRes = await fetch('/api/interviews', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              project_id: projectId,
+              start_at: now,
+              status: '実施済',
+              is_voided: true,
+              void_reason: '面接設定件数から除外（面接未登録・ダッシュボードから削除）'
+            })
+          })
+          if (!createRes.ok) {
+            const errBody = await createRes.json().catch(() => ({}))
+            throw new Error(errBody?.error ?? '面接フラグ作成に失敗しました')
+          }
+        }
+        // 候補者ステータスを「提案求人選定中」へ戻す
+        const candidateRes = await fetch(`/api/candidates/${candidateId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: '提案求人選定中' })
+        })
+        if (!candidateRes.ok) throw new Error('候補者ステータス更新に失敗しました')
+      }
+      
+      // モーダルからその候補者を即時除去（モーダルは閉じない）
+      setInterviewModalData(prev => prev.filter(item => item.candidateId !== candidateId))
+      
+      // バックグラウンドでデータを再取得（ダッシュボードの件数を更新）
+      const [candidatesData, projectsData, interviewsData, statusHistoryData] = await Promise.all([
+        getCandidates(),
+        getProjects(),
+        getInterviews(),
+        getStatusHistory(),
+      ])
+      setCandidates(candidatesData)
+      setProjects(projectsData)
+      setInterviews(interviewsData)
+      setStatusHistory(statusHistoryData)
+      
+    } catch (error) {
+      console.error('Error voiding interview:', error)
+      alert(`面接フラグの削除に失敗しました。\n${error instanceof Error ? error.message : ''}`)
+    } finally {
+      setVoidingKey(null)
+    }
+  }, [])
+
   // ローディング中の表示（すべてのフックの後に配置）
   if (loading) {
     return (
@@ -1146,7 +1315,20 @@ export default function DashboardSummaryPage() {
                         <TableCell className="text-center">
                           {progress.firstContactCount}
                         </TableCell>
-                        <TableCell className="text-center">{progress.interviewCount}</TableCell>
+                        <TableCell className="text-center">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-auto p-1 font-normal hover:bg-cyan-50"
+                            onClick={() => handleOpenInterviewModal(progress.userId)}
+                            disabled={progress.interviewCount === 0}
+                            data-testid={`interview-count-${progress.userId}`}
+                          >
+                            <span className={progress.interviewCount > 0 ? 'text-cyan-600 underline cursor-pointer' : ''}>
+                              {progress.interviewCount}
+                            </span>
+                          </Button>
+                        </TableCell>
                         <TableCell className="text-center">{progress.closedCount}</TableCell>
                         <TableCell className="text-center">
                           <div className="flex items-center justify-center gap-1">
@@ -1567,6 +1749,90 @@ export default function DashboardSummaryPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* 面接詳細モーダル */}
+      <Dialog open={interviewModalOpen} onOpenChange={setInterviewModalOpen}>
+        <DialogContent className="sm:max-w-[780px] w-[92vw] max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {selectedUserId && users.find(u => u.id === selectedUserId)?.name}さんの面接設定一覧
+            </DialogTitle>
+            <DialogDescription>
+              期間: {getPeriodLabel()} | 合計 {interviewModalData.length}件
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="mt-4">
+            {interviewModalData.length === 0 ? (
+              <div className="text-center py-8 text-slate-500">
+                対象期間に面接設定された候補者はいません
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="min-w-[100px]">候補者名</TableHead>
+                    <TableHead className="min-w-[120px]">ステータス</TableHead>
+                    <TableHead className="min-w-[160px]">面接日時</TableHead>
+                    <TableHead className="text-center min-w-[130px]">操作</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {interviewModalData.map((item) => (
+                    <TableRow key={item.candidateId}>
+                      <TableCell className="font-medium">{item.candidateName}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{item.status}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        {item.interviewDate ? (
+                          <span className="text-sm">
+                            {new Date(item.interviewDate).toLocaleString('ja-JP', {
+                              year: 'numeric',
+                              month: '2-digit',
+                              day: '2-digit',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 text-sm">（面接未登録）</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-red-600 border-red-200 hover:bg-red-50"
+                          onClick={() => handleVoidInterview(
+                            item.candidateName,
+                            item.candidateId,
+                            item.interviewId,
+                            item.projectId,
+                          )}
+                          disabled={voidingKey === (item.interviewId ?? item.candidateId)}
+                        >
+                          <XCircle className="w-4 h-4 mr-1" />
+                          {voidingKey === (item.interviewId ?? item.candidateId) ? '処理中...' : '面接フラグ削除'}
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+            
+            <div className="mt-4 p-3 bg-slate-50 rounded-lg text-sm text-slate-600">
+              <p className="font-medium mb-1">💡 面接フラグ削除について</p>
+              <ul className="list-disc list-inside space-y-1 text-xs">
+                <li>面接フラグを削除すると、面接設定件数から除外されます</li>
+                <li>候補者ステータスは「提案求人選定中」へ戻ります</li>
+                <li>面接レコードは履歴として残ります（削除されません）</li>
+              </ul>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   )
 }
