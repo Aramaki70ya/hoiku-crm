@@ -448,7 +448,7 @@ export default function DashboardSummaryPage() {
         }
       })
     }
-    
+
     return candidateIds
   }, [statusHistory, periodDates, candidates, projects, interviews])
 
