@@ -77,10 +77,20 @@ export async function PATCH(
       return NextResponse.json({ error: '認証が必要です' }, { status: 401 })
     }
     
-    const body = await request.json()
-    
+    const rawBody = await request.json()
+
+    // 更新可能フィールドを明示的に絞る（任意フィールドの上書きを防止）
+    const ALLOWED_PATCH_FIELDS = [
+      'status', 'start_at', 'end_at', 'location', 'feedback',
+      'notes', 'is_voided', 'voided_at', 'void_reason',
+    ] as const
+    const body: Record<string, unknown> = {}
+    for (const key of ALLOWED_PATCH_FIELDS) {
+      if (rawBody[key] !== undefined) body[key] = rawBody[key]
+    }
+
     // 無効化処理の場合は、候補者ステータスも更新する
-    if (body.is_voided === true) {
+    if (rawBody.is_voided === true) {
       // 面接レコードを取得して関連候補者を特定
       const { data: interview, error: fetchError } = await supabase
         .from('interviews')
