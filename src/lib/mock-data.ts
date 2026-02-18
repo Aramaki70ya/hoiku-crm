@@ -646,6 +646,9 @@ export const mockInterviews: Interview[] = [
     status: '予定',
     feedback: null,
     created_at: '2025-11-20T00:00:00Z',
+    is_voided: false,
+    voided_at: null,
+    void_reason: null,
   },
   {
     id: 'i2',
@@ -657,6 +660,9 @@ export const mockInterviews: Interview[] = [
     status: '予定',
     feedback: null,
     created_at: '2025-11-24T00:00:00Z',
+    is_voided: false,
+    voided_at: null,
+    void_reason: null,
   },
   {
     id: 'i3',
@@ -668,6 +674,9 @@ export const mockInterviews: Interview[] = [
     status: '予定',
     feedback: null,
     created_at: '2025-11-25T00:00:00Z',
+    is_voided: false,
+    voided_at: null,
+    void_reason: null,
   },
   {
     id: 'i4',
@@ -679,6 +688,9 @@ export const mockInterviews: Interview[] = [
     status: '実施済',
     feedback: '好印象。即内定',
     created_at: '2025-11-10T00:00:00Z',
+    is_voided: false,
+    voided_at: null,
+    void_reason: null,
   },
   {
     id: 'i5',
@@ -690,6 +702,9 @@ export const mockInterviews: Interview[] = [
     status: '実施済',
     feedback: '経験豊富で即戦力。内定',
     created_at: '2025-11-05T00:00:00Z',
+    is_voided: false,
+    voided_at: null,
+    void_reason: null,
   },
   {
     id: 'i6',
@@ -701,6 +716,9 @@ export const mockInterviews: Interview[] = [
     status: '実施済',
     feedback: '内定。入社意思確認中',
     created_at: '2025-11-18T00:00:00Z',
+    is_voided: false,
+    voided_at: null,
+    void_reason: null,
   },
   // 2025年12月に設定された面接（前月フィルタで表示される）
   {
@@ -713,6 +731,9 @@ export const mockInterviews: Interview[] = [
     status: '実施済',
     feedback: '好印象',
     created_at: '2025-12-05T00:00:00Z',
+    is_voided: false,
+    voided_at: null,
+    void_reason: null,
   },
   {
     id: 'i8',
@@ -724,6 +745,9 @@ export const mockInterviews: Interview[] = [
     status: '実施済',
     feedback: '内定',
     created_at: '2025-12-10T00:00:00Z',
+    is_voided: false,
+    voided_at: null,
+    void_reason: null,
   },
   {
     id: 'i9',
@@ -735,6 +759,9 @@ export const mockInterviews: Interview[] = [
     status: '予定',
     feedback: null,
     created_at: '2025-12-15T00:00:00Z',
+    is_voided: false,
+    voided_at: null,
+    void_reason: null,
   },
   // 2026年1月に設定された面接（当月フィルタで表示される）
   {
@@ -747,6 +774,9 @@ export const mockInterviews: Interview[] = [
     status: '予定',
     feedback: null,
     created_at: '2026-01-10T00:00:00Z',
+    is_voided: false,
+    voided_at: null,
+    void_reason: null,
   },
   {
     id: 'i11',
@@ -758,6 +788,9 @@ export const mockInterviews: Interview[] = [
     status: '予定',
     feedback: null,
     created_at: '2026-01-15T00:00:00Z',
+    is_voided: false,
+    voided_at: null,
+    void_reason: null,
   },
 ]
 
