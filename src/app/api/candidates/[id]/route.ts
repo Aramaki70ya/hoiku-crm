@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { isDemoMode } from '@/lib/supabase/config'
-import { candidateStatusToInterviewStatus } from '@/lib/status-mapping'
+import { candidateStatusToInterviewStatus, STATUS_LIST } from '@/lib/status-mapping'
 
 // Next.js サーバーレベルのキャッシュを完全に無効化
 export const dynamic = 'force-dynamic'
@@ -92,6 +92,14 @@ export async function PATCH(
     }
     
     const body = (await request.json()) as Record<string, unknown>
+
+    // ステータス変更時は有効な値のみ許可
+    if (body.status !== undefined) {
+      const validStatuses = new Set(STATUS_LIST)
+      if (typeof body.status !== 'string' || !validStatuses.has(body.status)) {
+        return NextResponse.json({ error: '無効なステータスです' }, { status: 400 })
+      }
+    }
 
     const ALLOWED_KEYS = [
       'status',
