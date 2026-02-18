@@ -42,6 +42,7 @@ export async function GET(request: NextRequest) {
     const month = searchParams.get('month') // YYYY-MM形式
     const status = searchParams.get('status') || 'all'
     const consultantId = searchParams.get('consultant_id') || 'all'
+    const includeVoided = searchParams.get('include_voided') === 'true' // デフォルトfalse
     
     // projects に garden_name/corporation_name がないDBでも動くよう、まずは client_name のみ取得
     let query = supabase
@@ -56,6 +57,11 @@ export async function GET(request: NextRequest) {
           )
         )
       `, { count: 'exact' })
+
+    // 無効化された面接を除外（デフォルト）
+    if (!includeVoided) {
+      query = query.eq('is_voided', false)
+    }
 
     // 月でフィルタ
     if (month) {
@@ -132,6 +138,11 @@ export async function POST(request: NextRequest) {
       status: body.status || '予定',
       feedback: body.feedback || null,
       created_at: now,
+      ...(body.is_voided !== undefined && {
+        is_voided: body.is_voided,
+        voided_at: body.is_voided ? now : null,
+        void_reason: body.void_reason || null,
+      }),
     }
     console.log('🟢 [API] Inserting interview:', insertData)
     

@@ -141,6 +141,9 @@ export interface Interview {
   location: string | null // 場所/URL
   status: InterviewStatus
   feedback: string | null // 結果・所感
+  is_voided: boolean // 無効化フラグ（true: 件数から除外、false: 件数にカウント）
+  voided_at: string | null // 無効化日時
+  void_reason: string | null // 無効化理由
   created_at: string
 }
 
