@@ -48,6 +48,7 @@ import {
 import { mockMemos } from '@/lib/mock-data'
 import {
   STATUS_LIST,
+  INTERVIEW_SET_STATUSES,
   statusLabels,
   statusColors,
   type StatusType,
@@ -526,11 +527,10 @@ export default function CandidateDetailPage({ params }: PageProps) {
           setRegisteredInterviewMonth(yyyyMm)
 
           // 面接追加時に候補者ステータスを「面接確定済」へ自動更新（status_history に確実に記録するため）
-          const INTERVIEW_PHASE_STATUSES = [
-            '面接確定済', '面接実施済（結果待ち）', '内定獲得（承諾確認中）', '内定承諾（成約）',
-          ]
+          // INTERVIEW_SET_STATUSES = 面接確定済・実施済・内定獲得・内定承諾・内定辞退
+          // これら以上のステータスなら更新不要（より進んだフェーズを下げないため）
           const currentCandidateStatus = candidate.status as string
-          if (!INTERVIEW_PHASE_STATUSES.includes(currentCandidateStatus)) {
+          if (!(INTERVIEW_SET_STATUSES as string[]).includes(currentCandidateStatus)) {
             const statusRes = await fetch(`/api/candidates/${candidate.id}`, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
@@ -539,6 +539,8 @@ export default function CandidateDetailPage({ params }: PageProps) {
             if (statusRes.ok) {
               setCandidateStatus('面接確定済')
               setCandidate(prev => prev ? { ...prev, status: '面接確定済' } : prev)
+            } else {
+              alert('面接は登録されましたが、ステータスの更新に失敗しました。\n候補者のステータスを「面接確定済」に手動で変更してください。')
             }
           }
         } else {

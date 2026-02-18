@@ -105,8 +105,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    console.log('🟢 [API] POST interviews body:', body)
-    
+
     if (isDemoMode()) {
       return NextResponse.json({ error: 'デモモードでは登録できません' }, { status: 403 })
     }
@@ -114,7 +113,6 @@ export async function POST(request: NextRequest) {
     const supabase = await createClient()
     
     const { data: { user }, error: authError } = await supabase.auth.getUser()
-    console.log('🟢 [API] Auth check:', { userId: user?.id, authError: authError?.message })
     if (authError || !user) {
       return NextResponse.json({ error: '認証が必要です' }, { status: 401 })
     }
@@ -144,8 +142,6 @@ export async function POST(request: NextRequest) {
         void_reason: body.void_reason || null,
       }),
     }
-    console.log('🟢 [API] Inserting interview:', insertData)
-    
     const { data, error } = await supabase
       .from('interviews')
       .insert(insertData)
@@ -157,7 +153,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'データベースエラー', details: error.message }, { status: 500 })
     }
     
-    console.log('🟢 [API] Interview created:', data)
     return NextResponse.json({ data, message: '面接を登録しました' }, { status: 201 })
   } catch (error) {
     console.error('🔴 [API] Error creating interview:', error)
