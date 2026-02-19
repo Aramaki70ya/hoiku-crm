@@ -16,6 +16,7 @@ import {
   ChevronRight,
   Menu,
   BarChart3,
+  FileText,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { mockUsers } from '@/lib/mock-data'
@@ -29,6 +30,7 @@ const navigation = [
   { name: '求職者管理', href: '/candidates', icon: Users },
   { name: '成約管理', href: '/contracts', icon: Trophy },
   { name: '面接一覧', href: '/interviews', icon: Calendar },
+  { name: '日報', href: '/daily-report', icon: FileText },
 ]
 
 const bottomNavigation = [

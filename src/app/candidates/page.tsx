@@ -713,14 +713,14 @@ function CandidatesPageContent() {
           <TableHeader>
             <TableRow className="border-slate-100 bg-slate-50 hover:bg-slate-50">
               <TableHead className="text-slate-600 font-semibold w-16">ランク</TableHead>
-              <TableHead className="text-slate-600 font-semibold w-20">優先度</TableHead>
+              <TableHead className="text-slate-600 font-semibold w-14">優先度</TableHead>
               <TableHead className="text-slate-600 font-semibold w-40">氏名</TableHead>
-              <TableHead className="text-slate-600 font-semibold">連絡先</TableHead>
+              <TableHead className="text-slate-600 font-semibold w-36">連絡先</TableHead>
               <TableHead className="text-slate-600 font-semibold">雇用形態</TableHead>
               <TableHead className="text-slate-600 font-semibold">ステータス</TableHead>
               <TableHead className="text-slate-600 font-semibold w-[200px] max-w-[200px]">メモ</TableHead>
               <TableHead className="text-slate-600 font-semibold">希望職種</TableHead>
-              <TableHead className="text-slate-600 font-semibold">担当者</TableHead>
+              <TableHead className="text-slate-600 font-semibold w-28">担当者</TableHead>
               <TableHead className="text-slate-600 font-semibold">登録日</TableHead>
               <TableHead className="w-10"></TableHead>
             </TableRow>
@@ -759,7 +759,7 @@ function CandidatesPageContent() {
                         handlePriorityChange(candidate.id, value)
                       }}
                     >
-                      <SelectTrigger className="w-20 h-7 p-0 border-0 bg-transparent hover:bg-slate-100">
+                      <SelectTrigger className="w-14 h-7 p-0 border-0 bg-transparent hover:bg-slate-100">
                         <SelectValue>
                           <Badge
                             variant="outline"
@@ -892,7 +892,7 @@ function CandidatesPageContent() {
                   <TableCell className="w-[200px] max-w-[200px] p-2 align-middle">
                     {candidate.memo ? (
                       <div className="flex flex-col gap-1 max-w-full">
-                        <div className="text-sm text-slate-700 overflow-x-auto overflow-y-hidden whitespace-nowrap max-w-[200px]">
+                        <div className="text-sm text-slate-700 max-w-[200px] max-h-12 overflow-hidden hover:max-h-40 hover:overflow-y-auto transition-all duration-200 whitespace-pre-wrap">
                           {candidate.memo}
                         </div>
                         {candidate.updated_at && (
