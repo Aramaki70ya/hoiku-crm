@@ -56,11 +56,22 @@ import {
   getUsersClient as getUsers,
   getInterviewsClient as getInterviews,
   getStatusHistoryClient as getStatusHistory,
+  getMemosClient as getMemos,
 } from '@/lib/supabase/queries-client-with-fallback'
 import { INTERVIEW_PHASE_STATUSES, INTERVIEW_SET_STATUSES } from '@/lib/status-mapping'
-import type { Candidate, Project, Interview, User, Contract, StatusHistory } from '@/types/database'
+import type { Candidate, Project, Interview, User, Contract, StatusHistory, Memo } from '@/types/database'
 
 type PeriodType = 'current_month' | 'previous_month' | 'custom'
+
+type ClosedModalItem = {
+  candidateId: string
+  candidateName: string
+  acceptedDate: string | null
+  closedAt: string | null
+  revenueExcludingTax: number | null
+  placementName: string | null
+  status: string
+}
 
 export default function DashboardSummaryPage() {
   const [periodType, setPeriodType] = useState<PeriodType>('current_month')
@@ -80,6 +91,11 @@ export default function DashboardSummaryPage() {
     projectId?: string
   }>>([])
   const [voidingKey, setVoidingKey] = useState<string | null>(null)
+
+  // 成約詳細モーダル用 state
+  const [closedModalOpen, setClosedModalOpen] = useState(false)
+  const [closedModalUserId, setClosedModalUserId] = useState<string | null>(null)
+  const [closedModalData, setClosedModalData] = useState<ClosedModalItem[]>([])
   
   // Supabaseデータ取得
   const [candidates, setCandidates] = useState<Candidate[]>([])
@@ -88,6 +104,7 @@ export default function DashboardSummaryPage() {
   const [interviews, setInterviews] = useState<Interview[]>([])
   const [users, setUsers] = useState<User[]>([])
   const [statusHistory, setStatusHistory] = useState<StatusHistory[]>([])
+  const [memos, setMemos] = useState<Memo[]>([])
   const [timelineEvents, setTimelineEvents] = useState<Array<{
     id: string
     candidate_id: string
@@ -130,13 +147,14 @@ export default function DashboardSummaryPage() {
   // データ再取得関数
   const fetchData = useCallback(async () => {
     try {
-      const [candidatesData, projectsData, contractsData, interviewsData, usersData, statusHistoryData] = await Promise.all([
+      const [candidatesData, projectsData, contractsData, interviewsData, usersData, statusHistoryData, memosData] = await Promise.all([
         getCandidates(),
         getProjects(),
         getContracts(),
         getInterviews(),
         getUsers(),
         getStatusHistory(),
+        getMemos(),
       ])
       setCandidates(candidatesData)
       setProjects(projectsData)
@@ -144,6 +162,7 @@ export default function DashboardSummaryPage() {
       setInterviews(interviewsData)
       setUsers(usersData)
       setStatusHistory(statusHistoryData)
+      setMemos(memosData)
     } catch (error) {
       console.error('Error fetching data:', error)
       setCandidates([])
@@ -152,6 +171,7 @@ export default function DashboardSummaryPage() {
       setInterviews([])
       setUsers([])
       setStatusHistory([])
+      setMemos([])
     } finally {
       setLoading(false)
     }
@@ -595,6 +615,26 @@ export default function DashboardSummaryPage() {
     return retiredDate >= periodStart
   }, [periodDates])
 
+  // 期間内に活動したユーザーID（ステータス変更 or メモ作成）
+  const periodActiveUserIds = useMemo(() => {
+    const ids = new Set<string>()
+    const { startDate, endDate } = periodDates
+
+    statusHistory.forEach((h) => {
+      if (!h.changed_by || !h.changed_at) return
+      const d = new Date(h.changed_at)
+      if (d >= startDate && d <= endDate) ids.add(h.changed_by)
+    })
+
+    memos.forEach((m) => {
+      if (!m.created_by || !m.created_at) return
+      const d = new Date(m.created_at)
+      if (d >= startDate && d <= endDate) ids.add(m.created_by)
+    })
+
+    return ids
+  }, [statusHistory, memos, periodDates])
+
   // 営業進捗を計算（担当・初回は「期間内に登録した」求職者のみで集計）
   // 【面接・成約の表示ロジックの詳細】→ docs/DASHBOARD_面接・成約の集計ロジック.md を参照
   // 【指標の定義】
@@ -664,9 +704,9 @@ export default function DashboardSummaryPage() {
       })
 
     return progress
-      .filter((p) => p.totalCount > 0)
+      .filter((p) => p.totalCount > 0 || periodActiveUserIds.has(p.userId))
       .sort((a, b) => b.totalCount - a.totalCount)
-  }, [users, periodCandidates, periodInterviewStatusCandidateIds, periodClosedStatusCandidateIds, candidates, monthlyMetrics, monthlyMetricsLoading, isUserActiveInPeriod])
+  }, [users, periodCandidates, periodInterviewStatusCandidateIds, periodClosedStatusCandidateIds, candidates, monthlyMetrics, monthlyMetricsLoading, isUserActiveInPeriod, periodActiveUserIds])
 
   // 全体集計
   const totalProgress = useMemo(() => {
@@ -884,6 +924,42 @@ export default function DashboardSummaryPage() {
     setInterviewModalOpen(true)
   }, [periodInterviewStatusCandidateIds, candidates, projects, interviews, periodDates])
 
+  // 成約詳細モーダルを開く
+  const handleOpenClosedModal = useCallback((userId: string) => {
+    setClosedModalUserId(userId)
+
+    const userCandidateIds = Array.from(periodClosedStatusCandidateIds).filter(candidateId => {
+      const candidate = candidates.find(c => c.id === candidateId)
+      return candidate?.consultant_id === userId
+    })
+
+    const modalData = userCandidateIds.map(candidateId => {
+      const candidate = candidates.find(c => c.id === candidateId)
+      if (!candidate) return null
+
+      const contract = periodContracts.find(c => c.candidate_id === candidateId)
+        ?? contracts.find(c => c.candidate_id === candidateId)
+
+      // status_history から成約日を取得
+      const closedHistory = statusHistory
+        .filter(h => h.candidate_id === candidateId && h.new_status === '内定承諾（成約）' && h.changed_at)
+        .sort((a, b) => new Date(b.changed_at).getTime() - new Date(a.changed_at).getTime())[0]
+
+      return {
+        candidateId: candidate.id,
+        candidateName: candidate.name,
+        acceptedDate: contract?.accepted_date ?? null,
+        closedAt: closedHistory?.changed_at ?? null,
+        revenueExcludingTax: contract?.revenue_excluding_tax ?? null,
+        placementName: contract?.placement_facility_name ?? contract?.placement_company_name ?? contract?.placement_company ?? null,
+        status: candidate.status,
+      }
+    }).filter((item): item is NonNullable<typeof item> => item !== null)
+
+    setClosedModalData(modalData)
+    setClosedModalOpen(true)
+  }, [periodClosedStatusCandidateIds, candidates, contracts, periodContracts, statusHistory])
+
   // 面接フラグを削除（面接レコードあり・なし両対応）
   const handleVoidInterview = useCallback(async (
     candidateName: string,
@@ -946,16 +1022,18 @@ export default function DashboardSummaryPage() {
       setInterviewModalData(prev => prev.filter(item => item.candidateId !== candidateId))
       
       // バックグラウンドでデータを再取得（ダッシュボードの件数を更新）
-      const [candidatesData, projectsData, interviewsData, statusHistoryData] = await Promise.all([
+      const [candidatesData, projectsData, interviewsData, statusHistoryData, memosData] = await Promise.all([
         getCandidates(),
         getProjects(),
         getInterviews(),
         getStatusHistory(),
+        getMemos(),
       ])
       setCandidates(candidatesData)
       setProjects(projectsData)
       setInterviews(interviewsData)
       setStatusHistory(statusHistoryData)
+      setMemos(memosData)
       
     } catch (error) {
       console.error('Error voiding interview:', error)
@@ -1329,7 +1407,19 @@ export default function DashboardSummaryPage() {
                             </span>
                           </Button>
                         </TableCell>
-                        <TableCell className="text-center">{progress.closedCount}</TableCell>
+                        <TableCell className="text-center">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-auto p-1 font-normal hover:bg-emerald-50"
+                            onClick={() => handleOpenClosedModal(progress.userId)}
+                            disabled={progress.closedCount === 0}
+                          >
+                            <span className={progress.closedCount > 0 ? 'text-emerald-600 underline cursor-pointer' : ''}>
+                              {progress.closedCount}
+                            </span>
+                          </Button>
+                        </TableCell>
                         <TableCell className="text-center">
                           <div className="flex items-center justify-center gap-1">
                             <span
@@ -1830,6 +1920,67 @@ export default function DashboardSummaryPage() {
                 <li>面接レコードは履歴として残ります（削除されません）</li>
               </ul>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 成約詳細モーダル */}
+      <Dialog open={closedModalOpen} onOpenChange={setClosedModalOpen}>
+        <DialogContent className="sm:max-w-[720px] w-[92vw] max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {closedModalUserId && users.find(u => u.id === closedModalUserId)?.name}さんの成約一覧
+            </DialogTitle>
+            <DialogDescription>
+              期間: {getPeriodLabel()} | 合計 {closedModalData.length}件
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="mt-4">
+            {closedModalData.length === 0 ? (
+              <div className="text-center py-8 text-slate-500">
+                対象期間に成約した候補者はいません
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="min-w-[100px]">候補者名</TableHead>
+                    <TableHead className="min-w-[120px]">ステータス</TableHead>
+                    <TableHead className="min-w-[110px]">承諾日</TableHead>
+                    <TableHead className="min-w-[140px]">入職先</TableHead>
+                    <TableHead className="text-right min-w-[100px]">売上（税抜）</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {closedModalData.map((item) => (
+                    <TableRow key={item.candidateId}>
+                      <TableCell className="font-medium">{item.candidateName}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{item.status}</Badge>
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {item.acceptedDate
+                          ? new Date(item.acceptedDate).toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' })
+                          : item.closedAt
+                            ? new Date(item.closedAt).toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' })
+                            : <span className="text-slate-400">-</span>
+                        }
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {item.placementName ?? <span className="text-slate-400">-</span>}
+                      </TableCell>
+                      <TableCell className="text-right text-sm">
+                        {item.revenueExcludingTax != null
+                          ? `¥${(item.revenueExcludingTax / 10000).toFixed(0)}万`
+                          : <span className="text-slate-400">-</span>
+                        }
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
           </div>
         </DialogContent>
       </Dialog>

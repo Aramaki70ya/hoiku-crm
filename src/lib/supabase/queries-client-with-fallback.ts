@@ -5,7 +5,7 @@
 
 import { isDemoMode } from './config'
 import { createClient } from './client'
-import type { Candidate, Project, Interview, User, Source, Contract, StatusHistory } from '@/types/database'
+import type { Candidate, Project, Interview, User, Source, Contract, StatusHistory, Memo } from '@/types/database'
 
 // デモモード時はmock-data.tsからインポート
 let mockData: {
@@ -340,6 +340,34 @@ export async function getStatusHistoryClient(): Promise<StatusHistory[]> {
     return (data || []) as StatusHistory[]
   } catch (err) {
     logSupabaseError('status_history', err)
+    return []
+  }
+}
+
+// ========================================
+// Memos (メモ)
+// ========================================
+
+export async function getMemosClient(): Promise<Memo[]> {
+  if (isDemoMode()) {
+    return []
+  }
+
+  try {
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from('memos')
+      .select('id, candidate_id, created_by, created_at')
+      .order('created_at', { ascending: false })
+      .range(0, 49999)
+
+    if (error) {
+      logSupabaseError('memos', error)
+      return []
+    }
+    return (data || []) as Memo[]
+  } catch (err) {
+    logSupabaseError('memos', err)
     return []
   }
 }
