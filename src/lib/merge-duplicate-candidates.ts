@@ -64,7 +64,8 @@ export async function mergeDuplicateCandidates(
       result.errors.push(`candidates 取得: ${error.message}`)
       return result
     }
-    list.push(...(data ?? []).map((r) => ({ id: r.id, name: r.name })))
+    const rows = (data ?? []) as { id: string; name: string | null }[]
+    list.push(...rows.map((r) => ({ id: r.id, name: r.name })))
     if (!data || data.length < PAGE_SIZE) break
     offset += PAGE_SIZE
   }
