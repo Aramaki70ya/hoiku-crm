@@ -44,6 +44,8 @@ import {
   Loader2,
   X,
   Trash2,
+  ExternalLink,
+  Link2,
 } from 'lucide-react'
 import { mockMemos } from '@/lib/mock-data'
 import {
@@ -324,7 +326,13 @@ export default function CandidateDetailPage({ params }: PageProps) {
   
   // 編集ダイアログ用state
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
-  const [editType, setEditType] = useState<'timeline' | 'project' | 'memo' | 'basic' | 'task' | null>(null)
+  const [editType, setEditType] = useState<'timeline' | 'project' | 'memo' | 'basic' | 'task' | 'drive' | null>(null)
+  
+  // ドライブリンク用state
+  const [driveLink, setDriveLink] = useState(candidate?.drive_link || '')
+  const [driveLinkInput, setDriveLinkInput] = useState('')
+  const [driveLinkSaving, setDriveLinkSaving] = useState(false)
+  const [driveLinkError, setDriveLinkError] = useState<string | null>(null)
   const [memoContent, setMemoContent] = useState('')
   const [projectError, setProjectError] = useState<string | null>(null)
   
@@ -353,6 +361,13 @@ export default function CandidateDetailPage({ params }: PageProps) {
     qualification: candidate?.qualification || '',
   })
   const [isBasicInfoEditDialogOpen, setIsBasicInfoEditDialogOpen] = useState(false)
+  
+  // ドライブリンクをcandidate変更時に同期
+  useEffect(() => {
+    if (candidate) {
+      setDriveLink(candidate.drive_link || '')
+    }
+  }, [candidate])
   
   // 基本情報フォームをcandidate変更時に更新
   // candidateの各フィールドが変わった時に初期化
@@ -660,10 +675,81 @@ export default function CandidateDetailPage({ params }: PageProps) {
     }
   }
 
+  // ドライブURLの簡易検証（https のみ許可、drive.google.com を推奨）
+  const isValidDriveLink = (url: string): boolean => {
+    const trimmed = url.trim()
+    if (!trimmed) return false
+    try {
+      const u = new URL(trimmed)
+      if (u.protocol !== 'https:') return false
+      return u.hostname === 'drive.google.com' || u.hostname.endsWith('.google.com')
+    } catch {
+      return false
+    }
+  }
+
+  const handleSaveDriveLink = async () => {
+    if (!candidate || !driveLinkInput.trim()) return
+    setDriveLinkError(null)
+    const url = driveLinkInput.trim()
+    if (!isValidDriveLink(url)) {
+      setDriveLinkError('https:// で始まる Google ドライブのURLを入力してください')
+      return
+    }
+    setDriveLinkSaving(true)
+    try {
+      const res = await fetch(`/api/candidates/${candidate.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ drive_link: url }),
+      })
+      if (res.ok) {
+        setDriveLink(url)
+        setCandidate(prev => prev ? { ...prev, drive_link: url } : prev)
+        setDriveLinkInput('')
+        setIsEditDialogOpen(false)
+        setEditType(null)
+      } else {
+        const errData = await res.json().catch(() => ({}))
+        alert(errData.error || 'ドライブリンクの保存に失敗しました')
+      }
+    } catch (err) {
+      console.error('ドライブリンク保存エラー:', err)
+      alert('ドライブリンクの保存に失敗しました')
+    } finally {
+      setDriveLinkSaving(false)
+    }
+  }
+
+  const handleDeleteDriveLink = async () => {
+    if (!candidate) return
+    setDriveLinkSaving(true)
+    try {
+      const res = await fetch(`/api/candidates/${candidate.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ drive_link: null }),
+      })
+      if (res.ok) {
+        setDriveLink('')
+        setCandidate(prev => prev ? { ...prev, drive_link: null } : prev)
+      } else {
+        const errData = await res.json().catch(() => ({}))
+        alert(errData.error || 'ドライブリンクの削除に失敗しました')
+      }
+    } catch (err) {
+      console.error('ドライブリンク削除エラー:', err)
+      alert('ドライブリンクの削除に失敗しました')
+    } finally {
+      setDriveLinkSaving(false)
+    }
+  }
+
   const getDialogDescription = () => {
     if (editType === 'timeline') return 'タイムラインに履歴を追加します'
     if (editType === 'project') return '面接予定を登録します'
     if (editType === 'memo') return 'メモを追加します'
+    if (editType === 'drive') return 'Google ドライブのリンクを登録します'
     return '情報を追加・編集します'
   }
 
@@ -1147,6 +1233,8 @@ export default function CandidateDetailPage({ params }: PageProps) {
                 // ダイアログを閉じる際に選択状態をリセット
                 setEditType(null)
                 setMemoContent('')
+                setDriveLinkInput('')
+                setDriveLinkError(null)
                 setProjectError(null)
                 setProjectForm({
                   garden_name: '',
@@ -1171,6 +1259,10 @@ export default function CandidateDetailPage({ params }: PageProps) {
                 <TabsTrigger value="memo" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-indigo-600 data-[state=active]:text-white">
                   メモ
                 </TabsTrigger>
+                <TabsTrigger value="drive" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:to-indigo-600 data-[state=active]:text-white">
+                  <Link2 className="w-4 h-4 mr-1" />
+                  ドライブ
+                </TabsTrigger>
               </TabsList>
               <div className="flex items-center gap-2">
                 <DialogTrigger asChild>
@@ -1194,6 +1286,19 @@ export default function CandidateDetailPage({ params }: PageProps) {
                   >
                     <Plus className="w-4 h-4 mr-2" />
                     面接追加
+                  </Button>
+                </DialogTrigger>
+                <DialogTrigger asChild>
+                  <Button 
+                    variant="outline"
+                    className="border-slate-200 text-slate-700 hover:bg-slate-100"
+                    onClick={() => {
+                      setEditType('drive')
+                      setDriveLinkInput(driveLink || '')
+                    }}
+                  >
+                    <Link2 className="w-4 h-4 mr-2" />
+                    リンク追加
                   </Button>
                 </DialogTrigger>
               </div>
@@ -1297,7 +1402,7 @@ export default function CandidateDetailPage({ params }: PageProps) {
                                         const err = await res.json().catch(() => ({}))
                                         alert(err.details || err.error || '削除に失敗しました')
                                       }
-                                    } catch (e) {
+                                    } catch {
                                       alert('削除に失敗しました')
                                     }
                                   }}
@@ -1430,6 +1535,84 @@ export default function CandidateDetailPage({ params }: PageProps) {
                 </CardContent>
               </Card>
             </TabsContent>
+
+            {/* ドライブタブ */}
+            <TabsContent value="drive" className="mt-4">
+              <Card className="bg-white border-slate-200 shadow-sm">
+                <CardContent className="py-6">
+                  {driveLink ? (
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-3 p-4 rounded-lg bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200">
+                        <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center shrink-0">
+                          <Link2 className="w-5 h-5 text-blue-600" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-slate-800">Google ドライブ</p>
+                          <p className="text-xs text-slate-500 truncate">{driveLink}</p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <a
+                            href={driveLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            開く
+                          </a>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-slate-500 hover:text-slate-700"
+                            onClick={() => {
+                              setEditType('drive')
+                              setDriveLinkInput(driveLink)
+                              setDriveLinkError(null)
+                              setIsEditDialogOpen(true)
+                            }}
+                          >
+                            <Edit className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-slate-400 hover:text-rose-600"
+                            disabled={driveLinkSaving}
+                            onClick={() => {
+                              if (confirm('ドライブリンクを削除してよいですか？')) {
+                                handleDeleteDriveLink()
+                              }
+                            }}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-12">
+                      <Link2 className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+                      <p className="text-slate-500 mb-4">ドライブリンクが登録されていません</p>
+                      <DialogTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="border-slate-200"
+                          onClick={() => {
+                            setEditType('drive')
+                            setDriveLinkInput('')
+                            setDriveLinkError(null)
+                          }}
+                        >
+                          <Plus className="w-4 h-4 mr-2" />
+                          リンクを追加
+                        </Button>
+                      </DialogTrigger>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
           </Tabs>
           <DialogContent className="sm:max-w-[500px]">
             <DialogHeader>
@@ -1477,6 +1660,30 @@ export default function CandidateDetailPage({ params }: PageProps) {
                       placeholder="内容を入力してください..."
                       className="min-h-[150px]"
                     />
+                  </div>
+                </div>
+              ) : editType === 'drive' ? (
+                <div className="space-y-4">
+                  {driveLinkError && (
+                    <p className="text-sm text-rose-600" role="alert">
+                      {driveLinkError}
+                    </p>
+                  )}
+                  <div className="space-y-2">
+                    <Label htmlFor="drive-url">Google ドライブ URL</Label>
+                    <Input
+                      id="drive-url"
+                      type="url"
+                      placeholder="https://drive.google.com/..."
+                      value={driveLinkInput}
+                      onChange={(e) => {
+                        setDriveLinkInput(e.target.value)
+                        if (driveLinkError) setDriveLinkError(null)
+                      }}
+                    />
+                    <p className="text-xs text-slate-500">
+                      https:// で始まる Google ドライブのURLを入力してください
+                    </p>
                   </div>
                 </div>
               ) : editType === 'project' ? (
@@ -1530,6 +1737,8 @@ export default function CandidateDetailPage({ params }: PageProps) {
                       handleSaveMemo()
                     } else if (editType === 'project') {
                       handleSaveProject()
+                    } else if (editType === 'drive') {
+                      handleSaveDriveLink()
                     } else {
                       setIsEditDialogOpen(false)
                       setEditType(null)
@@ -1538,10 +1747,11 @@ export default function CandidateDetailPage({ params }: PageProps) {
                   className="bg-gradient-to-r from-violet-500 to-indigo-600 hover:from-violet-600 hover:to-indigo-700 text-white"
                   disabled={
                     (editType === 'memo' && !memoContent.trim()) ||
-                    (editType === 'project' && (!projectForm.garden_name.trim() || !projectForm.corporation_name.trim() || !projectForm.interview_date || projectSaving))
+                    (editType === 'project' && (!projectForm.garden_name.trim() || !projectForm.corporation_name.trim() || !projectForm.interview_date || projectSaving)) ||
+                    (editType === 'drive' && (!driveLinkInput.trim() || driveLinkSaving))
                   }
                 >
-                  {projectSaving ? '保存中...' : '保存'}
+                  {(projectSaving || driveLinkSaving) ? '保存中...' : '保存'}
                 </Button>
               )}
             </DialogFooter>

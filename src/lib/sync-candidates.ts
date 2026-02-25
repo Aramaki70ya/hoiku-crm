@@ -182,6 +182,7 @@ export async function syncCandidatesFromRows(
           approach_priority: null,
           rank: null,
           memo: parsed.memo ?? null,
+          drive_link: null,
         }
         const { error: insertError } = await supabase.from('candidates').insert(insertNew as never)
         if (insertError) {
@@ -278,6 +279,7 @@ export async function syncCandidatesFromRows(
       approach_priority: null,
       rank: null,
       memo: parsed.memo ?? null,
+      drive_link: null,
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

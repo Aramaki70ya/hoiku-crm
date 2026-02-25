@@ -121,6 +121,7 @@ export async function PATCH(
       'source_id',
       'registered_at',
       'rank',
+      'drive_link',
     ] as const
 
     // ステータス変更の場合、変更前のステータスを取得
