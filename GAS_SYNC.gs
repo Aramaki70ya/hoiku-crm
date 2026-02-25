@@ -21,6 +21,45 @@
  */
 
 /**
+ * 同一氏名の重複をマージするAPIを呼ぶ（スプシを正・履歴は集約）。
+ * IDずれで新ID追加が発生したときだけ呼ぶ想定。opts.recentDays で直近N日のみ対象にできる。
+ */
+function callMergeDuplicatesApi(apiUrl, apiKey, opts) {
+  try {
+    var mergeUrl = apiUrl.replace(/\/[^/]*$/, '/merge-duplicates')
+    if (opts && opts.recentDays) {
+      mergeUrl += (mergeUrl.indexOf('?') >= 0 ? '&' : '?') + 'recent_days=' + opts.recentDays
+    }
+    var mergeRes = UrlFetchApp.fetch(mergeUrl, {
+      method: 'post',
+      headers: { Authorization: 'Bearer ' + apiKey },
+      muteHttpExceptions: true
+    })
+    var mergeCode = mergeRes.getResponseCode()
+    var mergeBody = mergeRes.getContentText()
+    if (mergeCode >= 200 && mergeCode < 300) {
+      var mergeJson = JSON.parse(mergeBody)
+      if (mergeJson.mergedGroups > 0) {
+        Logger.log('--- 重複マージ（スプシを正に統一） ---')
+        Logger.log('  マージグループ: ' + mergeJson.mergedGroups + '件、解消した重複: ' + mergeJson.mergedCount + '件')
+        if (mergeJson.details && mergeJson.details.length > 0) {
+          mergeJson.details.forEach(function (d) {
+            Logger.log('  【' + d.name + '】残すID: ' + d.keptId + ' ← 統合: ' + d.mergeIds.join(', '))
+          })
+        }
+        if (mergeJson.errors && mergeJson.errors.length > 0) {
+          mergeJson.errors.forEach(function (err) { Logger.log('  マージ警告: ' + err) })
+        }
+      }
+    } else {
+      Logger.log('マージAPI エラー: ' + mergeCode + ' ' + mergeBody)
+    }
+  } catch (mergeErr) {
+    Logger.log('マージAPI 呼び出しエラー: ' + mergeErr.message)
+  }
+}
+
+/**
  * 設定チェック用（デバッグ）
  * スクリプトプロパティの設定状況を確認する
  */
@@ -218,6 +257,11 @@ function syncNewCandidates() {
         json.errors.forEach(function (e) {
           Logger.log('  行' + e.row + ': ' + e.message)
         })
+      }
+
+      // IDずれで新ID追加があったときだけ、直近30日分の同名をマージして重複解消
+      if (json.insertedWithNewIdLog && json.insertedWithNewIdLog.length > 0) {
+        callMergeDuplicatesApi(apiUrl, apiKey, { recentDays: 30 })
       }
     } else {
       Logger.log('API エラー: ' + (json.error || body))
@@ -429,6 +473,7 @@ function syncAllContactUpdate() {
   let totalUpdated = 0
   let totalInserted = 0
   let totalSkipped = 0
+  var hadNewIdInsert = false
 
   Logger.log('連絡先・年齢の一括更新を開始（有効行: ' + validRows.length + '件、200行ずつ送信）')
 
@@ -471,6 +516,7 @@ function syncAllContactUpdate() {
           })
         }
         if (json.insertedWithNewIdLog && json.insertedWithNewIdLog.length > 0) {
+          hadNewIdInsert = true
           json.insertedWithNewIdLog.forEach(function (e) {
             Logger.log('  新IDで追加: 行' + e.row + ' シートID ' + e.sheetId + ' → ' + e.newId + ' ' + e.name)
           })
@@ -488,4 +534,9 @@ function syncAllContactUpdate() {
   }
 
   Logger.log('=== 完了 === 連絡先・年齢など更新: ' + totalUpdated + '件, 新規追加: ' + totalInserted + '件, スキップ: ' + totalSkipped + '件')
+
+  // IDずれで新ID追加があったときだけ、直近30日分の同名をマージして重複解消
+  if (hadNewIdInsert) {
+    callMergeDuplicatesApi(apiUrl, apiKey, { recentDays: 30 })
+  }
 }
