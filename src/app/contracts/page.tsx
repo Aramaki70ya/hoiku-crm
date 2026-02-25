@@ -562,7 +562,53 @@ export default function ContractsPage() {
                             )}
                           </TableCell>
                           <TableCell>
-                            {contract.invoice_sent_date ? (
+                            {editingContractId === contract.id ? (
+                              <div className="relative">
+                                <Select
+                                  value={editData.invoice_sent_date !== undefined
+                                    ? (editData.invoice_sent_date ? 'sent' : 'unsent')
+                                    : (contract.invoice_sent_date ? 'sent' : 'unsent')
+                                  }
+                                  onValueChange={(value) => {
+                                    if (value === 'sent') {
+                                      setEditData(prev => ({
+                                        ...prev,
+                                        invoice_sent_date: prev.invoice_sent_date || contract.invoice_sent_date || new Date().toISOString().split('T')[0],
+                                      }))
+                                    } else {
+                                      setEditData(prev => ({ ...prev, invoice_sent_date: null }))
+                                    }
+                                  }}
+                                >
+                                  <SelectTrigger className="min-w-[100px] h-8 border border-slate-200 bg-white rounded-md shadow-sm hover:bg-slate-50 px-3 text-sm">
+                                    <SelectValue asChild>
+                                      <span className="flex items-center gap-1.5">
+                                        {editData.invoice_sent_date !== undefined
+                                          ? (editData.invoice_sent_date ? (
+                                              <Badge className="bg-blue-100 text-blue-700 border-blue-200 text-xs">済</Badge>
+                                            ) : (
+                                              <Badge className="bg-gray-100 text-gray-700 border-gray-200 text-xs">未</Badge>
+                                            ))
+                                          : (contract.invoice_sent_date ? (
+                                              <Badge className="bg-blue-100 text-blue-700 border-blue-200 text-xs">済</Badge>
+                                            ) : (
+                                              <Badge className="bg-gray-100 text-gray-700 border-gray-200 text-xs">未</Badge>
+                                            ))
+                                        }
+                                      </span>
+                                    </SelectValue>
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="sent">
+                                      <Badge className="bg-blue-100 text-blue-700 border-blue-200">済</Badge>
+                                    </SelectItem>
+                                    <SelectItem value="unsent">
+                                      <Badge className="bg-gray-100 text-gray-700 border-gray-200">未</Badge>
+                                    </SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            ) : contract.invoice_sent_date ? (
                               <Badge className="bg-blue-100 text-blue-700 border-blue-200">
                                 済
                               </Badge>
@@ -662,30 +708,30 @@ export default function ContractsPage() {
                                     }
                                   }}
                                 >
-                                  <SelectTrigger className="w-auto h-auto border-0 bg-transparent hover:bg-transparent p-0 [&>svg]:hidden">
+                                  <SelectTrigger className="min-w-[120px] h-8 border border-slate-200 bg-white rounded-md shadow-sm hover:bg-slate-50 px-3 text-sm">
                                     <SelectValue asChild>
-                                      <div>
+                                      <span className="flex items-center gap-1.5">
                                         {editData.payment_date !== undefined 
                                           ? (editData.payment_date ? (
-                                            <Badge className="bg-green-100 text-green-700 border-green-200 cursor-pointer">
+                                            <Badge className="bg-green-100 text-green-700 border-green-200 text-xs">
                                               入金済み
                                             </Badge>
                                           ) : (
-                                            <Badge className="bg-amber-100 text-amber-700 border-amber-200 cursor-pointer">
+                                            <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-xs">
                                               入金待ち
                                             </Badge>
                                           ))
                                           : (contract.payment_date ? (
-                                            <Badge className="bg-green-100 text-green-700 border-green-200 cursor-pointer">
+                                            <Badge className="bg-green-100 text-green-700 border-green-200 text-xs">
                                               入金済み
                                             </Badge>
                                           ) : (
-                                            <Badge className="bg-amber-100 text-amber-700 border-amber-200 cursor-pointer">
+                                            <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-xs">
                                               入金待ち
                                             </Badge>
                                           ))
                                         }
-                                      </div>
+                                      </span>
                                     </SelectValue>
                                   </SelectTrigger>
                                   <SelectContent>
