@@ -12,15 +12,19 @@ type CandidateInsert = Database['public']['Tables']['candidates']['Insert']
 const MAX_ROWS = 3000
 
 /**
- * 氏名比較用の正規化（スペースのみ無視）
- * シート「東浦 美結」とDB「東浦美結」は同一とみなす。
- * 「(再登録)」は除去しない＝再登録は別人物として扱い、同じIDなら更新せずスキップ（シート側で別IDの新行として追加する想定）
+ * 氏名比較用の正規化
+ * - スペース（半角・全角）を除去
+ * - 「(再登録)」「（再登録）」を除去して比較（同一人物の再登録扱い）
+ * シート「東浦 美結」とDB「東浦美結」→ 同一
+ * シート「下村 利美(再登録)」とDB「下村 利美」→ 同一
  */
 function normalizeNameForCompare(name: string): string {
   if (!name || typeof name !== 'string') return ''
-  const s = name.trim()
-  // すべてのスペース（半角・全角）を除去するだけ。（再登録）は残す
-  return s.replace(/[\s\u3000]/g, '')
+  let s = name.trim()
+  // 「(再登録)」「（再登録）」を比較時は除去
+  s = s.replace(/[（(]再登録[）)]/g, '')
+  // すべてのスペース（半角・全角）を除去
+  return s.replace(/[\s\u3000]/g, '').trim()
 }
 
 export interface SyncResult {
@@ -112,27 +116,25 @@ export async function syncCandidatesFromRows(
 
     const name = parsed.name ?? ''
     if (existingIds.has(id)) {
-      // 誤上書き防止: 氏名は「スペース無視・(再登録)等無視」で正規化して比較。一致しない場合のみスキップ
       const dbName = (nameById.get(id) ?? '').trim()
       const sheetName = (parsed.name ?? '').trim()
       const dbNorm = normalizeNameForCompare(dbName)
       const sheetNorm = normalizeNameForCompare(sheetName)
-      if (dbNorm !== '' && sheetNorm !== '' && dbNorm !== sheetNorm) {
-        result.errors.push({
-          row: i + 1,
-          id,
-          message: `氏名不一致のため更新をスキップしました。シート「${sheetName}」／DB「${dbName}」。行ずれ・ID列の誤りがないか確認してください。`,
-        })
-        result.skipped += 1
-        result.skippedLog.push({ id, name: sheetName })
-        continue
-      }
 
       const rowDate = parsed.registered_at ?? null
       const currentRegisteredAt = registeredAtById.get(id) ?? null
       const normPhone = normalizePhone(parsed.phone ?? '')
       // 既存者: 登録日補完 + 連絡先・年齢などシートに値があれば上書き更新
       const updates: Record<string, unknown> = {}
+      // 氏名が不一致の場合はシートを正とみなして名前も更新（ログに警告を残す）
+      if (dbNorm !== '' && sheetNorm !== '' && dbNorm !== sheetNorm) {
+        updates.name = sheetName
+        result.errors.push({
+          row: i + 1,
+          id,
+          message: `氏名不一致のためDB名を更新しました。DB「${dbName}」→シート「${sheetName}」。`,
+        })
+      }
       if (rowDate && !currentRegisteredAt) {
         updates.registered_at = rowDate
       }
