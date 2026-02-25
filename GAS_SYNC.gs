@@ -193,6 +193,13 @@ function syncNewCandidates() {
         })
       }
 
+      if (json.nameCorrectedLog && json.nameCorrectedLog.length > 0) {
+        Logger.log('--- 名前をシートに合わせて修正した人 ---')
+        json.nameCorrectedLog.forEach(function (e) {
+          Logger.log('  行' + e.row + ': ' + e.id + ' 「' + e.previousName + '」→「' + e.name + '」')
+        })
+      }
+
       if (json.errors && json.errors.length > 0) {
         Logger.log('--- エラー ---')
         json.errors.forEach(function (e) {
@@ -438,6 +445,11 @@ function syncAllContactUpdate() {
         if (json.updatedLog && json.updatedLog.length > 0) {
           json.updatedLog.forEach(function (r) {
             Logger.log('  更新: ' + r.id + ' ' + r.name)
+          })
+        }
+        if (json.nameCorrectedLog && json.nameCorrectedLog.length > 0) {
+          json.nameCorrectedLog.forEach(function (e) {
+            Logger.log('  名前修正: 行' + e.row + ' ' + e.id + ' 「' + e.previousName + '」→「' + e.name + '」')
           })
         }
       } else {
