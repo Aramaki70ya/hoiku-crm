@@ -14,7 +14,6 @@ const MAX_ROWS = 3000
 /**
  * 氏名比較用の正規化（スペースのみ除去）
  * シート「東浦 美結」とDB「東浦美結」→ 同一。
- * (再登録)は除去しない＝再登録は別行・新IDで追加する運用。
  */
 function normalizeNameForCompare(name: string): string {
   if (!name || typeof name !== 'string') return ''
@@ -26,6 +25,16 @@ function normalizeNameForCompare(name: string): string {
 function hasReRegisterSuffix(name: string): boolean {
   return /[（(]再登録[）)]/.test((name ?? '').trim())
 }
+
+/** 既存IDの最大+1の新IDを発行（数値でないIDは無視） */
+function getNextAvailableId(existingIds: Set<string>): string {
+  const nums = Array.from(existingIds)
+    .map((s) => parseInt(s, 10))
+    .filter((n) => !Number.isNaN(n))
+  const next = nums.length > 0 ? Math.max(...nums) + 1 : 20200001
+  return String(next)
+}
+
 
 export interface SyncResult {
   inserted: number
@@ -45,6 +54,10 @@ export interface SyncResult {
   backfilledLog: { id: string; name: string }[]
   /** 連絡先・年齢などを更新した人: { id, name } */
   updatedLog: { id: string; name: string }[]
+  /** シートで更新したが、既にメモ・ステータス変更等の履歴がある求職者（要確認用） */
+  updatedButHasActivityLog: { id: string; name: string }[]
+  /** 既存IDと被ったため新IDを発行して追加した人（スプシ編集不要） */
+  insertedWithNewIdLog: { row: number; sheetId: string; newId: string; name: string }[]
 }
 
 /**
@@ -66,6 +79,8 @@ export async function syncCandidatesFromRows(
     skippedLog: [],
     backfilledLog: [],
     updatedLog: [],
+    updatedButHasActivityLog: [],
+    insertedWithNewIdLog: [],
   }
 
   if (rows.length === 0) return result
@@ -109,7 +124,7 @@ export async function syncCandidatesFromRows(
     nameToSourceId.set(s.name, s.id)
   }
 
-  // メモ・ステータス変更・案件・タイムラインのいずれかがある求職者ID（氏名上書きの対象外）
+  // メモ・ステータス変更・案件・タイムラインのいずれかがある求職者ID（更新後に updatedButHasActivityLog に載せて要確認として出す用）
   const candidateIdsWithActivity = new Set<string>()
   const activityTables = ['memos', 'timeline_events', 'status_history', 'projects'] as const
   for (const table of activityTables) {
@@ -132,47 +147,59 @@ export async function syncCandidatesFromRows(
     const name = parsed.name ?? ''
     const sheetName = (parsed.name ?? '').trim()
     if (existingIds.has(id)) {
-      // 再登録は同じIDで更新せず、新規IDで別行追加してもらう
-      if (hasReRegisterSuffix(sheetName)) {
-        result.errors.push({
-          row: i + 1,
-          id,
-          message: 'このIDは既に登録済みです。(再登録)の場合は新しいIDを発行して別行で追加してください。',
-        })
-        result.skipped += 1
-        result.skippedLog.push({ id, name: sheetName })
-        continue
-      }
       const dbName = (nameById.get(id) ?? '').trim()
       const dbNorm = normalizeNameForCompare(dbName)
       const sheetNorm = normalizeNameForCompare(sheetName)
+      const isReRegister = hasReRegisterSuffix(sheetName)
+      const isNameMismatch = dbNorm !== '' && sheetNorm !== '' && dbNorm !== sheetNorm
+
+      // 再登録 or 氏名不一致：既存レコードは触らず、新IDを発行して新規登録（スプシ編集不要）
+      if (isReRegister || isNameMismatch) {
+        const newId = getNextAvailableId(existingIds)
+        const normPhone = normalizePhone(parsed.phone ?? '')
+        const consultantName = (row['担当者'] ?? '').toString().trim()
+        const primaryConsultant = consultantName.split(/[・\s]/)[0]?.trim()
+        const consultant_id = primaryConsultant ? nameToUserId.get(primaryConsultant) ?? null : null
+        const sourceName = (row['媒体'] ?? '').toString().trim()
+        const source_id = sourceName ? nameToSourceId.get(sourceName) ?? null : null
+        const insertNew: CandidateInsert = {
+          id: newId,
+          name: parsed.name ?? '',
+          kana: parsed.kana ?? null,
+          phone: normPhone ?? parsed.phone ?? null,
+          email: parsed.email ?? null,
+          birth_date: parsed.birth_date ?? null,
+          age: parsed.age ?? null,
+          prefecture: parsed.prefecture ?? null,
+          address: parsed.address ?? null,
+          qualification: parsed.qualification ?? null,
+          desired_employment_type: parsed.desired_employment_type ?? null,
+          desired_job_type: parsed.desired_job_type ?? null,
+          status: parsed.status ?? '初回連絡中',
+          source_id,
+          registered_at: parsed.registered_at ?? null,
+          consultant_id,
+          approach_priority: null,
+          rank: null,
+          memo: parsed.memo ?? null,
+        }
+        const { error: insertError } = await supabase.from('candidates').insert(insertNew as never)
+        if (insertError) {
+          result.errors.push({ row: i + 1, id, message: `新ID発行で追加失敗: ${insertError.message}` })
+          continue
+        }
+        result.inserted += 1
+        result.insertedLog.push({ id: newId, name })
+        result.insertedWithNewIdLog.push({ row: i + 1, sheetId: id, newId, name: sheetName })
+        existingIds.add(newId)
+        continue
+      }
 
       const rowDate = parsed.registered_at ?? null
       const currentRegisteredAt = registeredAtById.get(id) ?? null
       const normPhone = normalizePhone(parsed.phone ?? '')
-      // 既存者: 登録日補完 + 連絡先・年齢などシートに値があれば上書き更新
+      // 既存者（氏名一致）: 登録日・連絡先等のみ更新（氏名は変えない）
       const updates: Record<string, unknown> = {}
-      // 氏名が不一致の場合はシートを正とみなして名前も更新（名前修正ログに記録）
-      // ただしメモ・ステータス変更・案件等の履歴がある求職者は誤上書き防止のため名前は更新しない
-      if (dbNorm !== '' && sheetNorm !== '' && dbNorm !== sheetNorm) {
-        if (candidateIdsWithActivity.has(id)) {
-          result.errors.push({
-            row: i + 1,
-            id,
-            message: `氏名不一致ですが、この求職者にはメモ・ステータス変更等の履歴があるため名前を上書きしませんでした。シート「${sheetName}」／DB「${dbName}」。ID・行ずれを確認してください。`,
-          })
-          result.skipped += 1
-          result.skippedLog.push({ id, name: sheetName })
-          continue
-        }
-        updates.name = sheetName
-        result.nameCorrectedLog.push({
-          row: i + 1,
-          id,
-          previousName: dbName,
-          name: sheetName,
-        })
-      }
       if (rowDate && !currentRegisteredAt) {
         updates.registered_at = rowDate
       }
@@ -209,6 +236,9 @@ export async function syncCandidatesFromRows(
           if (contactOrAgeUpdated) {
             result.updated += 1
             result.updatedLog.push({ id, name })
+          }
+          if (candidateIdsWithActivity.has(id)) {
+            result.updatedButHasActivityLog.push({ id, name })
           }
         }
       } else {

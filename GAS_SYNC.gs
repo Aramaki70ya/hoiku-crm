@@ -171,6 +171,12 @@ function syncNewCandidates() {
           Logger.log('  ' + r.id + ' ' + r.name)
         })
       }
+      if (json.insertedWithNewIdLog && json.insertedWithNewIdLog.length > 0) {
+        Logger.log('--- 既存IDと被ったため新IDで追加した人（スプシ編集不要） ---')
+        json.insertedWithNewIdLog.forEach(function (e) {
+          Logger.log('  行' + e.row + ': シートID ' + e.sheetId + ' → 新ID ' + e.newId + ' ' + e.name)
+        })
+      }
 
       if (json.backfilledLog && json.backfilledLog.length > 0) {
         Logger.log('--- 登録日を補完した人 ---')
@@ -197,6 +203,13 @@ function syncNewCandidates() {
         Logger.log('--- 名前をシートに合わせて修正した人 ---')
         json.nameCorrectedLog.forEach(function (e) {
           Logger.log('  行' + e.row + ': ' + e.id + ' 「' + e.previousName + '」→「' + e.name + '」')
+        })
+      }
+
+      if (json.updatedButHasActivityLog && json.updatedButHasActivityLog.length > 0) {
+        Logger.log('--- シートで更新したが、既にメモ・ステータス変更等の履歴がある求職者（要確認） ---')
+        json.updatedButHasActivityLog.forEach(function (r) {
+          Logger.log('  ' + r.id + ' ' + r.name)
         })
       }
 
@@ -450,6 +463,16 @@ function syncAllContactUpdate() {
         if (json.nameCorrectedLog && json.nameCorrectedLog.length > 0) {
           json.nameCorrectedLog.forEach(function (e) {
             Logger.log('  名前修正: 行' + e.row + ' ' + e.id + ' 「' + e.previousName + '」→「' + e.name + '」')
+          })
+        }
+        if (json.updatedButHasActivityLog && json.updatedButHasActivityLog.length > 0) {
+          json.updatedButHasActivityLog.forEach(function (r) {
+            Logger.log('  要確認（履歴あり）: ' + r.id + ' ' + r.name)
+          })
+        }
+        if (json.insertedWithNewIdLog && json.insertedWithNewIdLog.length > 0) {
+          json.insertedWithNewIdLog.forEach(function (e) {
+            Logger.log('  新IDで追加: 行' + e.row + ' シートID ' + e.sheetId + ' → ' + e.newId + ' ' + e.name)
           })
         }
       } else {
