@@ -78,6 +78,7 @@ export interface Candidate {
   approach_priority: 'S' | 'A' | 'B' | 'C' | null // アプローチ優先度（タスク画面用）
   rank: 'S' | 'A' | 'B' | 'C' | null // ランク（求職者管理画面用）
   memo: string | null
+  drive_link: string | null
   created_at: string
   updated_at: string
 }
