@@ -91,24 +91,28 @@ export async function syncCandidatesFromRows(
   }
 
   // Supabase はデフォルトで最大1000件しか返さないため、全件取得するまでページングする
+  interface ExistingCandidate {
+    id: string; name: string | null; registered_at: string | null; phone: string | null
+    email: string | null; age: number | null; birth_date: string | null
+    prefecture: string | null; address: string | null; qualification: string | null
+    desired_employment_type: string | null; desired_job_type: string | null; memo: string | null
+  }
   const PAGE_SIZE = 1000
-  const existingList: { id: string; name: string | null; registered_at: string | null; phone: string | null }[] = []
+  const existingList: ExistingCandidate[] = []
   let offset = 0
   while (true) {
     const { data: page } = await supabase
       .from('candidates')
-      .select('id, name, registered_at, phone')
+      .select('id, name, registered_at, phone, email, age, birth_date, prefecture, address, qualification, desired_employment_type, desired_job_type, memo')
       .range(offset, offset + PAGE_SIZE - 1)
-    const pageRows = (page ?? []) as { id: string; name: string | null; registered_at: string | null; phone: string | null }[]
+    const pageRows = (page ?? []) as ExistingCandidate[]
     existingList.push(...pageRows)
     if (pageRows.length < PAGE_SIZE) break
     offset += PAGE_SIZE
   }
   const existingIds = new Set(existingList.map((r) => r.id))
   const nameById = new Map<string, string>(existingList.map((r) => [r.id, (r.name ?? '').trim()]))
-  const registeredAtById = new Map<string, string | null>(
-    existingList.map((r) => [r.id, r.registered_at ?? null])
-  )
+  const existingById = new Map<string, ExistingCandidate>(existingList.map((r) => [r.id, r]))
 
   const { data: users } = await supabase.from('users').select('id, name')
   const userList = (users ?? []) as { id: string; name: string }[]
@@ -124,9 +128,9 @@ export async function syncCandidatesFromRows(
     nameToSourceId.set(s.name, s.id)
   }
 
-  // メモ・ステータス変更・案件・タイムラインのいずれかがある求職者ID（更新後に updatedButHasActivityLog に載せて要確認として出す用）
+  // タイムライン・案件のいずれかがある求職者ID（更新後に updatedButHasActivityLog に載せて要確認として出す用）
   const candidateIdsWithActivity = new Set<string>()
-  const activityTables = ['memos', 'timeline_events', 'status_history', 'projects'] as const
+  const activityTables = ['timeline_events', 'projects'] as const
   for (const table of activityTables) {
     const { data: rows } = await supabase.from(table).select('candidate_id')
     if (rows) {
@@ -154,7 +158,22 @@ export async function syncCandidatesFromRows(
       const isNameMismatch = dbNorm !== '' && sheetNorm !== '' && dbNorm !== sheetNorm
 
       // 再登録 or 氏名不一致：既存レコードは触らず、新IDを発行して新規登録（スプシ編集不要）
+      // ただし、同名レコードが既に別IDで存在する場合はスキップ（同期の度に重複作成されるバグ防止）
       if (isReRegister || isNameMismatch) {
+        const alreadyCreatedUnderDifferentId = existingList.some(e => {
+          if (e.id === id) return false
+          const eName = (e.name ?? '').trim()
+          if (isReRegister) {
+            return eName === sheetName
+          }
+          return normalizeNameForCompare(eName) === sheetNorm
+        })
+        if (alreadyCreatedUnderDifferentId) {
+          result.skipped += 1
+          result.skippedLog.push({ id, name: `${name}（既に別IDで登録済み・重複スキップ）` })
+          continue
+        }
+
         const newId = getNextAvailableId(existingIds)
         const normPhone = normalizePhone(parsed.phone ?? '')
         const consultantName = (row['担当者'] ?? '').toString().trim()
@@ -196,29 +215,25 @@ export async function syncCandidatesFromRows(
         continue
       }
 
-      const rowDate = parsed.registered_at ?? null
-      const currentRegisteredAt = registeredAtById.get(id) ?? null
+      const existing = existingById.get(id)
       const normPhone = normalizePhone(parsed.phone ?? '')
-      // 既存者（氏名一致）: 登録日・連絡先等のみ更新（氏名は変えない）
+      // 既存者（氏名一致）: CRM に値が無い項目だけスプシから補完。CRM の既存値は絶対に上書きしない。
       const updates: Record<string, unknown> = {}
-      if (rowDate && !currentRegisteredAt) {
-        updates.registered_at = rowDate
+      if (parsed.registered_at && !existing?.registered_at) {
+        updates.registered_at = parsed.registered_at
       }
-      if (normPhone) updates.phone = normPhone
-      if (parsed.email != null && parsed.email !== '') updates.email = parsed.email
-      // 有効な年齢なら更新。CSVで126/125/空は「不明」なので null で上書き（DBの不正値をクリア）
-      if (parsed.age != null && parsed.age > 0 && parsed.age < 120) {
+      if (normPhone && !existing?.phone) updates.phone = normPhone
+      if (parsed.email && !existing?.email) updates.email = parsed.email
+      if (parsed.age != null && parsed.age > 0 && parsed.age < 120 && existing?.age == null) {
         updates.age = parsed.age
-      } else {
-        updates.age = null
       }
-      if (parsed.birth_date != null && parsed.birth_date !== '') updates.birth_date = parsed.birth_date
-      if (parsed.prefecture != null && parsed.prefecture !== '') updates.prefecture = parsed.prefecture
-      if (parsed.address != null && parsed.address !== '') updates.address = parsed.address
-      if (parsed.qualification != null && parsed.qualification !== '') updates.qualification = parsed.qualification
-      if (parsed.desired_employment_type != null && parsed.desired_employment_type !== '') updates.desired_employment_type = parsed.desired_employment_type
-      if (parsed.desired_job_type != null && parsed.desired_job_type !== '') updates.desired_job_type = parsed.desired_job_type
-      if (parsed.memo != null && parsed.memo !== '') updates.memo = parsed.memo
+      if (parsed.birth_date && !existing?.birth_date) updates.birth_date = parsed.birth_date
+      if (parsed.prefecture && !existing?.prefecture) updates.prefecture = parsed.prefecture
+      if (parsed.address && !existing?.address) updates.address = parsed.address
+      if (parsed.qualification && !existing?.qualification) updates.qualification = parsed.qualification
+      if (parsed.desired_employment_type && !existing?.desired_employment_type) updates.desired_employment_type = parsed.desired_employment_type
+      if (parsed.desired_job_type && !existing?.desired_job_type) updates.desired_job_type = parsed.desired_job_type
+      if (parsed.memo && !existing?.memo) updates.memo = parsed.memo
 
       if (Object.keys(updates).length > 0) {
         const { error: updateError } = await supabase
@@ -231,7 +246,6 @@ export async function syncCandidatesFromRows(
           if (updates.registered_at) {
             result.backfilled += 1
             result.backfilledLog.push({ id, name })
-            registeredAtById.set(id, rowDate)
           }
           const contactOrAgeUpdated = updates.phone ?? updates.email ?? updates.age ?? updates.birth_date ?? updates.prefecture ?? updates.address
           if (contactOrAgeUpdated) {
