@@ -35,6 +35,12 @@ function getNextAvailableId(existingIds: Set<string>): string {
   return String(next)
 }
 
+function addIdToNameIndex(index: Map<string, Set<string>>, key: string, id: string): void {
+  if (!key) return
+  if (!index.has(key)) index.set(key, new Set<string>())
+  index.get(key)!.add(id)
+}
+
 
 export interface SyncResult {
   inserted: number
@@ -113,6 +119,14 @@ export async function syncCandidatesFromRows(
   const existingIds = new Set(existingList.map((r) => r.id))
   const nameById = new Map<string, string>(existingList.map((r) => [r.id, (r.name ?? '').trim()]))
   const existingById = new Map<string, ExistingCandidate>(existingList.map((r) => [r.id, r]))
+  const exactNameToIds = new Map<string, Set<string>>()
+  const normalizedNameToIds = new Map<string, Set<string>>()
+  for (const r of existingList) {
+    const trimmedName = (r.name ?? '').trim()
+    const normalizedName = normalizeNameForCompare(trimmedName)
+    addIdToNameIndex(exactNameToIds, trimmedName, r.id)
+    addIdToNameIndex(normalizedNameToIds, normalizedName, r.id)
+  }
 
   const { data: users } = await supabase.from('users').select('id, name')
   const userList = (users ?? []) as { id: string; name: string }[]
@@ -160,14 +174,12 @@ export async function syncCandidatesFromRows(
       // 再登録 or 氏名不一致：既存レコードは触らず、新IDを発行して新規登録（スプシ編集不要）
       // ただし、同名レコードが既に別IDで存在する場合はスキップ（同期の度に重複作成されるバグ防止）
       if (isReRegister || isNameMismatch) {
-        const alreadyCreatedUnderDifferentId = existingList.some(e => {
-          if (e.id === id) return false
-          const eName = (e.name ?? '').trim()
-          if (isReRegister) {
-            return eName === sheetName
-          }
-          return normalizeNameForCompare(eName) === sheetNorm
-        })
+        const candidateIdsForName = isReRegister
+          ? exactNameToIds.get(sheetName)
+          : normalizedNameToIds.get(sheetNorm)
+        const alreadyCreatedUnderDifferentId =
+          !!candidateIdsForName &&
+          Array.from(candidateIdsForName).some((candidateId) => candidateId !== id)
         if (alreadyCreatedUnderDifferentId) {
           result.skipped += 1
           result.skippedLog.push({ id, name: `${name}（既に別IDで登録済み・重複スキップ）` })
@@ -212,6 +224,9 @@ export async function syncCandidatesFromRows(
         result.insertedLog.push({ id: newId, name })
         result.insertedWithNewIdLog.push({ row: i + 1, sheetId: id, newId, name: sheetName })
         existingIds.add(newId)
+        nameById.set(newId, sheetName)
+        addIdToNameIndex(exactNameToIds, sheetName, newId)
+        addIdToNameIndex(normalizedNameToIds, sheetNorm, newId)
         continue
       }
 
@@ -305,6 +320,9 @@ export async function syncCandidatesFromRows(
     result.inserted += 1
     result.insertedLog.push({ id, name })
     existingIds.add(id)
+    nameById.set(id, sheetName)
+    addIdToNameIndex(exactNameToIds, sheetName, id)
+    addIdToNameIndex(normalizedNameToIds, normalizeNameForCompare(sheetName), id)
   }
 
   return result

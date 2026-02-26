@@ -12,10 +12,49 @@ import type { Database } from '@/types/database'
 const PAGE_SIZE = 1000
 const SHEET_ID_PATTERN = /^2020\d{4}$/
 const TABLES = ['memos', 'timeline_events', 'status_history', 'projects', 'contracts'] as const
+const CANDIDATE_SELECT_FIELDS = 'id, name, kana, phone, email, age, birth_date, prefecture, address, qualification, desired_employment_type, desired_job_type, status, source_id, registered_at, consultant_id, approach_priority, rank, memo, drive_link'
 
 function parseIdNum(id: string): number {
   const n = parseInt(id, 10)
   return Number.isNaN(n) ? Infinity : n
+}
+
+function isBlankValue(v: unknown): boolean {
+  return v == null || (typeof v === 'string' && v.trim() === '')
+}
+
+function mergeMemoValue(keptMemo: string | null, dupMemo: string | null): string | null {
+  const kept = (keptMemo ?? '').trim()
+  const dup = (dupMemo ?? '').trim()
+  if (!kept && !dup) return null
+  if (!kept) return dup
+  if (!dup) return kept
+  if (kept === dup || kept.includes(dup)) return kept
+  if (dup.includes(kept)) return dup
+  return `${kept}\n\n${dup}`
+}
+
+interface MergeCandidateRow {
+  id: string
+  name: string | null
+  kana: string | null
+  phone: string | null
+  email: string | null
+  age: number | null
+  birth_date: string | null
+  prefecture: string | null
+  address: string | null
+  qualification: string | null
+  desired_employment_type: string | null
+  desired_job_type: string | null
+  status: string | null
+  source_id: string | null
+  registered_at: string | null
+  consultant_id: string | null
+  approach_priority: string | null
+  rank: string | null
+  memo: string | null
+  drive_link: string | null
 }
 
 export interface MergeDuplicateOptions {
@@ -94,6 +133,61 @@ export async function mergeDuplicateCandidates(
 
   for (const { name, keptId, mergeIds } of duplicates) {
     for (const dupId of mergeIds) {
+      const { data: pairRows, error: pairError } = await supabase
+        .from('candidates')
+        .select(CANDIDATE_SELECT_FIELDS)
+        .in('id', [keptId, dupId])
+      if (pairError) {
+        result.errors.push(`candidates ${dupId}/${keptId} 取得: ${pairError.message}`)
+        continue
+      }
+      const pair = (pairRows ?? []) as MergeCandidateRow[]
+      const keptRow = pair.find((r) => r.id === keptId)
+      const dupRow = pair.find((r) => r.id === dupId)
+      if (!keptRow || !dupRow) {
+        result.errors.push(`candidates ${dupId}/${keptId} 取得: レコードが見つかりません`)
+        continue
+      }
+
+      const updates: Record<string, unknown> = {}
+      const fillIfKeptBlank = (key: keyof MergeCandidateRow): void => {
+        if (key === 'id' || key === 'name' || key === 'memo') return
+        if (isBlankValue(keptRow[key]) && !isBlankValue(dupRow[key])) {
+          updates[key] = dupRow[key]
+        }
+      }
+      fillIfKeptBlank('kana')
+      fillIfKeptBlank('phone')
+      fillIfKeptBlank('email')
+      fillIfKeptBlank('age')
+      fillIfKeptBlank('birth_date')
+      fillIfKeptBlank('prefecture')
+      fillIfKeptBlank('address')
+      fillIfKeptBlank('qualification')
+      fillIfKeptBlank('desired_employment_type')
+      fillIfKeptBlank('desired_job_type')
+      fillIfKeptBlank('status')
+      fillIfKeptBlank('source_id')
+      fillIfKeptBlank('registered_at')
+      fillIfKeptBlank('consultant_id')
+      fillIfKeptBlank('approach_priority')
+      fillIfKeptBlank('rank')
+      fillIfKeptBlank('drive_link')
+      const mergedMemo = mergeMemoValue(keptRow.memo, dupRow.memo)
+      if (mergedMemo !== keptRow.memo) {
+        updates.memo = mergedMemo
+      }
+      if (Object.keys(updates).length > 0) {
+        const { error: updateCandidateError } = await supabase
+          .from('candidates')
+          .update(updates as never)
+          .eq('id', keptId)
+        if (updateCandidateError) {
+          result.errors.push(`candidates ${dupId}→${keptId} 本体統合: ${updateCandidateError.message}`)
+          continue
+        }
+      }
+
       for (const table of TABLES) {
         const { error } = await supabase
           .from(table as 'memos')
