@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
+import Link from 'next/link'
 import { AppLayout } from '@/components/layout/app-layout'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -703,8 +704,14 @@ export default function DashboardSummaryPage() {
         }
       })
 
+    // 行を表示する条件: (1)期間内担当1件以上 (2)期間内に操作した (3)担当求職者が1人以上いる（前月以前から継続含む）
     return progress
-      .filter((p) => p.totalCount > 0 || periodActiveUserIds.has(p.userId))
+      .filter(
+        (p) =>
+          p.totalCount > 0 ||
+          periodActiveUserIds.has(p.userId) ||
+          candidates.some((c) => c.consultant_id === p.userId)
+      )
       .sort((a, b) => b.totalCount - a.totalCount)
   }, [users, periodCandidates, periodInterviewStatusCandidateIds, periodClosedStatusCandidateIds, candidates, monthlyMetrics, monthlyMetricsLoading, isUserActiveInPeriod, periodActiveUserIds])
 
@@ -1870,7 +1877,14 @@ export default function DashboardSummaryPage() {
                 <TableBody>
                   {interviewModalData.map((item) => (
                     <TableRow key={item.candidateId}>
-                      <TableCell className="font-medium">{item.candidateName}</TableCell>
+                      <TableCell className="font-medium">
+                        <Link
+                          href={`/candidates/${item.candidateId}`}
+                          className="text-violet-600 hover:text-violet-800 hover:underline"
+                        >
+                          {item.candidateName}
+                        </Link>
+                      </TableCell>
                       <TableCell>
                         <Badge variant="outline">{item.status}</Badge>
                       </TableCell>
@@ -1955,7 +1969,14 @@ export default function DashboardSummaryPage() {
                 <TableBody>
                   {closedModalData.map((item) => (
                     <TableRow key={item.candidateId}>
-                      <TableCell className="font-medium">{item.candidateName}</TableCell>
+                      <TableCell className="font-medium">
+                        <Link
+                          href={`/candidates/${item.candidateId}`}
+                          className="text-violet-600 hover:text-violet-800 hover:underline"
+                        >
+                          {item.candidateName}
+                        </Link>
+                      </TableCell>
                       <TableCell>
                         <Badge variant="outline">{item.status}</Badge>
                       </TableCell>
