@@ -6,12 +6,6 @@ import { AppLayout } from '@/components/layout/app-layout'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover'
 import {
   Dialog,
   DialogContent,
@@ -36,7 +30,6 @@ import {
   Calendar,
   CalendarDays,
   AlertCircle,
-  ChevronDown,
   PhoneCall,
   UserCheck,
   XCircle,
@@ -62,7 +55,10 @@ import {
 import { INTERVIEW_PHASE_STATUSES, INTERVIEW_SET_STATUSES } from '@/lib/status-mapping'
 import type { Candidate, Project, Interview, User, Contract, StatusHistory, Memo } from '@/types/database'
 
-type PeriodType = 'current_month' | 'previous_month' | 'custom'
+function getCurrentYearMonth(): string {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+}
 
 type ClosedModalItem = {
   candidateId: string
@@ -75,9 +71,7 @@ type ClosedModalItem = {
 }
 
 export default function DashboardSummaryPage() {
-  const [periodType, setPeriodType] = useState<PeriodType>('current_month')
-  const [customStartDate, setCustomStartDate] = useState('')
-  const [customEndDate, setCustomEndDate] = useState('')
+  const [selectedYearMonth, setSelectedYearMonth] = useState<string>(() => getCurrentYearMonth())
   
   // 面接詳細モーダル用 state
   const [interviewModalOpen, setInterviewModalOpen] = useState(false)
@@ -183,26 +177,8 @@ export default function DashboardSummaryPage() {
     fetchData()
   }, [fetchData])
 
-  // 期間からmonth_textを計算するヘルパー関数
-  const getMonthText = useCallback(() => {
-    const now = new Date()
-    switch (periodType) {
-      case 'current_month':
-        return `${now.getFullYear()}_${String(now.getMonth() + 1).padStart(2, '0')}`
-      case 'previous_month':
-        const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-        return `${prev.getFullYear()}_${String(prev.getMonth() + 1).padStart(2, '0')}`
-      case 'custom':
-        if (customStartDate) {
-          const start = new Date(customStartDate)
-          return `${start.getFullYear()}_${String(start.getMonth() + 1).padStart(2, '0')}`
-        } else {
-          return `${now.getFullYear()}_${String(now.getMonth() + 1).padStart(2, '0')}`
-        }
-      default:
-        return `${now.getFullYear()}_${String(now.getMonth() + 1).padStart(2, '0')}`
-    }
-  }, [periodType, customStartDate])
+  // 選択年月から month_text（YYYY_MM）を返す
+  const getMonthText = useCallback(() => selectedYearMonth.replace('-', '_'), [selectedYearMonth])
 
   // 月次マージシートから営業進捗指標を取得
   const fetchMonthlyMetrics = useCallback(async () => {
@@ -316,57 +292,23 @@ export default function DashboardSummaryPage() {
 
   // 期間表示用テキスト
   const getPeriodLabel = () => {
+    const [y, m] = selectedYearMonth.split('-').map(Number)
     const now = new Date()
-    switch (periodType) {
-      case 'current_month':
-        return `${now.getFullYear()}年${now.getMonth() + 1}月（当月）`
-      case 'previous_month':
-        const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-        return `${prev.getFullYear()}年${prev.getMonth() + 1}月（前月）`
-      case 'custom':
-        if (customStartDate && customEndDate) {
-          return `${customStartDate} 〜 ${customEndDate}`
-        }
-        return '期間を選択'
-      default:
-        return '当月'
-    }
+    const isCurrent = now.getFullYear() === y && now.getMonth() + 1 === m
+    const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+    const isPrev = prev.getFullYear() === y && prev.getMonth() + 1 === m
+    if (isCurrent) return `${y}年${m}月（今月）`
+    if (isPrev) return `${y}年${m}月（先月）`
+    return `${y}年${m}月`
   }
 
-  // 期間の開始日・終了日を計算
+  // 選択年月の開始日・終了日を計算
   const periodDates = useMemo(() => {
-    const now = new Date()
-    let startDate: Date
-    let endDate: Date
-
-    switch (periodType) {
-      case 'current_month':
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1)
-        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59)
-        break
-      case 'previous_month':
-        const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-        startDate = new Date(prev.getFullYear(), prev.getMonth(), 1)
-        endDate = new Date(prev.getFullYear(), prev.getMonth() + 1, 0, 23, 59, 59)
-        break
-      case 'custom':
-        if (customStartDate && customEndDate) {
-          startDate = new Date(customStartDate)
-          endDate = new Date(customEndDate)
-          endDate.setHours(23, 59, 59, 999)
-        } else {
-          // カスタム期間が未設定の場合は当月
-          startDate = new Date(now.getFullYear(), now.getMonth(), 1)
-          endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59)
-        }
-        break
-      default:
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1)
-        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59)
-    }
-
+    const [y, m] = selectedYearMonth.split('-').map(Number)
+    const startDate = new Date(y, m - 1, 1)
+    const endDate = new Date(y, m, 0, 23, 59, 59)
     return { startDate, endDate }
-  }, [periodType, customStartDate, customEndDate])
+  }, [selectedYearMonth])
   // 期間内のデータをフィルタリング
   const periodCandidates = useMemo(() => {
     const { startDate, endDate } = periodDates
@@ -1064,108 +1006,61 @@ export default function DashboardSummaryPage() {
   return (
     <AppLayout title="ダッシュボード" description="営業進捗と売上実績のサマリー">
       <div className="space-y-6">
-        {/* 期間選択 */}
+        {/* 集計期間: 年月で選択 */}
         <div className="flex items-center gap-4 p-4 bg-white rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center gap-2 text-slate-600">
             <CalendarDays className="w-5 h-5 text-violet-500" />
             <span className="font-medium">集計期間:</span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <select
+              value={selectedYearMonth.split('-')[0]}
+              onChange={(e) => {
+                const y = e.target.value
+                const m = selectedYearMonth.split('-')[1]
+                setSelectedYearMonth(`${y}-${m}`)
+              }}
+              className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700"
+            >
+              {Array.from({ length: 7 }, (_, i) => new Date().getFullYear() - 3 + i).map((y) => (
+                <option key={y} value={String(y)}>{y}年</option>
+              ))}
+            </select>
+            <select
+              value={selectedYearMonth.split('-')[1]}
+              onChange={(e) => {
+                const y = selectedYearMonth.split('-')[0]
+                const m = e.target.value
+                setSelectedYearMonth(`${y}-${m}`)
+              }}
+              className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700"
+            >
+              {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                <option key={m} value={String(m).padStart(2, '0')}>{m}月</option>
+              ))}
+            </select>
             <Button
-              variant={periodType === 'current_month' ? 'default' : 'outline'}
+              variant={selectedYearMonth === getCurrentYearMonth() ? 'default' : 'outline'}
               size="sm"
-              onClick={() => setPeriodType('current_month')}
-              className={periodType === 'current_month' 
-                ? 'bg-gradient-to-r from-violet-500 to-indigo-600 text-white' 
+              onClick={() => setSelectedYearMonth(getCurrentYearMonth())}
+              className={selectedYearMonth === getCurrentYearMonth()
+                ? 'bg-gradient-to-r from-violet-500 to-indigo-600 text-white'
                 : 'border-slate-200 text-slate-600 hover:bg-slate-50'}
             >
-              当月
+              今月
             </Button>
             <Button
-              variant={periodType === 'previous_month' ? 'default' : 'outline'}
+              variant="outline"
               size="sm"
-              onClick={() => setPeriodType('previous_month')}
-              className={periodType === 'previous_month' 
-                ? 'bg-gradient-to-r from-violet-500 to-indigo-600 text-white' 
-                : 'border-slate-200 text-slate-600 hover:bg-slate-50'}
+              onClick={() => {
+                const now = new Date()
+                const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+                setSelectedYearMonth(`${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`)
+              }}
+              className="border-slate-200 text-slate-600 hover:bg-slate-50"
             >
-              前月
+              先月
             </Button>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant={periodType === 'custom' ? 'default' : 'outline'}
-                  size="sm"
-                  className={periodType === 'custom' 
-                    ? 'bg-gradient-to-r from-violet-500 to-indigo-600 text-white' 
-                    : 'border-slate-200 text-slate-600 hover:bg-slate-50'}
-                >
-                  指定期間
-                  <ChevronDown className="w-4 h-4 ml-1" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-72 p-4" align="start">
-                <div className="space-y-3">
-                  <div>
-                    <label className="text-sm font-medium text-slate-700">開始日</label>
-                    <Input
-                      type="date"
-                      value={customStartDate}
-                      onChange={(e) => {
-                        setCustomStartDate(e.target.value)
-                        setPeriodType('custom')
-                      }}
-                      className="mt-1"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-slate-700">終了日</label>
-                    <Input
-                      type="date"
-                      value={customEndDate}
-                      onChange={(e) => {
-                        setCustomEndDate(e.target.value)
-                        setPeriodType('custom')
-                      }}
-                      className="mt-1"
-                    />
-                  </div>
-                  <div className="flex gap-2 pt-2">
-                    <Button 
-                      size="sm" 
-                      variant="outline"
-                      className="flex-1"
-                      onClick={() => {
-                        // 今週
-                        const now = new Date()
-                        const weekStart = new Date(now)
-                        weekStart.setDate(now.getDate() - now.getDay())
-                        setCustomStartDate(weekStart.toISOString().split('T')[0])
-                        setCustomEndDate(now.toISOString().split('T')[0])
-                        setPeriodType('custom')
-                      }}
-                    >
-                      今週
-                    </Button>
-                    <Button 
-                      size="sm" 
-                      variant="outline"
-                      className="flex-1"
-                      onClick={() => {
-                        // 月初〜今日
-                        const now = new Date()
-                        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-                        setCustomStartDate(monthStart.toISOString().split('T')[0])
-                        setCustomEndDate(now.toISOString().split('T')[0])
-                        setPeriodType('custom')
-                      }}
-                    >
-                      月初〜今日
-                    </Button>
-                  </div>
-                </div>
-              </PopoverContent>
-            </Popover>
           </div>
           <div className="ml-auto">
             <Badge className="bg-violet-100 text-violet-700 px-3 py-1 text-sm">
