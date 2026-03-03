@@ -25,11 +25,25 @@ export async function PATCH(
       return NextResponse.json({ error: '認証が必要です' }, { status: 401 })
     }
     
-    const body = await request.json()
-    
+    const rawBody = (await request.json()) as Record<string, unknown>
+
+    // 更新可能フィールドのみ反映（部分更新で他カラムを上書きしない）
+    const ALLOWED_PATCH_FIELDS = ['name', 'category'] as const
+    const updateRow: Record<string, unknown> = {}
+    for (const key of ALLOWED_PATCH_FIELDS) {
+      if (rawBody[key] !== undefined) {
+        updateRow[key] = key === 'name' && typeof rawBody[key] === 'string'
+          ? (rawBody[key] as string).trim()
+          : rawBody[key]
+      }
+    }
+    if (Object.keys(updateRow).length === 0) {
+      return NextResponse.json({ error: '更新する項目がありません' }, { status: 400 })
+    }
+
     const { data, error } = await supabase
       .from('sources')
-      .update(body)
+      .update(updateRow)
       .eq('id', id)
       .select()
       .single()

@@ -73,14 +73,26 @@ export async function PATCH(
       return NextResponse.json({ error: '認証が必要です' }, { status: 401 })
     }
     
-    const body = await request.json()
-    
+    const rawBody = (await request.json()) as Record<string, unknown>
+
+    // 更新可能フィールドのみ反映（部分更新で他カラムを null 上書きしない）
+    const ALLOWED_PATCH_FIELDS = [
+      'accepted_date', 'entry_date', 'employment_restriction_until', 'employment_type', 'job_type',
+      'revenue_excluding_tax', 'revenue_including_tax', 'payment_date', 'payment_scheduled_date',
+      'invoice_sent_date', 'calculation_basis', 'document_url', 'placement_company', 'placement_company_name',
+      'placement_facility_name', 'note', 'is_cancelled', 'refund_required', 'refund_date', 'refund_amount',
+      'cancellation_reason', 'contracted_at', 'project_id',
+    ] as const
+    const updateRow: Record<string, unknown> = { updated_at: new Date().toISOString() }
+    for (const key of ALLOWED_PATCH_FIELDS) {
+      if (rawBody[key] !== undefined) {
+        updateRow[key] = rawBody[key]
+      }
+    }
+
     const { data, error } = await supabase
       .from('contracts')
-      .update({
-        ...body,
-        updated_at: new Date().toISOString()
-      })
+      .update(updateRow)
       .eq('id', id)
       .select()
       .single()

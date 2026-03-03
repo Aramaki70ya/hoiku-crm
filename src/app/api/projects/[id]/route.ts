@@ -80,21 +80,44 @@ export async function PATCH(
     }
     
     const body = await request.json()
-    const gardenName = typeof body.garden_name === 'string' ? body.garden_name.trim() : ''
-    const corporationName = typeof body.corporation_name === 'string' ? body.corporation_name.trim() : ''
-    const clientName = typeof body.client_name === 'string' ? body.client_name.trim() : ''
-    const displayName = clientName || [gardenName, corporationName].filter(Boolean).join(' / ')
     const updateRow: Record<string, unknown> = {
-      garden_name: gardenName || null,
-      corporation_name: corporationName || null,
-      phase: body.phase,
-      ...(displayName && { client_name: displayName }),
-      expected_amount: body.expected_amount ?? null,
-      probability: body.probability ?? null,
-      probability_month: body.probability_month ?? null,
-      expected_entry_date: body.expected_entry_date ?? null,
-      note: body.note ?? null,
       updated_at: new Date().toISOString(),
+    }
+
+    if ('garden_name' in body) {
+      const gardenName = typeof body.garden_name === 'string' ? body.garden_name.trim() : ''
+      updateRow.garden_name = gardenName || null
+    }
+    if ('corporation_name' in body) {
+      const corporationName = typeof body.corporation_name === 'string' ? body.corporation_name.trim() : ''
+      updateRow.corporation_name = corporationName || null
+    }
+    if ('phase' in body) {
+      updateRow.phase = body.phase
+    }
+    if ('client_name' in body || 'garden_name' in body || 'corporation_name' in body) {
+      const clientName = typeof body.client_name === 'string' ? body.client_name.trim() : ''
+      const gardenName = typeof updateRow.garden_name === 'string' ? updateRow.garden_name : (typeof body.garden_name === 'string' ? body.garden_name.trim() : '')
+      const corporationName = typeof updateRow.corporation_name === 'string' ? updateRow.corporation_name : (typeof body.corporation_name === 'string' ? body.corporation_name.trim() : '')
+      const displayName = clientName || [gardenName, corporationName].filter(Boolean).join(' / ')
+      if (displayName) {
+        updateRow.client_name = displayName
+      }
+    }
+    if ('expected_amount' in body) {
+      updateRow.expected_amount = body.expected_amount ?? null
+    }
+    if ('probability' in body) {
+      updateRow.probability = body.probability ?? null
+    }
+    if ('probability_month' in body) {
+      updateRow.probability_month = body.probability_month ?? null
+    }
+    if ('expected_entry_date' in body) {
+      updateRow.expected_entry_date = body.expected_entry_date ?? null
+    }
+    if ('note' in body) {
+      updateRow.note = body.note ?? null
     }
     const { data, error } = await supabase
       .from('projects')

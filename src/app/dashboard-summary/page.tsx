@@ -270,7 +270,7 @@ export default function DashboardSummaryPage() {
     fetchUserTargets()
   }, [fetchData, fetchMonthlyMetrics, fetchMonthlyStatusCases, fetchUserTargets])
 
-  // ページ復帰時・タブ切り替え時に再取得（bfcache対策）
+  // ページ復帰時・タブ切り替え時・ウィンドウフォーカス時に再取得
   useEffect(() => {
     const onVisibility = () => {
       if (document.visibilityState === 'visible') {
@@ -282,11 +282,16 @@ export default function DashboardSummaryPage() {
         refetchAll()
       }
     }
+    const onFocus = () => {
+      refetchAll()
+    }
     document.addEventListener('visibilitychange', onVisibility)
     window.addEventListener('pageshow', onPageShow)
+    window.addEventListener('focus', onFocus)
     return () => {
       document.removeEventListener('visibilitychange', onVisibility)
       window.removeEventListener('pageshow', onPageShow)
+      window.removeEventListener('focus', onFocus)
     }
   }, [refetchAll])
 
@@ -488,19 +493,17 @@ export default function DashboardSummaryPage() {
         }
 
         userCandidates.forEach((candidate) => {
-          // その求職者に紐づく最新のプロジェクトを取得（ヨミ・金額表示用）
           const candidateProjects = projects.filter((p) => p.candidate_id === candidate.id)
-          if (candidateProjects.length === 0) return
 
-          // 最新の project を取得（updated_at でソート）
-          const latestProject = candidateProjects.sort((a, b) => {
-            const aTime = a.updated_at || a.created_at || ''
-            const bTime = b.updated_at || b.created_at || ''
-            return bTime.localeCompare(aTime)
-          })[0]
+          const latestProject = candidateProjects.length > 0
+            ? candidateProjects.sort((a, b) => {
+                const aTime = a.updated_at || a.created_at || ''
+                const bTime = b.updated_at || b.created_at || ''
+                return bTime.localeCompare(aTime)
+              })[0]
+            : null
 
-          // ヨミの表示用フォーマット
-          const yomiLabel = latestProject.probability
+          const yomiLabel = latestProject?.probability
             ? `${latestProject.probability}ヨミ(${
                 latestProject.probability === 'A'
                   ? '80%'
@@ -515,9 +518,9 @@ export default function DashboardSummaryPage() {
           const caseInfo = {
             name: candidate.name,
             yomi: yomiLabel,
-            amount: latestProject.expected_amount || 0,
+            amount: latestProject?.expected_amount || 0,
           }
-          const updated_at = latestProject.updated_at || latestProject.created_at || ''
+          const updated_at = latestProject?.updated_at || latestProject?.created_at || candidate.updated_at || ''
 
           // candidate.status で振り分け（面接一覧ページと同じロジック）
           switch (candidate.status) {
