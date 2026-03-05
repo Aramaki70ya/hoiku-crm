@@ -495,13 +495,19 @@ export default function DashboardSummaryPage() {
         userCandidates.forEach((candidate) => {
           const candidateProjects = projects.filter((p) => p.candidate_id === candidate.id)
 
-          const latestProject = candidateProjects.length > 0
-            ? candidateProjects.sort((a, b) => {
+          const sortedByUpdated = candidateProjects.length > 0
+            ? [...candidateProjects].sort((a, b) => {
                 const aTime = a.updated_at || a.created_at || ''
                 const bTime = b.updated_at || b.created_at || ''
                 return bTime.localeCompare(aTime)
-              })[0]
-            : null
+              })
+            : []
+
+          // ヨミ情報（probability + expected_amount）があるプロジェクトを優先
+          const yomiProject = sortedByUpdated.find(
+            (p) => p.probability && p.expected_amount
+          )
+          const latestProject = yomiProject || sortedByUpdated[0] || null
 
           const yomiLabel = latestProject?.probability
             ? `${latestProject.probability}ヨミ(${

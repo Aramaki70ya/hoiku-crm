@@ -496,7 +496,9 @@ export default function CandidateDetailPage({ params }: PageProps) {
     setProjectSaving(true)
     try {
       // 案件を作成（フェーズは面接予定で固定）
+      // 既存プロジェクトのヨミ情報を引き継ぐ（面接追加でヨミが消える問題の防止）
       const projectDisplay = getProjectDisplayName(gardenName, corporationName, null)
+      const existingYomi = projects.find(p => p.probability && p.expected_amount)
       const projectRes = await fetch('/api/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -506,6 +508,11 @@ export default function CandidateDetailPage({ params }: PageProps) {
           garden_name: gardenName,
           corporation_name: corporationName,
           phase: '面接予定',
+          ...(existingYomi ? {
+            probability: existingYomi.probability,
+            probability_month: existingYomi.probability_month,
+            expected_amount: existingYomi.expected_amount,
+          } : {}),
         }),
       })
       
@@ -611,25 +618,37 @@ export default function CandidateDetailPage({ params }: PageProps) {
     
     setYomiSaving(true)
     try {
-      // 既存のプロジェクトがあれば更新、なければ新規作成
-      const existingProject = projects.find((p) => p.candidate_id === candidate.id)
+      // 既存のプロジェクトがあれば全件更新、なければ新規作成
+      const candidateProjects = projects.filter((p) => p.candidate_id === candidate.id)
       
-      if (existingProject) {
-        // 既存プロジェクトを更新
-        const res = await fetch(`/api/projects/${existingProject.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            probability: yomiForm.probability,
-            probability_month: yomiForm.probability_month,
-            expected_amount: yomiForm.expected_amount,
-          }),
-        })
-        if (res.ok) {
-          const { data } = await res.json()
-          setProjects((prev) => prev.map((p) => (p.id === existingProject.id ? data : p)))
-          
-          // タイムラインにイベントを追加
+      if (candidateProjects.length > 0) {
+        // 全プロジェクトのヨミ情報を一括更新（プロジェクト間で不整合が起きないように）
+        const updateResults = await Promise.all(
+          candidateProjects.map((proj) =>
+            fetch(`/api/projects/${proj.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                probability: yomiForm.probability,
+                probability_month: yomiForm.probability_month,
+                expected_amount: yomiForm.expected_amount,
+              }),
+            }).then(async (res) => {
+              if (res.ok) {
+                const { data } = await res.json()
+                return { id: proj.id, data }
+              }
+              return null
+            })
+          )
+        )
+        const updatedMap = new Map(
+          updateResults.filter(Boolean).map((r) => [r!.id, r!.data])
+        )
+        if (updatedMap.size > 0) {
+          setProjects((prev) =>
+            prev.map((p) => updatedMap.get(p.id) ?? p)
+          )
           const monthLabel = yomiForm.probability_month === 'next' 
             ? `${new Date().getMonth() === 11 ? new Date().getFullYear() + 1 : new Date().getFullYear()}年${new Date().getMonth() === 11 ? 1 : new Date().getMonth() + 2}月`
             : `${new Date().getFullYear()}年${new Date().getMonth() + 1}月`
