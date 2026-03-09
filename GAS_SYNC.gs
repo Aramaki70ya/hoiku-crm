@@ -10,6 +10,10 @@
  * 4. syncNewCandidates を選択して実行
  * 5. 表示 → ログ で結果を確認
  *
+ * 【毎日自動反映】左メニュー「トリガー」→ トリガーを追加 → 関数 syncNewCandidates、
+ *    イベント「時間駆動型」・希望の間隔（例: 日タイマー 9時）で保存。反映が止まったら
+ *    トリガーが有効か・実行ログでエラーが出ていないかを確認（docs/求職者スプレッドシート反映が止まったときの調査手順.md）
+ *
  * 【補完用】backfillRegisteredAt を実行すると、DB の registered_at が null の人を
  * シートの日付で一括補完する（全行を200行ずつ送信）
  *
@@ -170,15 +174,23 @@ function syncNewCandidates() {
     allRows.push(row)
   }
 
-  // ID と氏名が両方ある行だけ有効とする（プルダウンだけの行・IDのみの行を除外）
+  // 氏名がある行を有効とする（ID が空でも新規として API が ID を発行する）
+  // ID が「125」の行は除外。氏名列のヘッダーが「氏名」のほか「\」になっている場合がある（スプシの誤入力対策）
   const validRows = allRows.filter(function (row) {
-    const id = row['ID'] || ''
-    const name = row['氏名'] || ''
-    return id !== '' && id !== '125' && name !== ''
+    const id = String(row['ID'] != null ? row['ID'] : '').trim()
+    const name = (row['氏名'] || row['\\'] || '').trim()
+    return name !== '' && id !== '125'
   })
 
   // 有効な行のうち最新 maxRows 行
-  const rows = validRows.slice(-maxRows)
+  var rows = validRows.slice(-maxRows)
+  // API が「氏名」で受け取るので、「\」列の値があれば「氏名」に正規化
+  rows = rows.map(function (row) {
+    if (!(row['氏名'] || '').trim() && (row['\\'] || '').trim()) {
+      row['氏名'] = (row['\\'] || '').trim()
+    }
+    return row
+  })
 
   const payload = JSON.stringify({ rows: rows })
   Logger.log('送信行数: ' + rows.length)
@@ -344,7 +356,7 @@ function backfillRegisteredAt() {
 
   const validRows = allRows.filter(function (row) {
     const id = row['ID'] || ''
-    const name = row['氏名'] || ''
+    const name = (row['氏名'] || row['\\'] || '').trim()
     return id !== '' && id !== '125' && name !== ''
   })
 
@@ -353,7 +365,14 @@ function backfillRegisteredAt() {
   let totalSkipped = 0
 
   for (let offset = 0; offset < validRows.length; offset += BATCH) {
-    const chunk = validRows.slice(offset, offset + BATCH)
+    var chunk = validRows.slice(offset, offset + BATCH)
+    // 氏名列が「\」の場合、API用に「氏名」へ正規化
+    chunk = chunk.map(function (row) {
+      if (!(row['氏名'] || '').trim() && (row['\\'] || '').trim()) {
+        row['氏名'] = (row['\\'] || '').trim()
+      }
+      return row
+    })
     const payload = JSON.stringify({ rows: chunk })
     const options = {
       method: 'post',
@@ -465,7 +484,7 @@ function syncAllContactUpdate() {
 
   const validRows = allRows.filter(function (row) {
     const id = row['ID'] || ''
-    const name = row['氏名'] || ''
+    const name = (row['氏名'] || row['\\'] || '').trim()
     return id !== '' && id !== '125' && name !== ''
   })
 
@@ -478,7 +497,14 @@ function syncAllContactUpdate() {
   Logger.log('連絡先・年齢の一括更新を開始（有効行: ' + validRows.length + '件、200行ずつ送信）')
 
   for (let offset = 0; offset < validRows.length; offset += BATCH) {
-    const chunk = validRows.slice(offset, offset + BATCH)
+    var chunk = validRows.slice(offset, offset + BATCH)
+    // 氏名列が「\」の場合、API用に「氏名」へ正規化
+    chunk = chunk.map(function (row) {
+      if (!(row['氏名'] || '').trim() && (row['\\'] || '').trim()) {
+        row['氏名'] = (row['\\'] || '').trim()
+      }
+      return row
+    })
     const payload = JSON.stringify({ rows: chunk })
     const options = {
       method: 'post',

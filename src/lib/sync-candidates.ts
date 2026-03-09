@@ -157,13 +157,67 @@ export async function syncCandidatesFromRows(
   for (let i = 0; i < rowsToProcess.length; i++) {
     const row = rowsToProcess[i]
     const id = (row['ID'] ?? '').toString().trim()
-    if (!id || id === '125') continue
+    if (id === '125') continue
 
     const parsed = rowToCandidateForSync(row)
     if (!parsed || parsed.name === '') continue
 
     const name = parsed.name ?? ''
     const sheetName = (parsed.name ?? '').trim()
+
+    // ID が空: 氏名だけの新規行 → 同名が既にいればスキップ、いなければ新ID発行して登録
+    if (!id) {
+      const sheetNorm = normalizeNameForCompare(sheetName)
+      const candidateIdsForName = normalizedNameToIds.get(sheetNorm)
+      if (candidateIdsForName && candidateIdsForName.size > 0) {
+        result.skipped += 1
+        result.skippedLog.push({ id: '（新規行）', name: `${name}（同名で既に登録済み・スキップ）` })
+        continue
+      }
+      const newId = getNextAvailableId(existingIds)
+      const normPhone = normalizePhone(parsed.phone ?? '')
+      const consultantName = (row['担当者'] ?? '').toString().trim()
+      const primaryConsultant = consultantName.split(/[・\s]/)[0]?.trim()
+      const consultant_id = primaryConsultant ? nameToUserId.get(primaryConsultant) ?? null : null
+      const sourceName = (row['媒体'] ?? '').toString().trim()
+      const source_id = sourceName ? nameToSourceId.get(sourceName) ?? null : null
+      const insertNew: CandidateInsert = {
+        id: newId,
+        name: parsed.name ?? '',
+        kana: parsed.kana ?? null,
+        phone: normPhone ?? parsed.phone ?? null,
+        email: parsed.email ?? null,
+        birth_date: parsed.birth_date ?? null,
+        age: parsed.age ?? null,
+        prefecture: parsed.prefecture ?? null,
+        address: parsed.address ?? null,
+        qualification: parsed.qualification ?? null,
+        desired_employment_type: parsed.desired_employment_type ?? null,
+        desired_job_type: parsed.desired_job_type ?? null,
+        status: parsed.status ?? '初回連絡中',
+        source_id,
+        registered_at: parsed.registered_at ?? null,
+        consultant_id,
+        approach_priority: null,
+        rank: null,
+        memo: parsed.memo ?? null,
+        drive_link: null,
+      }
+      const { error: insertError } = await supabase.from('candidates').insert(insertNew as never)
+      if (insertError) {
+        result.errors.push({ row: i + 1, message: `新規追加失敗（氏名のみ）: ${insertError.message}` })
+        continue
+      }
+      result.inserted += 1
+      result.insertedLog.push({ id: newId, name })
+      result.insertedWithNewIdLog.push({ row: i + 1, sheetId: '（新規）', newId, name: sheetName })
+      existingIds.add(newId)
+      nameById.set(newId, sheetName)
+      addIdToNameIndex(exactNameToIds, sheetName, newId)
+      addIdToNameIndex(normalizedNameToIds, sheetNorm, newId)
+      continue
+    }
+
     if (existingIds.has(id)) {
       const dbName = (nameById.get(id) ?? '').trim()
       const dbNorm = normalizeNameForCompare(dbName)

@@ -225,11 +225,16 @@ export type SpreadsheetRow = Record<string, string>
 
 /**
  * スプレッドシート行（Record）を Partial<Candidate> に変換。consultant_id/source_id は呼び出し元で解決すること。
+ * ID が空でも氏名があれば返す（同期APIで新IDを発行して登録する用）。
  */
 export function rowToCandidateForSync(row: SpreadsheetRow): Partial<Candidate> | null {
   // 登録日: 列名が「日付」「登録日」「登録日時」「作成日」のいずれかで受け付ける
   const dateRaw = row['日付'] ?? row['登録日'] ?? row['登録日時'] ?? row['作成日'] ?? ''
   const dateValue = dateRaw != null ? String(dateRaw).trim() : ''
+  // 氏名列のヘッダーが「\」になっている場合あり（スプシ誤入力対策）
+  const nameValue = (row['氏名'] ?? row['\\'] ?? '').trim()
+  if (!nameValue) return null
+
   const asCsvRow: CsvRow = {
     担当者: row['担当者'] ?? '',
     媒体: row['媒体'] ?? '',
@@ -239,7 +244,7 @@ export function rowToCandidateForSync(row: SpreadsheetRow): Partial<Candidate> |
     電話予約: row['電話予約'] ?? '',
     ステータス: row['ステータス'] ?? '',
     ID: row['ID'] ?? '',
-    氏名: row['氏名'] ?? '',
+    氏名: nameValue,
     電話番号: row['電話番号'] ?? '',
     メールアドレス: row['メールアドレス'] ?? '',
     生年月日: row['生年月日'] ?? '',
@@ -253,5 +258,31 @@ export function rowToCandidateForSync(row: SpreadsheetRow): Partial<Candidate> |
     備考: row['備考'] ?? '',
     フォロー中断理由: row['フォロー中断理由'] ?? '',
   }
-  return csvRowToCandidate(asCsvRow)
+
+  const idValue = (row['ID'] ?? '').toString().trim()
+  if (idValue && idValue !== '125') {
+    return csvRowToCandidate(asCsvRow)
+  }
+
+  // ID が空 or '125': 氏名だけでも Partial を返す（同期で新ID発行して登録する）
+  const status = spreadsheetStatusMap[asCsvRow.ステータス] || '初回連絡中'
+  const birth_date = parseDateString(asCsvRow.生年月日)
+  const rawAge = asCsvRow.年齢 && asCsvRow.年齢 !== '125' && asCsvRow.年齢 !== '126' ? parseInt(asCsvRow.年齢, 10) : null
+  const age = rawAge != null && !isNaN(rawAge) && rawAge > 0 && rawAge < 120 ? rawAge : null
+  return {
+    id: undefined,
+    name: nameValue,
+    phone: normalizePhone(asCsvRow.電話番号),
+    email: asCsvRow.メールアドレス || null,
+    birth_date,
+    age,
+    prefecture: asCsvRow.都道府県 || null,
+    address: asCsvRow.市区町村 || null,
+    qualification: asCsvRow.保有資格 || null,
+    desired_employment_type: asCsvRow['正・パ'] || null,
+    desired_job_type: asCsvRow.応募職種 || null,
+    status,
+    registered_at: parseDateString(asCsvRow.日付),
+    memo: [asCsvRow.備考, asCsvRow.フォロー中断理由].filter(Boolean).join('\n') || null,
+  }
 }
