@@ -109,6 +109,12 @@ export async function syncCandidatesFromRows(
   const registeredAtById = new Map<string, string | null>(
     existingList.map((r) => [r.id, r.registered_at ?? null])
   )
+  // 電話番号 → 既存候補者ID のマップ（IDが異なっても同一人物を検知するための安全網）
+  const phoneToExistingId = new Map<string, string>()
+  for (const r of existingList) {
+    const normPhone = r.phone ? normalizePhone(r.phone) : null
+    if (normPhone) phoneToExistingId.set(normPhone, r.id)
+  }
 
   const { data: users } = await supabase.from('users').select('id, name')
   const userList = (users ?? []) as { id: string; name: string }[]
@@ -249,9 +255,30 @@ export async function syncCandidatesFromRows(
       continue
     }
 
-    // 重複判定は ID と氏名のみ。電話番号でのスキップは行わない。
-
+    // ── 安全網: 電話番号＋氏名による同一人物チェック ──
+    // IDが間違っていても、電話番号と氏名が一致する既存候補者がいる場合は
+    // 新規登録せず、既存レコードを更新対象として扱う（IDずれによる重複登録を防止）
     const normPhone = normalizePhone(parsed.phone ?? '')
+    if (normPhone) {
+      const matchedId = phoneToExistingId.get(normPhone)
+      if (matchedId && matchedId !== id) {
+        const matchedName = (nameById.get(matchedId) ?? '').trim()
+        const sheetNormForPhone = normalizeNameForCompare(sheetName)
+        const matchedNorm = normalizeNameForCompare(matchedName)
+        if (sheetNormForPhone !== '' && matchedNorm !== '' && sheetNormForPhone === matchedNorm) {
+          // 同一人物と判定: スプシのIDが間違っている可能性が高い
+          result.errors.push({
+            row: i + 1,
+            id,
+            message: `シートID ${id}（${sheetName}）は電話番号が既存の ${matchedId} と一致します。シートのIDを ${matchedId} に修正することを推奨します。今回は既存レコードを保持します。`,
+          })
+          result.skipped += 1
+          result.skippedLog.push({ id: matchedId, name: sheetName })
+          continue
+        }
+      }
+    }
+
     const consultantName = (row['担当者'] ?? '').toString().trim()
     const primaryConsultant = consultantName.split(/[・\s]/)[0]?.trim()
     const consultant_id = primaryConsultant ? nameToUserId.get(primaryConsultant) ?? null : null
