@@ -171,6 +171,8 @@ function syncNewCandidates() {
       }
       row['日付'] = firstDateVal
     }
+    // 「求職者氏名」列があれば「氏名」としても持たせる（API互換）
+    if (!row['氏名'] && row['求職者氏名']) row['氏名'] = row['求職者氏名']
     allRows.push(row)
   }
 
@@ -191,6 +193,24 @@ function syncNewCandidates() {
     }
     return row
   })
+
+  // ── 送信前の重複 ID チェック（警告のみ、ブロックはしない）──
+  const sendingIdMap = {}
+  rows.forEach(function (row, idx) {
+    const id = (row['ID'] || '').toString().trim()
+    if (!id) return
+    if (!sendingIdMap[id]) sendingIdMap[id] = []
+    sendingIdMap[id].push('行' + (idx + 1) + '（' + (row['氏名'] || '') + '）')
+  })
+  let hasSendingDup = false
+  for (const id in sendingIdMap) {
+    if (sendingIdMap[id].length > 1) {
+      if (!hasSendingDup) Logger.log('⚠️ 送信データ内に重複 ID が見つかりました。シートを確認してください:')
+      Logger.log('  ID ' + id + ': ' + sendingIdMap[id].join(', '))
+      hasSendingDup = true
+    }
+  }
+  if (!hasSendingDup) Logger.log('✅ 送信データ内に重複 ID なし')
 
   const payload = JSON.stringify({ rows: rows })
   Logger.log('送信行数: ' + rows.length)
@@ -351,6 +371,7 @@ function backfillRegisteredAt() {
         }
       }
     }
+    if (!row['氏名'] && row['求職者氏名']) row['氏名'] = row['求職者氏名']
     allRows.push(row)
   }
 
@@ -479,6 +500,7 @@ function syncAllContactUpdate() {
         }
       }
     }
+    if (!row['氏名'] && row['求職者氏名']) row['氏名'] = row['求職者氏名']
     allRows.push(row)
   }
 
@@ -564,5 +586,196 @@ function syncAllContactUpdate() {
   // IDずれで新ID追加があったときだけ、直近30日分の同名をマージして重複解消
   if (hadNewIdInsert) {
     callMergeDuplicatesApi(apiUrl, apiKey, { recentDays: 30 })
+  }
+}
+
+// ================================================================
+// ID 自動付与・バリデーション機能
+// ================================================================
+
+/**
+ * ヘッダー配列から列名のインデックス（0始まり）を返す内部ユーティリティ
+ */
+function _getColIndex_(headers, name) {
+  for (var i = 0; i < headers.length; i++) {
+    if (headers[i] === name) return i
+  }
+  return -1
+}
+
+/**
+ * 氏名列のインデックスを返す（「氏名」または「求職者氏名」に対応）
+ */
+function _getNameColIndex_(headers) {
+  var idx = _getColIndex_(headers, '氏名')
+  if (idx >= 0) return idx
+  return _getColIndex_(headers, '求職者氏名')
+}
+
+/**
+ * 【手動実行】氏名があって ID が空の行に、連番 ID を自動付与する。
+ * 新担当者への引き継ぎ時や、過去行の一括修正に使用する。
+ * 実行後にシートを確認し、意図通りか確認してください。
+ */
+function autoAssignMissingIds() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet()
+  var sheet = ss.getSheetByName('連絡先一覧')
+  if (!sheet) {
+    Logger.log('エラー: シート「連絡先一覧」が見つかりません')
+    return
+  }
+
+  var data = sheet.getDataRange().getValues()
+  var headers = data[0].map(function (h) { return String(h || '').trim() })
+  var idColIdx = _getColIndex_(headers, 'ID')
+  var nameColIdx = _getNameColIndex_(headers)
+
+  if (idColIdx < 0 || nameColIdx < 0) {
+    Logger.log('エラー: ID 列または氏名列（氏名/求職者氏名）が見つかりません。ヘッダー: ' + headers.join(', '))
+    return
+  }
+
+  // 現在シート内の最大 ID を算出
+  var maxId = 20200000
+  for (var i = 1; i < data.length; i++) {
+    var idVal = String(data[i][idColIdx] || '').trim()
+    var num = parseInt(idVal, 10)
+    if (!isNaN(num) && num > maxId) maxId = num
+  }
+
+  var assigned = 0
+  for (var i = 1; i < data.length; i++) {
+    var idVal = String(data[i][idColIdx] || '').trim()
+    var nameVal = String(data[i][nameColIdx] || '').trim()
+    if (!idVal && nameVal) {
+      maxId += 1
+      sheet.getRange(i + 1, idColIdx + 1).setValue(maxId)
+      Logger.log('ID 付与: 行' + (i + 1) + '  氏名=' + nameVal + '  → ID=' + maxId)
+      assigned++
+    }
+  }
+
+  Logger.log('=== 完了 === ' + assigned + ' 件の ID を付与しました（氏名が空の行はスキップ）')
+}
+
+/**
+ * 【手動実行・同期前確認用】シート内に重複 ID がないか検査してログに出力する。
+ * 重複がある場合は true を返す。
+ */
+function validateSheetDuplicateIds() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet()
+  var sheet = ss.getSheetByName('連絡先一覧')
+  if (!sheet) {
+    Logger.log('エラー: シート「連絡先一覧」が見つかりません')
+    return false
+  }
+
+  var data = sheet.getDataRange().getValues()
+  var headers = data[0].map(function (h) { return String(h || '').trim() })
+  var idColIdx = _getColIndex_(headers, 'ID')
+  var nameColIdx = _getNameColIndex_(headers)
+
+  if (idColIdx < 0) {
+    Logger.log('エラー: ID 列が見つかりません')
+    return false
+  }
+
+  var idToRows = {}
+  for (var i = 1; i < data.length; i++) {
+    var idVal = String(data[i][idColIdx] || '').trim()
+    if (!idVal) continue
+    if (!idToRows[idVal]) idToRows[idVal] = []
+    idToRows[idVal].push({
+      row: i + 1,
+      name: nameColIdx >= 0 ? String(data[i][nameColIdx] || '').trim() : ''
+    })
+  }
+
+  var hasDuplicates = false
+  var dupCount = 0
+  for (var id in idToRows) {
+    if (idToRows[id].length > 1) {
+      hasDuplicates = true
+      dupCount++
+      var entries = idToRows[id].map(function (e) {
+        return '行' + e.row + '（' + e.name + '）'
+      }).join(', ')
+      Logger.log('⚠️ 重複 ID ' + id + ': ' + entries)
+    }
+  }
+
+  if (!hasDuplicates) {
+    Logger.log('✅ シート内に重複 ID はありません')
+  } else {
+    Logger.log('⚠️ 重複 ID が ' + dupCount + ' 件見つかりました。syncNewCandidates の前に修正してください')
+  }
+
+  return hasDuplicates
+}
+
+/**
+ * 【初期設定・一度だけ実行】自動 ID 付与のインストール型トリガーをセットアップする。
+ * 実行後は onEditAutoAssignId が常時動作し、氏名入力時に ID が自動付与される。
+ */
+function setupAutoIdTrigger() {
+  // 重複防止: 既存の同名トリガーを先に削除
+  var triggers = ScriptApp.getProjectTriggers()
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === 'onEditAutoAssignId') {
+      ScriptApp.deleteTrigger(triggers[i])
+      Logger.log('既存トリガーを削除しました')
+    }
+  }
+
+  ScriptApp.newTrigger('onEditAutoAssignId')
+    .forSpreadsheet(SpreadsheetApp.getActiveSpreadsheet())
+    .onEdit()
+    .create()
+
+  Logger.log('✅ 自動 ID 付与トリガーをセットアップしました')
+  Logger.log('  → 「連絡先一覧」シートで氏名を入力した行の ID 列が空の場合、自動で連番 ID が付与されます')
+}
+
+/**
+ * インストール型 onEdit トリガーのハンドラー（setupAutoIdTrigger で登録後に自動実行）。
+ * 「連絡先一覧」シートの氏名列が入力され、かつ ID 列が空の行に次の連番 ID を付与する。
+ * ※ このまま手動実行しても動作しません。setupAutoIdTrigger を使ってください。
+ */
+function onEditAutoAssignId(e) {
+  try {
+    if (!e || !e.range) return
+    var sheet = e.range.getSheet()
+    if (sheet.getName() !== '連絡先一覧') return
+
+    var editedRow = e.range.getRow()
+    if (editedRow <= 1) return // ヘッダー行はスキップ
+
+    var data = sheet.getDataRange().getValues()
+    var headers = data[0].map(function (h) { return String(h || '').trim() })
+    var idColIdx = _getColIndex_(headers, 'ID')
+    var nameColIdx = _getNameColIndex_(headers)
+
+    if (idColIdx < 0 || nameColIdx < 0) return
+
+    // 編集された行の ID と氏名を確認
+    var idVal = String(sheet.getRange(editedRow, idColIdx + 1).getValue() || '').trim()
+    var nameVal = String(sheet.getRange(editedRow, nameColIdx + 1).getValue() || '').trim()
+
+    // ID がある、または氏名が空なら何もしない
+    if (idVal || !nameVal) return
+
+    // シート全体から現在の最大 ID を取得
+    var maxId = 20200000
+    for (var i = 1; i < data.length; i++) {
+      var id = String(data[i][idColIdx] || '').trim()
+      var num = parseInt(id, 10)
+      if (!isNaN(num) && num > maxId) maxId = num
+    }
+
+    var newId = maxId + 1
+    sheet.getRange(editedRow, idColIdx + 1).setValue(newId)
+  } catch (err) {
+    // ユーザー操作を妨げないようエラーはサイレントに処理
+    Logger.log('onEditAutoAssignId エラー: ' + err.message)
   }
 }
