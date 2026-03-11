@@ -121,11 +121,14 @@ export async function syncCandidatesFromRows(
   const existingById = new Map<string, ExistingCandidate>(existingList.map((r) => [r.id, r]))
   const exactNameToIds = new Map<string, Set<string>>()
   const normalizedNameToIds = new Map<string, Set<string>>()
+  const phoneToExistingId = new Map<string, string>()
   for (const r of existingList) {
     const trimmedName = (r.name ?? '').trim()
     const normalizedName = normalizeNameForCompare(trimmedName)
     addIdToNameIndex(exactNameToIds, trimmedName, r.id)
     addIdToNameIndex(normalizedNameToIds, normalizedName, r.id)
+    const normPhone = r.phone ? normalizePhone(r.phone) : null
+    if (normPhone) phoneToExistingId.set(normPhone, r.id)
   }
 
   const { data: users } = await supabase.from('users').select('id, name')
