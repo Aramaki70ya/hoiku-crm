@@ -779,3 +779,64 @@ function onEditAutoAssignId(e) {
     Logger.log('onEditAutoAssignId エラー: ' + err.message)
   }
 }
+
+/**
+ * 【手動実行】シート内の重複 ID を自動修正する。
+ * ルール: 同じ ID が複数行にある場合、最初の行のIDはそのままにして
+ *         2番目以降の行に新しい連番 ID を付与する。
+ * ※ 実行前に validateSheetDuplicateIds でログを確認し、別人に同じIDが
+ *    振られているケースがないか確認することを推奨します。
+ */
+function fixDuplicateIds() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet()
+  var sheet = ss.getSheetByName('連絡先一覧')
+  if (!sheet) {
+    Logger.log('エラー: シート「連絡先一覧」が見つかりません')
+    return
+  }
+
+  var data = sheet.getDataRange().getValues()
+  var headers = data[0].map(function (h) { return String(h || '').trim() })
+  var idColIdx = _getColIndex_(headers, 'ID')
+  var nameColIdx = _getNameColIndex_(headers)
+
+  if (idColIdx < 0) {
+    Logger.log('エラー: ID 列が見つかりません')
+    return
+  }
+
+  // シート全体の最大 ID を算出（新ID の開始値に使う）
+  var maxId = 20200000
+  for (var i = 1; i < data.length; i++) {
+    var num = parseInt(String(data[i][idColIdx] || '').trim(), 10)
+    if (!isNaN(num) && num > maxId) maxId = num
+  }
+
+  // ID → 最初に出現した行インデックス を記録
+  var seenIds = {}
+  var fixed = 0
+
+  for (var i = 1; i < data.length; i++) {
+    var idVal = String(data[i][idColIdx] || '').trim()
+    if (!idVal) continue
+
+    if (seenIds[idVal] === undefined) {
+      // 初出: そのまま記録
+      seenIds[idVal] = i
+    } else {
+      // 2回目以降: 新しい ID を付与
+      maxId += 1
+      var nameVal = nameColIdx >= 0 ? String(data[i][nameColIdx] || '').trim() : ''
+      sheet.getRange(i + 1, idColIdx + 1).setValue(maxId)
+      Logger.log('修正: 行' + (i + 1) + '（' + nameVal + '）  旧ID=' + idVal + '  → 新ID=' + maxId)
+      fixed++
+    }
+  }
+
+  if (fixed === 0) {
+    Logger.log('✅ 重複 ID はありませんでした。修正は不要です。')
+  } else {
+    Logger.log('=== 完了 === ' + fixed + ' 件の重複 ID を修正しました')
+    Logger.log('※ ケース B（別人に同じIDが振られていた場合）は、修正後もスプレッドシートで内容を確認してください')
+  }
+}
