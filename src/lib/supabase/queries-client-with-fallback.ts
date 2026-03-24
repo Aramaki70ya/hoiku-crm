@@ -32,6 +32,30 @@ function logSupabaseError(context: string, err: unknown): void {
   console.error(`Error fetching ${context}:`, msg, code ? `[${code}]` : '')
 }
 
+/** PostgREST は1リクエストあたり最大 1000 行が返ることがあるため、range でページングして全件取得する */
+const SUPABASE_PAGE_SIZE = 1000
+
+async function selectAllInPages<T>(
+  fetchPage: (from: number, to: number) => Promise<{ data: T[] | null; error: unknown }>
+): Promise<{ rows: T[]; error: unknown | null }> {
+  const rows: T[] = []
+  for (let from = 0; ; from += SUPABASE_PAGE_SIZE) {
+    const { data, error } = await fetchPage(from, from + SUPABASE_PAGE_SIZE - 1)
+    if (error) return { rows, error }
+    if (!data?.length) break
+    rows.push(...data)
+    if (data.length < SUPABASE_PAGE_SIZE) break
+  }
+  return { rows, error: null }
+}
+
+function errorMessage(err: unknown): string {
+  if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
+    return (err as { message: string }).message
+  }
+  return String(err)
+}
+
 export async function getCandidatesClient(): Promise<Candidate[]> {
   if (isDemoMode() && mockData) {
     return mockData.mockCandidates
@@ -39,23 +63,28 @@ export async function getCandidatesClient(): Promise<Candidate[]> {
 
   try {
     const supabase = createClient()
-    // Supabaseのデフォルト limit は1000件なので、全件取得するために range を指定
-    const { data, error } = await supabase
-      .from('candidates')
-      .select('*')
-      .order('registered_at', { ascending: false })
-      .range(0, 9999) // 最大10000件まで取得
+    const all: Candidate[] = []
+    for (let from = 0; ; from += SUPABASE_PAGE_SIZE) {
+      const { data, error } = await supabase
+        .from('candidates')
+        .select('*')
+        .order('registered_at', { ascending: false })
+        .range(from, from + SUPABASE_PAGE_SIZE - 1)
 
-    if (error) {
-      logSupabaseError('candidates', error)
-      if (mockData) {
-        console.warn('Falling back to mock data due to error')
-        return mockData.mockCandidates
+      if (error) {
+        logSupabaseError('candidates', error)
+        if (mockData) {
+          console.warn('Falling back to mock data due to error')
+          return mockData.mockCandidates
+        }
+        throw new Error(`Failed to fetch candidates: ${error.message}`)
       }
-      throw new Error(`Failed to fetch candidates: ${error.message}`)
+      if (!data?.length) break
+      all.push(...data)
+      if (data.length < SUPABASE_PAGE_SIZE) break
     }
 
-    return data || []
+    return all
   } catch (err) {
     logSupabaseError('candidates', err)
     // 開発時のみ: 接続失敗時にモックでフォールバック（.env.local 未設定時など）
@@ -169,18 +198,24 @@ export async function getProjectsClient(): Promise<Project[]> {
 
   try {
     const supabase = createClient()
-    const { data, error } = await supabase
-      .from('projects')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .range(0, 9999)
+    const all: Project[] = []
+    for (let from = 0; ; from += SUPABASE_PAGE_SIZE) {
+      const { data, error } = await supabase
+        .from('projects')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .range(from, from + SUPABASE_PAGE_SIZE - 1)
 
-    if (error) {
-      logSupabaseError('projects', error)
-      if (mockData) return mockData.mockProjects
-      throw new Error(`Failed to fetch projects: ${error.message}`)
+      if (error) {
+        logSupabaseError('projects', error)
+        if (mockData) return mockData.mockProjects
+        throw new Error(`Failed to fetch projects: ${error.message}`)
+      }
+      if (!data?.length) break
+      all.push(...data)
+      if (data.length < SUPABASE_PAGE_SIZE) break
     }
-    return data || []
+    return all
   } catch (err) {
     logSupabaseError('projects', err)
     if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
@@ -229,20 +264,29 @@ export async function getInterviewsClient(): Promise<Interview[]> {
 
   try {
     const supabase = createClient()
-    const { data, error } = await supabase
-      .from('interviews')
-      .select(`
+    const { rows, error } = await selectAllInPages(async (from, to) => {
+      const res = await supabase
+        .from('interviews')
+        .select(`
         *,
         project:projects!inner(id)
       `)
-      .order('start_at', { ascending: false })
+        .order('start_at', { ascending: false })
+        .range(from, to)
+      return { data: res.data as unknown[] | null, error: res.error }
+    })
 
     if (error) {
       logSupabaseError('interviews', error)
       if (mockData) return mockData.mockInterviews
-      throw new Error(`Failed to fetch interviews: ${error.message}`)
+      throw new Error(`Failed to fetch interviews: ${errorMessage(error)}`)
     }
-    return (data || []).map(({ project, ...interview }: { project?: unknown }) => interview as Interview)
+    return rows.map((row) => {
+      // Supabase の select で付与される project を Interview 型から外す
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- 分割代入で除外するだけ
+      const { project, ...interview } = row as { project?: unknown } & Interview
+      return interview as Interview
+    })
   } catch (err) {
     logSupabaseError('interviews', err)
     if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
@@ -291,17 +335,21 @@ export async function getContractsClient(): Promise<Contract[]> {
 
   try {
     const supabase = createClient()
-    const { data, error } = await supabase
-      .from('contracts')
-      .select('*')
-      .order('accepted_date', { ascending: false })
+    const { rows, error } = await selectAllInPages(async (from, to) => {
+      const res = await supabase
+        .from('contracts')
+        .select('*')
+        .order('accepted_date', { ascending: false })
+        .range(from, to)
+      return { data: res.data as Contract[] | null, error: res.error }
+    })
 
     if (error) {
       logSupabaseError('contracts', error)
       if (mockData) return mockData.mockContracts
-      throw new Error(`Failed to fetch contracts: ${error.message}`)
+      throw new Error(`Failed to fetch contracts: ${errorMessage(error)}`)
     }
-    return data || []
+    return rows
   } catch (err) {
     logSupabaseError('contracts', err)
     if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
@@ -327,17 +375,20 @@ export async function getStatusHistoryClient(): Promise<StatusHistory[]> {
 
   try {
     const supabase = createClient()
-    const { data, error } = await supabase
-      .from('status_history')
-      .select('id, candidate_id, project_id, old_status, new_status, changed_by, changed_at, note')
-      .order('changed_at', { ascending: false })
-      .range(0, 49999)
+    const { rows, error } = await selectAllInPages(async (from, to) => {
+      const res = await supabase
+        .from('status_history')
+        .select('id, candidate_id, project_id, old_status, new_status, changed_by, changed_at, note')
+        .order('changed_at', { ascending: false })
+        .range(from, to)
+      return { data: res.data as StatusHistory[] | null, error: res.error }
+    })
 
     if (error) {
       logSupabaseError('status_history', error)
       return []
     }
-    return (data || []) as StatusHistory[]
+    return rows
   } catch (err) {
     logSupabaseError('status_history', err)
     return []
@@ -355,17 +406,20 @@ export async function getMemosClient(): Promise<Memo[]> {
 
   try {
     const supabase = createClient()
-    const { data, error } = await supabase
-      .from('memos')
-      .select('id, candidate_id, created_by, created_at')
-      .order('created_at', { ascending: false })
-      .range(0, 49999)
+    const { rows, error } = await selectAllInPages(async (from, to) => {
+      const res = await supabase
+        .from('memos')
+        .select('id, candidate_id, created_by, created_at')
+        .order('created_at', { ascending: false })
+        .range(from, to)
+      return { data: res.data as Memo[] | null, error: res.error }
+    })
 
     if (error) {
       logSupabaseError('memos', error)
       return []
     }
-    return (data || []) as Memo[]
+    return rows
   } catch (err) {
     logSupabaseError('memos', err)
     return []
