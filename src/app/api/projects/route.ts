@@ -92,6 +92,13 @@ export async function POST(request: NextRequest) {
     const displayName = clientName || [gardenName, corporationName].filter(Boolean).join(' / ')
     
     const now = new Date().toISOString()
+
+    // probability_month に基づいて month_text を自動計算
+    const targetDate = new Date()
+    if ((body.probability_month || 'current') === 'next') {
+      targetDate.setMonth(targetDate.getMonth() + 1)
+    }
+    const monthText = `${targetDate.getFullYear()}_${String(targetDate.getMonth() + 1).padStart(2, '0')}`
     
     const { data, error } = await supabase
       .from('projects')
@@ -104,6 +111,7 @@ export async function POST(request: NextRequest) {
         expected_amount: body.expected_amount || null,
         probability: body.probability || null,
         probability_month: body.probability_month || 'current',
+        month_text: monthText,
         expected_entry_date: body.expected_entry_date || null,
         note: body.note || null,
         created_at: now,
