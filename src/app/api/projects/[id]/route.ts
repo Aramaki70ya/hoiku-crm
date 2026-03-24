@@ -112,6 +112,16 @@ export async function PATCH(
     }
     if ('probability_month' in body) {
       updateRow.probability_month = body.probability_month ?? null
+      // current / next のときだけ month_text をサーバ日付基準で再計算。未設定ならヨミ月ラベルもクリア
+      if (body.probability_month === 'current' || body.probability_month === 'next') {
+        const targetDate = new Date()
+        if (body.probability_month === 'next') {
+          targetDate.setMonth(targetDate.getMonth() + 1)
+        }
+        updateRow.month_text = `${targetDate.getFullYear()}_${String(targetDate.getMonth() + 1).padStart(2, '0')}`
+      } else {
+        updateRow.month_text = null
+      }
     }
     if ('expected_entry_date' in body) {
       updateRow.expected_entry_date = body.expected_entry_date ?? null

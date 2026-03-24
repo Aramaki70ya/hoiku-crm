@@ -70,6 +70,16 @@ type ClosedModalItem = {
   status: string
 }
 
+type YomiModalItem = {
+  candidateId: string
+  candidateName: string
+  candidateStatus: string
+  projectId: string
+  clientName: string
+  expectedAmount: number
+  probability: 'A' | 'B' | 'C'
+}
+
 export default function DashboardSummaryPage() {
   const [selectedYearMonth, setSelectedYearMonth] = useState<string>(() => getCurrentYearMonth())
   
@@ -91,6 +101,11 @@ export default function DashboardSummaryPage() {
   const [closedModalOpen, setClosedModalOpen] = useState(false)
   const [closedModalUserId, setClosedModalUserId] = useState<string | null>(null)
   const [closedModalData, setClosedModalData] = useState<ClosedModalItem[]>([])
+
+  // ヨミ内訳モーダル用 state
+  const [yomiModalOpen, setYomiModalOpen] = useState(false)
+  const [yomiModalTitle, setYomiModalTitle] = useState('')
+  const [yomiModalData, setYomiModalData] = useState<YomiModalItem[]>([])
   
   // Supabaseデータ取得
   const [candidates, setCandidates] = useState<Candidate[]>([])
@@ -720,10 +735,18 @@ export default function DashboardSummaryPage() {
       )
   }, [])
 
+  // 選択中の翌暦月の month_text（YYYY_MM）。m は YYYY-MM の暦月 1–12 を Date の第2引数に渡すと翌月の月初になる
+  const nextMonthText = useMemo(() => {
+    const [y, m] = selectedYearMonth.split('-').map(Number)
+    const d = new Date(y, m, 1)
+    return `${d.getFullYear()}_${String(d.getMonth() + 1).padStart(2, '0')}`
+  }, [selectedYearMonth])
+
   // 実データからメンバーごとのヨミ金額を計算（当月）
   const memberYomiStats = useMemo(() => {
     const stats: Record<string, { yomiA: number; yomiB: number; yomiC: number; yomiD: number }> = {}
-    
+    const currentMonthText = getMonthText()
+
     users
       .filter((u) => u.role !== 'admin' && isUserActiveInPeriod(u))
       .forEach((user) => {
@@ -731,10 +754,11 @@ export default function DashboardSummaryPage() {
         const userCandidates = candidates.filter((c) => c.consultant_id === user.id)
         const userCandidateIds = new Set(userCandidates.map((c) => c.id))
         
-        // 当月のヨミのみ（probability_monthがcurrentまたは未設定）
-        const userProjects = projects.filter((p) => 
-          userCandidateIds.has(p.candidate_id) && 
-          (p.probability_month === 'current' || !p.probability_month)
+        // 当月のヨミのみ（probability_monthがcurrentまたは未設定、かつ month_text が当月または未設定）
+        const userProjects = projects.filter((p) =>
+          userCandidateIds.has(p.candidate_id) &&
+          (p.probability_month === 'current' || !p.probability_month) &&
+          (p.month_text === currentMonthText || !p.month_text)
         )
         
         stats[user.id] = {
@@ -752,7 +776,7 @@ export default function DashboardSummaryPage() {
       })
     
     return stats
-  }, [users, candidates, projects, periodDates])
+  }, [users, candidates, projects, getMonthText, isUserActiveInPeriod])
 
   // 実データからメンバーごとのヨミ金額を計算（翌月）
   const memberYomiStatsNext = useMemo(() => {
@@ -765,10 +789,11 @@ export default function DashboardSummaryPage() {
         const userCandidates = candidates.filter((c) => c.consultant_id === user.id)
         const userCandidateIds = new Set(userCandidates.map((c) => c.id))
         
-        // 翌月のヨミのみ（probability_monthがnext）
-        const userProjects = projects.filter((p) => 
-          userCandidateIds.has(p.candidate_id) && 
-          p.probability_month === 'next'
+        // 翌月のヨミのみ（probability_monthがnext、かつ month_text が翌月または未設定）
+        const userProjects = projects.filter((p) =>
+          userCandidateIds.has(p.candidate_id) &&
+          p.probability_month === 'next' &&
+          (p.month_text === nextMonthText || !p.month_text)
         )
         
         stats[user.id] = {
@@ -786,7 +811,7 @@ export default function DashboardSummaryPage() {
       })
     
     return stats
-  }, [users, candidates, projects, periodDates])
+  }, [users, candidates, projects, nextMonthText, isUserActiveInPeriod])
 
   // 2課のヨミ数字（当月）- 実データ使用に変更
   const team2YomiCurrent = useMemo(() => {
@@ -804,7 +829,7 @@ export default function DashboardSummaryPage() {
       },
       { yomiA: 0, yomiB: 0, yomiC: 0, yomiD: 0 }
     )
-  }, [users, memberYomiStats, periodDates])
+  }, [users, memberYomiStats, isUserActiveInPeriod])
 
   // 2課のヨミ数字（翌月）- 実データ使用に変更
   const team2YomiNext = useMemo(() => {
@@ -821,7 +846,7 @@ export default function DashboardSummaryPage() {
       },
       { yomiA: 0, yomiB: 0, yomiC: 0, yomiD: 0 }
     )
-  }, [users, memberYomiStatsNext, periodDates])
+  }, [users, memberYomiStatsNext, isUserActiveInPeriod])
 
   // 転換率の表示用フォーマット
   const formatRate = (rate: number) => {
@@ -917,6 +942,53 @@ export default function DashboardSummaryPage() {
     setClosedModalData(modalData)
     setClosedModalOpen(true)
   }, [periodClosedStatusCandidateIds, candidates, contracts, periodContracts, statusHistory])
+
+  // ヨミ内訳モーダルを開く（当月 / 翌月 × A/B/C）
+  const handleOpenYomiModal = useCallback(
+    (userId: string, rank: 'A' | 'B' | 'C', isCurrent: boolean) => {
+      const currentMonthText = getMonthText()
+      const userCandidates = candidates.filter((c) => c.consultant_id === userId)
+      const userCandidateIds = new Set(userCandidates.map((c) => c.id))
+
+      const filtered = projects.filter((p) => {
+        if (!userCandidateIds.has(p.candidate_id)) return false
+        if (p.probability !== rank) return false
+        if (isCurrent) {
+          return (
+            (p.probability_month === 'current' || !p.probability_month) &&
+            (p.month_text === currentMonthText || !p.month_text)
+          )
+        }
+        return (
+          p.probability_month === 'next' &&
+          (p.month_text === nextMonthText || !p.month_text)
+        )
+      })
+
+      const items: YomiModalItem[] = filtered
+        .filter((p) => p.expected_amount)
+        .map((p) => {
+          const candidate = candidates.find((c) => c.id === p.candidate_id)
+          return {
+            candidateId: p.candidate_id,
+            candidateName: candidate?.name ?? '（不明）',
+            candidateStatus: candidate?.status ?? '',
+            projectId: p.id,
+            clientName: p.client_name ?? '',
+            expectedAmount: p.expected_amount ?? 0,
+            probability: rank,
+          }
+        })
+
+      const user = users.find((u) => u.id === userId)
+      const rankLabel = { A: 'Aヨミ(80%)', B: 'Bヨミ(50%)', C: 'Cヨミ(30%)' }[rank]
+      const monthLabel = isCurrent ? '当月' : '翌月'
+      setYomiModalTitle(`${user?.name ?? ''} / ${monthLabel} ${rankLabel} 内訳`)
+      setYomiModalData(items)
+      setYomiModalOpen(true)
+    },
+    [candidates, projects, users, getMonthText, nextMonthText]
+  )
 
   // 面接フラグを削除（面接レコードあり・なし両対応）
   const handleVoidInterview = useCallback(async (
@@ -1665,13 +1737,43 @@ export default function DashboardSummaryPage() {
                             {user.name || '-'}
                           </TableCell>
                           <TableCell className="text-right bg-red-50">
-                            {stats.yomiA > 0 ? formatAmount(stats.yomiA) : '-'}
+                            {stats.yomiA > 0 ? (
+                              <button
+                                type="button"
+                                className="text-violet-700 font-semibold hover:underline cursor-pointer"
+                                onClick={() => handleOpenYomiModal(user.id, 'A', true)}
+                              >
+                                {formatAmount(stats.yomiA)}
+                              </button>
+                            ) : (
+                              '-'
+                            )}
                           </TableCell>
                           <TableCell className="text-right bg-orange-50">
-                            {stats.yomiB > 0 ? formatAmount(stats.yomiB) : '-'}
+                            {stats.yomiB > 0 ? (
+                              <button
+                                type="button"
+                                className="text-violet-700 font-semibold hover:underline cursor-pointer"
+                                onClick={() => handleOpenYomiModal(user.id, 'B', true)}
+                              >
+                                {formatAmount(stats.yomiB)}
+                              </button>
+                            ) : (
+                              '-'
+                            )}
                           </TableCell>
                           <TableCell className="text-right bg-yellow-50">
-                            {stats.yomiC > 0 ? formatAmount(stats.yomiC) : '-'}
+                            {stats.yomiC > 0 ? (
+                              <button
+                                type="button"
+                                className="text-violet-700 font-semibold hover:underline cursor-pointer"
+                                onClick={() => handleOpenYomiModal(user.id, 'C', true)}
+                              >
+                                {formatAmount(stats.yomiC)}
+                              </button>
+                            ) : (
+                              '-'
+                            )}
                           </TableCell>
                           <TableCell className="text-right bg-slate-50">
                             {stats.yomiD > 0 ? formatAmount(stats.yomiD) : '-'}
@@ -1730,13 +1832,43 @@ export default function DashboardSummaryPage() {
                             {user.name}
                           </TableCell>
                           <TableCell className="text-right bg-red-50">
-                            {yomiStats.yomiA > 0 ? formatAmount(yomiStats.yomiA) : '-'}
+                            {yomiStats.yomiA > 0 ? (
+                              <button
+                                type="button"
+                                className="text-violet-700 font-semibold hover:underline cursor-pointer"
+                                onClick={() => handleOpenYomiModal(user.id, 'A', false)}
+                              >
+                                {formatAmount(yomiStats.yomiA)}
+                              </button>
+                            ) : (
+                              '-'
+                            )}
                           </TableCell>
                           <TableCell className="text-right bg-orange-50">
-                            {yomiStats.yomiB > 0 ? formatAmount(yomiStats.yomiB) : '-'}
+                            {yomiStats.yomiB > 0 ? (
+                              <button
+                                type="button"
+                                className="text-violet-700 font-semibold hover:underline cursor-pointer"
+                                onClick={() => handleOpenYomiModal(user.id, 'B', false)}
+                              >
+                                {formatAmount(yomiStats.yomiB)}
+                              </button>
+                            ) : (
+                              '-'
+                            )}
                           </TableCell>
                           <TableCell className="text-right bg-yellow-50">
-                            {yomiStats.yomiC > 0 ? formatAmount(yomiStats.yomiC) : '-'}
+                            {yomiStats.yomiC > 0 ? (
+                              <button
+                                type="button"
+                                className="text-violet-700 font-semibold hover:underline cursor-pointer"
+                                onClick={() => handleOpenYomiModal(user.id, 'C', false)}
+                              >
+                                {formatAmount(yomiStats.yomiC)}
+                              </button>
+                            ) : (
+                              '-'
+                            )}
                           </TableCell>
                           <TableCell className="text-right bg-slate-50">
                             {yomiStats.yomiD > 0 ? formatAmount(yomiStats.yomiD) : '-'}
@@ -1900,6 +2032,56 @@ export default function DashboardSummaryPage() {
                           ? `¥${(item.revenueExcludingTax / 10000).toFixed(0)}万`
                           : <span className="text-slate-400">-</span>
                         }
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ヨミ内訳モーダル */}
+      <Dialog open={yomiModalOpen} onOpenChange={setYomiModalOpen}>
+        <DialogContent className="sm:max-w-[640px] w-[92vw] max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{yomiModalTitle}</DialogTitle>
+            <DialogDescription>合計 {yomiModalData.length}件</DialogDescription>
+          </DialogHeader>
+          <div className="mt-4">
+            {yomiModalData.length === 0 ? (
+              <div className="text-center py-8 text-slate-500">対象案件はありません</div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="min-w-[100px]">候補者名</TableHead>
+                    <TableHead className="min-w-[120px]">ステータス</TableHead>
+                    <TableHead className="min-w-[140px]">応募先</TableHead>
+                    <TableHead className="text-right min-w-[90px]">金額</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {yomiModalData.map((item) => (
+                    <TableRow key={item.projectId}>
+                      <TableCell className="font-medium">
+                        <Link
+                          href={`/candidates/${item.candidateId}`}
+                          className="text-violet-600 hover:text-violet-800 hover:underline"
+                          onClick={() => setYomiModalOpen(false)}
+                        >
+                          {item.candidateName}
+                        </Link>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{item.candidateStatus || '-'}</Badge>
+                      </TableCell>
+                      <TableCell className="text-slate-600 text-sm">
+                        {item.clientName || '-'}
+                      </TableCell>
+                      <TableCell className="text-right font-semibold">
+                        {formatAmount(item.expectedAmount)}
                       </TableCell>
                     </TableRow>
                   ))}
