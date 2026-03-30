@@ -52,12 +52,33 @@ import {
   getStatusHistoryClient as getStatusHistory,
   getMemosClient as getMemos,
 } from '@/lib/supabase/queries-client-with-fallback'
-import { INTERVIEW_PHASE_STATUSES, INTERVIEW_SET_STATUSES } from '@/lib/status-mapping'
+import { INTERVIEW_SET_STATUSES } from '@/lib/status-mapping'
 import type { Candidate, Project, Interview, User, Contract, StatusHistory, Memo } from '@/types/database'
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from 'recharts'
 
 function getCurrentYearMonth(): string {
   const now = new Date()
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+}
+
+function getPreviousYearMonth(baseYearMonth: string): string {
+  const [y, m] = baseYearMonth.split('-').map(Number)
+  const prev = new Date(y, m - 2, 1)
+  return `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`
+}
+
+function formatYearMonthLabel(yearMonth: string): string {
+  const [y, m] = yearMonth.split('-').map(Number)
+  return `${y}年${m}月`
 }
 
 type ClosedModalItem = {
@@ -80,8 +101,247 @@ type YomiModalItem = {
   probability: 'A' | 'B' | 'C'
 }
 
+type SalesProgressRow = {
+  userId: string
+  userName: string
+  totalCount: number
+  firstContactCount: number
+  interviewCount: number
+  closedCount: number
+}
+
+type ProgressTotals = {
+  totalCount: number
+  firstContactCount: number
+  interviewCount: number
+  closedCount: number
+}
+
+const TEAM2_USER_IDS = ['3', '4', '7', '8', '9'] as const // 西田、鈴木、後藤、小畦、吉田
+
+function SalesProgressMetricsTable({
+  title,
+  description,
+  rows,
+  totals,
+  kpiTargetRates,
+  formatRate,
+  cohort,
+  onOpenInterview,
+  onOpenClosed,
+}: {
+  title: string
+  description?: string
+  rows: SalesProgressRow[]
+  totals: ProgressTotals
+  kpiTargetRates: { firstContactRate: number; interviewRate: number; closedRate: number }
+  formatRate: (rate: number) => string
+  cohort: 'current' | 'prior'
+  onOpenInterview: (userId: string, cohort: 'current' | 'prior') => void
+  onOpenClosed: (userId: string, cohort: 'current' | 'prior') => void
+}) {
+  const totalFirstContactRate =
+    totals.totalCount > 0 ? (totals.firstContactCount / totals.totalCount) * 100 : 0
+  const totalInterviewRate =
+    totals.firstContactCount > 0 ? (totals.interviewCount / totals.firstContactCount) * 100 : 0
+  const totalClosedRate =
+    totals.interviewCount > 0 ? (totals.closedCount / totals.interviewCount) * 100 : 0
+
+  return (
+    <div className="space-y-2 mb-8 last:mb-0">
+      <div>
+        <h3 className="text-sm font-semibold text-slate-800">{title}</h3>
+        {description ? <p className="text-xs text-slate-500 mt-1">{description}</p> : null}
+      </div>
+      <Table>
+        <TableHeader>
+          <TableRow className="bg-slate-50">
+            <TableHead className="text-slate-700 font-semibold">担当者</TableHead>
+            <TableHead className="text-slate-700 font-semibold">担当</TableHead>
+            <TableHead className="text-slate-700 font-semibold">初回</TableHead>
+            <TableHead className="text-slate-700 font-semibold">面接</TableHead>
+            <TableHead className="text-slate-700 font-semibold">成約</TableHead>
+            <TableHead className="text-slate-700 font-semibold bg-orange-50">
+              面談率 (担当→初回)
+              <br />
+              <span className="text-red-600 font-normal text-xs">
+                目標: {(kpiTargetRates.firstContactRate * 100).toFixed(0)}%
+              </span>
+            </TableHead>
+            <TableHead className="text-slate-700 font-semibold bg-cyan-50">
+              設定率 (初回→面接)
+              <br />
+              <span className="text-red-600 font-normal text-xs">
+                目標: {(kpiTargetRates.interviewRate * 100).toFixed(0)}%
+              </span>
+            </TableHead>
+            <TableHead className="text-slate-700 font-semibold bg-emerald-50">
+              成約率 (面接→成約)
+              <br />
+              <span className="text-red-600 font-normal text-xs">
+                目標: {(kpiTargetRates.closedRate * 100).toFixed(0)}%
+              </span>
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((progress) => {
+            const firstContactRate =
+              progress.totalCount > 0
+                ? (progress.firstContactCount / progress.totalCount) * 100
+                : NaN
+            const interviewRate =
+              progress.firstContactCount > 0
+                ? (progress.interviewCount / progress.firstContactCount) * 100
+                : NaN
+            const closedRate =
+              progress.interviewCount > 0
+                ? (progress.closedCount / progress.interviewCount) * 100
+                : NaN
+
+            if (process.env.NODE_ENV === 'development' && progress.userName === '吉田') {
+              console.log(`営業進捗表示（吉田/${cohort}）:`, {
+                cohort,
+                userName: progress.userName,
+                totalCount: progress.totalCount,
+                firstContactCount: progress.firstContactCount,
+                interviewCount: progress.interviewCount,
+                closedCount: progress.closedCount,
+                firstContactRate,
+                interviewRate,
+                closedRate,
+              })
+            }
+
+            return (
+              <TableRow key={`${cohort}-${progress.userId}`} className="hover:bg-slate-50">
+                <TableCell className="font-medium text-slate-800">{progress.userName}</TableCell>
+                <TableCell className="text-center">{progress.totalCount}</TableCell>
+                <TableCell className="text-center">{progress.firstContactCount}</TableCell>
+                <TableCell className="text-center">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-auto p-1 font-normal hover:bg-cyan-50"
+                    onClick={() => onOpenInterview(progress.userId, cohort)}
+                    disabled={progress.interviewCount === 0}
+                    data-testid={`interview-count-${cohort}-${progress.userId}`}
+                  >
+                    <span
+                      className={progress.interviewCount > 0 ? 'text-cyan-600 underline cursor-pointer' : ''}
+                    >
+                      {progress.interviewCount}
+                    </span>
+                  </Button>
+                </TableCell>
+                <TableCell className="text-center">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-auto p-1 font-normal hover:bg-emerald-50"
+                    onClick={() => onOpenClosed(progress.userId, cohort)}
+                    disabled={progress.closedCount === 0}
+                  >
+                    <span
+                      className={progress.closedCount > 0 ? 'text-emerald-600 underline cursor-pointer' : ''}
+                    >
+                      {progress.closedCount}
+                    </span>
+                  </Button>
+                </TableCell>
+                <TableCell className="text-center">
+                  <div className="flex items-center justify-center gap-1">
+                    <span
+                      className={
+                        firstContactRate >= kpiTargetRates.firstContactRate * 100
+                          ? 'text-emerald-600 font-bold'
+                          : 'text-amber-600 font-bold'
+                      }
+                    >
+                      {formatRate(firstContactRate)}
+                    </span>
+                  </div>
+                </TableCell>
+                <TableCell className="text-center">
+                  <div className="flex items-center justify-center gap-1">
+                    <span
+                      className={
+                        interviewRate >= kpiTargetRates.interviewRate * 100
+                          ? 'text-emerald-600 font-bold'
+                          : 'text-amber-600 font-bold'
+                      }
+                    >
+                      {formatRate(interviewRate)}
+                    </span>
+                  </div>
+                </TableCell>
+                <TableCell className="text-center">
+                  <div className="flex items-center justify-center gap-1">
+                    <span
+                      className={
+                        closedRate >= kpiTargetRates.closedRate * 100
+                          ? 'text-emerald-600 font-bold'
+                          : 'text-amber-600 font-bold'
+                      }
+                    >
+                      {formatRate(closedRate)}
+                    </span>
+                  </div>
+                </TableCell>
+              </TableRow>
+            )
+          })}
+          <TableRow className="bg-slate-100 font-bold">
+            <TableCell className="font-bold text-slate-800">合計</TableCell>
+            <TableCell className="text-center">{totals.totalCount}</TableCell>
+            <TableCell className="text-center">{totals.firstContactCount}</TableCell>
+            <TableCell className="text-center">{totals.interviewCount}</TableCell>
+            <TableCell className="text-center">{totals.closedCount}</TableCell>
+            <TableCell className="text-center">
+              <span
+                className={
+                  totalFirstContactRate >= kpiTargetRates.firstContactRate * 100
+                    ? 'text-emerald-600'
+                    : 'text-amber-600'
+                }
+              >
+                {formatRate(totalFirstContactRate)}
+              </span>
+            </TableCell>
+            <TableCell className="text-center">
+              <span
+                className={
+                  totalInterviewRate >= kpiTargetRates.interviewRate * 100
+                    ? 'text-emerald-600'
+                    : 'text-amber-600'
+                }
+              >
+                {formatRate(totalInterviewRate)}
+              </span>
+            </TableCell>
+            <TableCell className="text-center">
+              <span
+                className={
+                  totalClosedRate >= kpiTargetRates.closedRate * 100
+                    ? 'text-emerald-600'
+                    : 'text-amber-600'
+                }
+              >
+                {formatRate(totalClosedRate)}
+              </span>
+            </TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>
+    </div>
+  )
+}
+
 export default function DashboardSummaryPage() {
   const [selectedYearMonth, setSelectedYearMonth] = useState<string>(() => getCurrentYearMonth())
+  const [selectedPriorYearMonth, setSelectedPriorYearMonth] = useState<string>(() =>
+    getPreviousYearMonth(getCurrentYearMonth())
+  )
   
   // 面接詳細モーダル用 state
   const [interviewModalOpen, setInterviewModalOpen] = useState(false)
@@ -124,19 +384,6 @@ export default function DashboardSummaryPage() {
     created_at: string
   }>>([])
   const [loading, setLoading] = useState(true)
-  
-  // 月次マージシートから計算した営業進捗指標
-  const [monthlyMetrics, setMonthlyMetrics] = useState<{
-    consultant: string
-    assigned: number
-    firstContact: number
-    interview: number
-    closed: number
-    firstContactRate: number
-    interviewRate: number
-    closedRate: number
-  }[]>([])
-  const [monthlyMetricsLoading, setMonthlyMetricsLoading] = useState(false)
   
   // 月次マージシートから面接状況を取得
   const [monthlyStatusCases, setMonthlyStatusCases] = useState<Record<
@@ -195,26 +442,6 @@ export default function DashboardSummaryPage() {
   // 選択年月から month_text（YYYY_MM）を返す
   const getMonthText = useCallback(() => selectedYearMonth.replace('-', '_'), [selectedYearMonth])
 
-  // 月次マージシートから営業進捗指標を取得
-  const fetchMonthlyMetrics = useCallback(async () => {
-    setMonthlyMetrics([])
-    setMonthlyMetricsLoading(true)
-    try {
-      const monthText = getMonthText()
-      const response = await fetch(`/api/metrics?month=${monthText}&_t=${Date.now()}`)
-      if (!response.ok) {
-        throw new Error('営業進捗指標の取得に失敗しました')
-      }
-      const data = await response.json()
-      setMonthlyMetrics(data.metrics || [])
-    } catch (error) {
-      console.error('Error fetching monthly metrics:', error)
-      setMonthlyMetrics([])
-    } finally {
-      setMonthlyMetricsLoading(false)
-    }
-  }, [getMonthText])
-
   // 月次マージシートから面接状況を取得
   const fetchMonthlyStatusCases = useCallback(async () => {
     setMonthlyStatusCases({})
@@ -266,10 +493,6 @@ export default function DashboardSummaryPage() {
 
   // 期間変更時に月次データを再取得
   useEffect(() => {
-    fetchMonthlyMetrics()
-  }, [fetchMonthlyMetrics])
-
-  useEffect(() => {
     fetchMonthlyStatusCases()
   }, [fetchMonthlyStatusCases])
 
@@ -280,10 +503,9 @@ export default function DashboardSummaryPage() {
   // すべてのデータを再取得
   const refetchAll = useCallback(() => {
     fetchData()
-    fetchMonthlyMetrics()
     fetchMonthlyStatusCases()
     fetchUserTargets()
-  }, [fetchData, fetchMonthlyMetrics, fetchMonthlyStatusCases, fetchUserTargets])
+  }, [fetchData, fetchMonthlyStatusCases, fetchUserTargets])
 
   // ページ復帰時・タブ切り替え時・ウィンドウフォーカス時に再取得
   useEffect(() => {
@@ -329,6 +551,31 @@ export default function DashboardSummaryPage() {
     const endDate = new Date(y, m, 0, 23, 59, 59)
     return { startDate, endDate }
   }, [selectedYearMonth])
+
+  const priorRegistrationOptions = useMemo(() => {
+    const monthSet = new Set<string>()
+    candidates.forEach((c) => {
+      if (!c.registered_at) return
+      const d = new Date(c.registered_at)
+      const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      if (ym < selectedYearMonth) monthSet.add(ym)
+    })
+    return Array.from(monthSet).sort((a, b) => (a < b ? 1 : -1))
+  }, [candidates, selectedYearMonth])
+
+  useEffect(() => {
+    if (priorRegistrationOptions.length === 0) return
+    if (!priorRegistrationOptions.includes(selectedPriorYearMonth)) {
+      setSelectedPriorYearMonth(priorRegistrationOptions[0])
+    }
+  }, [priorRegistrationOptions, selectedPriorYearMonth])
+
+  const priorPeriodDates = useMemo(() => {
+    const [y, m] = selectedPriorYearMonth.split('-').map(Number)
+    const startDate = new Date(y, m - 1, 1)
+    const endDate = new Date(y, m, 0, 23, 59, 59)
+    return { startDate, endDate }
+  }, [selectedPriorYearMonth])
   // 期間内のデータをフィルタリング
   const periodCandidates = useMemo(() => {
     const { startDate, endDate } = periodDates
@@ -338,6 +585,27 @@ export default function DashboardSummaryPage() {
       return registeredDate >= startDate && registeredDate <= endDate
     })
   }, [candidates, periodDates])
+
+  /** 前月以前登録ベースの母集団（選択した過去月に登録された求職者） */
+  const priorRegistrationCandidates = useMemo(() => {
+    const { startDate, endDate } = priorPeriodDates
+    return candidates.filter((c) => {
+      if (!c.registered_at) return false
+      const registeredDate = new Date(c.registered_at)
+      return registeredDate >= startDate && registeredDate <= endDate
+    })
+  }, [candidates, priorPeriodDates])
+
+  const candidateById = useMemo(() => new Map(candidates.map((c) => [c.id, c])), [candidates])
+
+  const periodCandidateIdSet = useMemo(
+    () => new Set(periodCandidates.map((c) => c.id)),
+    [periodCandidates]
+  )
+  const priorRegistrationCandidateIdSet = useMemo(
+    () => new Set(priorRegistrationCandidates.map((c) => c.id)),
+    [priorRegistrationCandidates]
+  )
 
   // 期間内に成約を設定した数（created_atで判定）
   const periodContracts = useMemo(() => {
@@ -374,8 +642,7 @@ export default function DashboardSummaryPage() {
   // ※ INTERVIEW_PHASE_STATUSES, INTERVIEW_SET_STATUSES は @/lib/status-mapping からインポート
   // ※ 無効化された面接（is_voided=true）は除外
   // ※ 面接確定済・実施済のみカウント（調整中は除外）
-  const periodInterviewStatusCandidateIds = useMemo(() => {
-    const { startDate, endDate } = periodDates
+  const buildInterviewCandidateIds = useCallback((startDate: Date, endDate: Date) => {
     const candidateIds = new Set<string>()
     
     // 過去に面接経験がある candidate_id を集める（初回面接のみカウントするため）
@@ -433,33 +700,33 @@ export default function DashboardSummaryPage() {
     }
     
     return candidateIds
-  }, [statusHistory, periodDates, candidates, projects, interviews])
+  }, [statusHistory, candidates, projects, interviews])
 
-  // 期間内に「内定承諾（成約）」になった求職者（成約数のカウント用）
-  // status_history + contracts の全ソースを統合して集計（どちらかに漏れがあっても拾える）
-  const periodClosedStatusCandidateIds = useMemo(() => {
-    const { startDate, endDate } = periodDates
+  const periodInterviewStatusCandidateIds = useMemo(
+    () => buildInterviewCandidateIds(periodDates.startDate, periodDates.endDate),
+    [buildInterviewCandidateIds, periodDates]
+  )
+
+  const priorPeriodInterviewStatusCandidateIds = useMemo(
+    () => buildInterviewCandidateIds(priorPeriodDates.startDate, priorPeriodDates.endDate),
+    [buildInterviewCandidateIds, priorPeriodDates]
+  )
+
+  // 成約済み求職者（登録月コホート集計用）
+  // status_history + contracts の全ソースを統合して集計（成約日ではなく、登録月コホートで振り分ける）
+  const closedStatusCandidateIds = useMemo(() => {
     const candidateIds = new Set<string>()
-    
-    // ソース1: status_historyから集計
-    statusHistory.forEach(h => {
-      if (h.new_status !== '内定承諾（成約）' || !h.changed_at) return
-      const changedDate = new Date(h.changed_at)
-      if (changedDate >= startDate && changedDate <= endDate) {
+
+    statusHistory.forEach((h) => {
+      if (h.new_status === '内定承諾（成約）') {
         candidateIds.add(h.candidate_id)
       }
     })
-    
-    // ソース2: contractsテーブルから集計（常にマージ）
-    // status_historyに漏れがある可能性があるため、contractsも常に見る
-    periodContracts.forEach(c => {
-      if (c.candidate_id) {
-        candidateIds.add(c.candidate_id)
-      }
+    contracts.forEach((c) => {
+      if (c.candidate_id) candidateIds.add(c.candidate_id)
     })
-    
     return candidateIds
-  }, [statusHistory, periodDates, periodContracts])
+  }, [statusHistory, contracts])
 
   // 実際のデータから各ステータスの案件を集計（面接一覧ページと同じ candidate.status ベースで統一）
   const getStatusCases = useMemo(() => {
@@ -602,123 +869,248 @@ export default function DashboardSummaryPage() {
     return ids
   }, [statusHistory, memos, periodDates])
 
-  // 営業進捗を計算（担当・初回は「期間内に登録した」求職者のみで集計）
-  // 【面接・成約の表示ロジックの詳細】→ docs/DASHBOARD_面接・成約の集計ロジック.md を参照
-  // 【指標の定義】
-  // 担当 = 期間内に登録した かつ その担当者に割り当てられている求職者数
-  // 初回 = 上記のうち、ステータスが「初回連絡中」「連絡つかず」以外（＝初回コンタクト済み）の数
-  // 面接 = (1)月次マージシートにその月データがあればマージシートの値 (2)なければDB: 期間内に status_history で「面接フェーズ」ステータスに変わった人のユニーク数を担当者ごとに集計（interviews テーブルは使わない）
-  // 成約 = (1)同上マージシート (2)なければDB: 期間内の成約(status_history＋contracts)のユニーク求職者数を担当者ごとに集計
-  // ※「先月面接→今月成約」のケースで成約＞面接は正当に起きるため、クリップしない。
-  const salesProgress = useMemo(() => {
-    // ローディング中は古いデータを表示しない（空配列を返す）
-    if (monthlyMetricsLoading) {
-      return []
+  // 前月以前登録ベース（選択した過去月）で活動したユーザーID
+  const priorPeriodActiveUserIds = useMemo(() => {
+    const ids = new Set<string>()
+    const { startDate, endDate } = priorPeriodDates
+
+    statusHistory.forEach((h) => {
+      if (!h.changed_by || !h.changed_at) return
+      const d = new Date(h.changed_at)
+      if (d >= startDate && d <= endDate) ids.add(h.changed_by)
+    })
+
+    memos.forEach((m) => {
+      if (!m.created_by || !m.created_at) return
+      const d = new Date(m.created_at)
+      if (d >= startDate && d <= endDate) ids.add(m.created_by)
+    })
+
+    return ids
+  }, [statusHistory, memos, priorPeriodDates])
+
+  // 営業進捗を計算（当月登録ベース / 前月以前登録ベースの二表）
+  // 面接・成約は DB 派生（status_history + contracts）のみとし、母集団（registered_at）で当月／前月以前に分割する
+  // 【詳細】docs/DASHBOARD_面接・成約の集計ロジック.md
+  const { salesProgressCurrent, salesProgressPrior } = useMemo(() => {
+    if (loading) {
+      return { salesProgressCurrent: [] as SalesProgressRow[], salesProgressPrior: [] as SalesProgressRow[] }
     }
 
-    const progress = users
+    const firstContactCountFor = (list: Candidate[]) =>
+      list.filter((c) => !['初回連絡中', '連絡つかず（初回未接触）'].includes(c.status)).length
+
+    /** 前月以前登録ベースの「担当」「初回」から除外する終了・ロスト系ステータス */
+    const priorProgressExcludedStatuses = new Set<string>([
+      'クローズ（終了）',
+      '音信不通',
+      '内定辞退',
+      '連絡つかず（初回未接触）',
+    ])
+
+    const countInterviewByConsultant = (cohort: 'current' | 'prior') => {
+      const sourceIds =
+        cohort === 'current'
+          ? periodInterviewStatusCandidateIds
+          : priorPeriodInterviewStatusCandidateIds
+      const counts = new Map<string, number>()
+      for (const candidateId of sourceIds) {
+        const c = candidateById.get(candidateId)
+        if (!c || !c.consultant_id) continue
+        if (cohort === 'current') {
+          if (!periodCandidateIdSet.has(candidateId)) continue
+        } else if (!priorRegistrationCandidateIdSet.has(candidateId)) continue
+        counts.set(c.consultant_id, (counts.get(c.consultant_id) ?? 0) + 1)
+      }
+      return counts
+    }
+
+    const countClosedByConsultant = (cohort: 'current' | 'prior') => {
+      const sourceIds = closedStatusCandidateIds
+      const counts = new Map<string, number>()
+      for (const candidateId of sourceIds) {
+        const c = candidateById.get(candidateId)
+        if (!c || !c.consultant_id) continue
+        if (cohort === 'current') {
+          if (!periodCandidateIdSet.has(candidateId)) continue
+        } else if (!priorRegistrationCandidateIdSet.has(candidateId)) continue
+        counts.set(c.consultant_id, (counts.get(c.consultant_id) ?? 0) + 1)
+      }
+      return counts
+    }
+
+    const currentInterviewCounts = countInterviewByConsultant('current')
+    const priorInterviewCounts = countInterviewByConsultant('prior')
+    const currentClosedCounts = countClosedByConsultant('current')
+    const priorClosedCounts = countClosedByConsultant('prior')
+
+    const base = users
       .filter((u) => u.role !== 'admin' && isUserActiveInPeriod(u))
       .map((user) => {
-        // 担当・初回は常に「期間内に登録した」求職者ベースで計算
-        const userPeriodCandidates = periodCandidates.filter((c) => c.consultant_id === user.id)
-        const totalCount = userPeriodCandidates.length
-        const firstContactCount = userPeriodCandidates.filter(
-          (c) => !['初回連絡中', '連絡つかず（初回未接触）'].includes(c.status)
-        ).length
-
-        // 面接・成約は月次マージシートがあればそれを使用
-        let interviewCount: number
-        let closedCount: number
-        if (monthlyMetrics.length > 0) {
-          const metric = monthlyMetrics.find((m) => m.consultant === user.name)
-          interviewCount = metric?.interview ?? 0
-          closedCount = metric?.closed ?? 0
-        } else {
-          // フォールバック: DBから計算
-          // periodInterviewStatusCandidateIds は status_history のみ（interviews は使わない）
-          // periodClosedStatusCandidateIds は status_history + contracts を統合
-          
-          // 面接数 = 期間内に status_history で面接フェーズのステータスになった、このユーザー担当の求職者のユニーク数
-          const interviewCandidateIds = new Set<string>()
-          periodInterviewStatusCandidateIds.forEach((candidateId) => {
-            const candidate = candidates.find((c) => c.id === candidateId)
-            if (candidate && candidate.consultant_id === user.id) {
-              interviewCandidateIds.add(candidateId)
-            }
-          })
-          interviewCount = interviewCandidateIds.size
-          
-          // 成約数 = 期間内に成約になった、このユーザー担当の求職者のユニーク数
-          const closedCandidateIds = new Set<string>()
-          periodClosedStatusCandidateIds.forEach((candidateId) => {
-            const candidate = candidates.find((c) => c.id === candidateId)
-            if (candidate && candidate.consultant_id === user.id) {
-              closedCandidateIds.add(candidateId)
-            }
-          })
-          closedCount = closedCandidateIds.size
-        }
-
-        // 成約＞面接は「先月面接→今月成約」で正当に起きるため、クリップしない
+        const userPeriod = periodCandidates.filter((c) => c.consultant_id === user.id)
+        const userPreRaw = priorRegistrationCandidates.filter((c) => c.consultant_id === user.id)
+        const userPre = userPreRaw.filter((c) => !priorProgressExcludedStatuses.has(c.status))
         return {
-          userId: user.id,
-          userName: user.name,
-          totalCount,
-          firstContactCount,
-          interviewCount,
-          closedCount,
+          current: {
+            userId: user.id,
+            userName: user.name,
+            totalCount: userPeriod.length,
+            firstContactCount: firstContactCountFor(userPeriod),
+            interviewCount: currentInterviewCounts.get(user.id) ?? 0,
+            closedCount: currentClosedCounts.get(user.id) ?? 0,
+          } satisfies SalesProgressRow,
+          prior: {
+            userId: user.id,
+            userName: user.name,
+            totalCount: userPre.length,
+            firstContactCount: firstContactCountFor(userPre),
+            interviewCount: priorInterviewCounts.get(user.id) ?? 0,
+            closedCount: priorClosedCounts.get(user.id) ?? 0,
+          } satisfies SalesProgressRow,
         }
       })
 
-    // 行を表示する条件: (1)期間内担当1件以上 (2)期間内に操作した (3)担当求職者が1人以上いる（前月以前から継続含む）
-    return progress
-      .filter(
-        (p) =>
-          p.totalCount > 0 ||
-          periodActiveUserIds.has(p.userId) ||
-          candidates.some((c) => c.consultant_id === p.userId)
+    const filterCurrent = (p: SalesProgressRow) =>
+      p.totalCount > 0 ||
+      periodActiveUserIds.has(p.userId) ||
+      candidates.some((c) => c.consultant_id === p.userId)
+
+    const filterPrior = (p: SalesProgressRow) =>
+      p.totalCount > 0 ||
+      p.interviewCount > 0 ||
+      p.closedCount > 0 ||
+      priorPeriodActiveUserIds.has(p.userId) ||
+      candidates.some(
+        (c) =>
+          c.consultant_id === p.userId &&
+          !!c.registered_at &&
+          new Date(c.registered_at) >= priorPeriodDates.startDate &&
+          new Date(c.registered_at) <= priorPeriodDates.endDate
       )
+
+    const salesProgressCurrent = base
+      .map((x) => x.current)
+      .filter(filterCurrent)
       .sort((a, b) => b.totalCount - a.totalCount)
-  }, [users, periodCandidates, periodInterviewStatusCandidateIds, periodClosedStatusCandidateIds, candidates, monthlyMetrics, monthlyMetricsLoading, isUserActiveInPeriod, periodActiveUserIds])
 
-  // 全体集計
-  const totalProgress = useMemo(() => {
-    return salesProgress.reduce(
-      (acc, progress) => ({
-        totalCount: acc.totalCount + progress.totalCount,
-        firstContactCount: acc.firstContactCount + progress.firstContactCount,
-        interviewCount: acc.interviewCount + progress.interviewCount,
-        closedCount: acc.closedCount + progress.closedCount,
-      }),
-      { totalCount: 0, firstContactCount: 0, interviewCount: 0, closedCount: 0 }
-    )
-  }, [salesProgress])
+    const salesProgressPrior = base
+      .map((x) => x.prior)
+      .filter(filterPrior)
+      .sort((a, b) => b.totalCount - a.totalCount)
 
-  // 全体の転換率計算
+    return { salesProgressCurrent, salesProgressPrior }
+  }, [
+    loading,
+    users,
+    periodCandidates,
+    priorRegistrationCandidates,
+    candidates,
+    periodInterviewStatusCandidateIds,
+    priorPeriodInterviewStatusCandidateIds,
+    closedStatusCandidateIds,
+    candidateById,
+    periodCandidateIdSet,
+    priorRegistrationCandidateIdSet,
+    isUserActiveInPeriod,
+    periodActiveUserIds,
+    priorPeriodActiveUserIds,
+    priorPeriodDates,
+  ])
+
+  /** 面接状況・売上数字などの行順（当月表・前月以前表の和集合） */
+  const dashboardConsultantOrder = useMemo(() => {
+    const ids = new Set<string>()
+    salesProgressCurrent.forEach((p) => ids.add(p.userId))
+    salesProgressPrior.forEach((p) => ids.add(p.userId))
+    return Array.from(ids).sort((a, b) => {
+      const ca = salesProgressCurrent.find((p) => p.userId === a)?.totalCount ?? 0
+      const cb = salesProgressCurrent.find((p) => p.userId === b)?.totalCount ?? 0
+      if (cb !== ca) return cb - ca
+      const pa = salesProgressPrior.find((p) => p.userId === a)?.totalCount ?? 0
+      const pb = salesProgressPrior.find((p) => p.userId === b)?.totalCount ?? 0
+      return pb - pa
+    })
+  }, [salesProgressCurrent, salesProgressPrior])
+
+  const totalProgressCurrent = useMemo(
+    () =>
+      salesProgressCurrent.reduce<ProgressTotals>(
+        (acc, progress) => ({
+          totalCount: acc.totalCount + progress.totalCount,
+          firstContactCount: acc.firstContactCount + progress.firstContactCount,
+          interviewCount: acc.interviewCount + progress.interviewCount,
+          closedCount: acc.closedCount + progress.closedCount,
+        }),
+        { totalCount: 0, firstContactCount: 0, interviewCount: 0, closedCount: 0 }
+      ),
+    [salesProgressCurrent]
+  )
+
+  const totalProgressPrior = useMemo(
+    () =>
+      salesProgressPrior.reduce<ProgressTotals>(
+        (acc, progress) => ({
+          totalCount: acc.totalCount + progress.totalCount,
+          firstContactCount: acc.firstContactCount + progress.firstContactCount,
+          interviewCount: acc.interviewCount + progress.interviewCount,
+          closedCount: acc.closedCount + progress.closedCount,
+        }),
+        { totalCount: 0, firstContactCount: 0, interviewCount: 0, closedCount: 0 }
+      ),
+    [salesProgressPrior]
+  )
+
+  // 目標数値カード・成約単価: 当月登録ベースで算出
   const totalFirstContactRate =
-    totalProgress.totalCount > 0
-      ? (totalProgress.firstContactCount / totalProgress.totalCount) * 100
+    totalProgressCurrent.totalCount > 0
+      ? (totalProgressCurrent.firstContactCount / totalProgressCurrent.totalCount) * 100
       : 0
   const totalInterviewRate =
-    totalProgress.firstContactCount > 0
-      ? (totalProgress.interviewCount / totalProgress.firstContactCount) * 100
+    totalProgressCurrent.firstContactCount > 0
+      ? (totalProgressCurrent.interviewCount / totalProgressCurrent.firstContactCount) * 100
       : 0
   const totalClosedRate =
-    totalProgress.interviewCount > 0
-      ? (totalProgress.closedCount / totalProgress.interviewCount) * 100
+    totalProgressCurrent.interviewCount > 0
+      ? (totalProgressCurrent.closedCount / totalProgressCurrent.interviewCount) * 100
       : 0
 
-  // 成約単価実績（営業進捗の成約数ベースで集計）
   const actualRevenuePerClosed =
-    totalProgress.closedCount > 0 ? periodTotalSales / totalProgress.closedCount : 0
+    totalProgressCurrent.closedCount > 0
+      ? periodTotalSales / totalProgressCurrent.closedCount
+      : 0
 
-  // 2課のメンバーID（画像から読み取れる内容に基づく）
-  const team2UserIds = ['3', '4', '7', '8', '9'] // 西田、鈴木、後藤、小畦、吉田
+  // 担当者別「面接→成約」サマリー（上部の集計期間に連動）
+  const interviewClosedSummary = useMemo(() => {
+    return users
+      .filter((u) => u.role !== 'admin' && isUserActiveInPeriod(u))
+      .map((u) => {
+        const progress = salesProgressCurrent.find((p) => p.userId === u.id)
+        const interviewCount = progress?.interviewCount ?? 0
+        const closedCount = progress?.closedCount ?? 0
+        return {
+          userId: u.id,
+          userName: u.name,
+          interviewCount,
+          closedCount,
+          closedRate: interviewCount > 0 ? (closedCount / interviewCount) * 100 : 0,
+        }
+      })
+      .sort((a, b) => {
+        if (b.closedCount !== a.closedCount) return b.closedCount - a.closedCount
+        return b.interviewCount - a.interviewCount
+      })
+  }, [users, salesProgressCurrent, isUserActiveInPeriod])
+
+  const interviewClosedChartData = useMemo(() => {
+    return interviewClosedSummary.map((row) => ({
+      ...row,
+    }))
+  }, [interviewClosedSummary])
 
   // 2課の売上実績集計
   const team2Sales = useMemo(() => {
     return mockMemberStats
-      .filter((stats) => team2UserIds.includes(stats.userId))
+      .filter((stats) => TEAM2_USER_IDS.includes(stats.userId as (typeof TEAM2_USER_IDS)[number]))
       .reduce(
         (acc, stats) => ({
           totalBudget: acc.totalBudget + stats.budget,
@@ -859,14 +1251,25 @@ export default function DashboardSummaryPage() {
     return `¥${(amount / 10000).toFixed(0)}万`
   }
 
-  // 面接詳細モーダルを開く
-  const handleOpenInterviewModal = useCallback((userId: string) => {
+  // 面接詳細モーダルを開く（cohort: 当月登録 / 前月以前登録で候補者を絞り込む）
+  const handleOpenInterviewModal = useCallback((userId: string, cohort: 'current' | 'prior') => {
     setSelectedUserId(userId)
-    
-    // 対象メンバーの面接候補者を抽出
-    const userCandidateIds = Array.from(periodInterviewStatusCandidateIds).filter(candidateId => {
-      const candidate = candidates.find(c => c.id === candidateId)
-      return candidate?.consultant_id === userId
+
+    const sourceIds =
+      cohort === 'current'
+        ? periodInterviewStatusCandidateIds
+        : priorPeriodInterviewStatusCandidateIds
+    const baseDates = cohort === 'current' ? periodDates : priorPeriodDates
+
+    const inCohort = (candidateId: string) =>
+      cohort === 'current'
+        ? periodCandidateIdSet.has(candidateId)
+        : priorRegistrationCandidateIdSet.has(candidateId)
+
+    const userCandidateIds = Array.from(sourceIds).filter((candidateId) => {
+      const candidate = candidateById.get(candidateId)
+      if (candidate?.consultant_id !== userId) return false
+      return inCohort(candidateId)
     })
     
     // 候補者ごとに面接情報を集める
@@ -881,8 +1284,8 @@ export default function DashboardSummaryPage() {
       const candidateInterviews = candidateProjects.flatMap(project => 
         interviews.filter(i => 
           i.project_id === project.id &&
-          new Date(i.start_at) >= periodDates.startDate &&
-          new Date(i.start_at) <= periodDates.endDate &&
+          new Date(i.start_at) >= baseDates.startDate &&
+          new Date(i.start_at) <= baseDates.endDate &&
           !i.is_voided // 無効化されていない面接のみ
         )
       )
@@ -905,23 +1308,41 @@ export default function DashboardSummaryPage() {
     
     setInterviewModalData(modalData)
     setInterviewModalOpen(true)
-  }, [periodInterviewStatusCandidateIds, candidates, projects, interviews, periodDates])
+  }, [
+    periodInterviewStatusCandidateIds,
+    priorPeriodInterviewStatusCandidateIds,
+    candidateById,
+    candidates,
+    projects,
+    interviews,
+    periodDates,
+    priorPeriodDates,
+    periodCandidateIdSet,
+    priorRegistrationCandidateIdSet,
+  ])
 
   // 成約詳細モーダルを開く
-  const handleOpenClosedModal = useCallback((userId: string) => {
+  const handleOpenClosedModal = useCallback((userId: string, cohort: 'current' | 'prior') => {
     setClosedModalUserId(userId)
 
-    const userCandidateIds = Array.from(periodClosedStatusCandidateIds).filter(candidateId => {
-      const candidate = candidates.find(c => c.id === candidateId)
-      return candidate?.consultant_id === userId
+    const sourceIds = closedStatusCandidateIds
+
+    const inCohort = (candidateId: string) =>
+      cohort === 'current'
+        ? periodCandidateIdSet.has(candidateId)
+        : priorRegistrationCandidateIdSet.has(candidateId)
+
+    const userCandidateIds = Array.from(sourceIds).filter((candidateId) => {
+      const candidate = candidateById.get(candidateId)
+      if (candidate?.consultant_id !== userId) return false
+      return inCohort(candidateId)
     })
 
     const modalData = userCandidateIds.map(candidateId => {
       const candidate = candidates.find(c => c.id === candidateId)
       if (!candidate) return null
 
-      const contract = periodContracts.find(c => c.candidate_id === candidateId)
-        ?? contracts.find(c => c.candidate_id === candidateId)
+      const contract = contracts.find(c => c.candidate_id === candidateId)
 
       // status_history から成約日を取得
       const closedHistory = statusHistory
@@ -941,7 +1362,15 @@ export default function DashboardSummaryPage() {
 
     setClosedModalData(modalData)
     setClosedModalOpen(true)
-  }, [periodClosedStatusCandidateIds, candidates, contracts, periodContracts, statusHistory])
+  }, [
+    closedStatusCandidateIds,
+    candidateById,
+    candidates,
+    contracts,
+    statusHistory,
+    periodCandidateIdSet,
+    priorRegistrationCandidateIdSet,
+  ])
 
   // ヨミ内訳モーダルを開く（当月 / 翌月 × A/B/C）
   const handleOpenYomiModal = useCallback(
@@ -1155,7 +1584,7 @@ export default function DashboardSummaryPage() {
           <CardHeader className="pb-2">
             <CardTitle className="text-lg text-slate-800 flex items-center gap-2">
               <Target className="w-5 h-5 text-violet-500" />
-              目標数値の前提条件
+              目標数値と実績
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -1181,13 +1610,13 @@ export default function DashboardSummaryPage() {
                           : 'text-amber-600'
                       }`}
                     >
-                      {totalProgress.totalCount > 0 ? totalFirstContactRate.toFixed(1) : '-'}%
+                      {totalProgressCurrent.totalCount > 0 ? totalFirstContactRate.toFixed(1) : '-'}%
                     </p>
                     <p className="text-sm text-slate-500 mb-1">実績</p>
                   </div>
                   <p className="text-lg text-slate-500 mt-1">
-                    {totalProgress.totalCount > 0
-                      ? `${totalProgress.firstContactCount}件 / ${totalProgress.totalCount}件`
+                    {totalProgressCurrent.totalCount > 0
+                      ? `${totalProgressCurrent.firstContactCount}件 / ${totalProgressCurrent.totalCount}件`
                       : '-'}
                   </p>
                 </div>
@@ -1213,13 +1642,13 @@ export default function DashboardSummaryPage() {
                           : 'text-amber-600'
                       }`}
                     >
-                      {totalProgress.firstContactCount > 0 ? totalInterviewRate.toFixed(1) : '-'}%
+                      {totalProgressCurrent.firstContactCount > 0 ? totalInterviewRate.toFixed(1) : '-'}%
                     </p>
                     <p className="text-sm text-slate-500 mb-1">実績</p>
                   </div>
                   <p className="text-lg text-slate-500 mt-1">
-                    {totalProgress.firstContactCount > 0
-                      ? `${totalProgress.interviewCount}件 / ${totalProgress.firstContactCount}件`
+                    {totalProgressCurrent.firstContactCount > 0
+                      ? `${totalProgressCurrent.interviewCount}件 / ${totalProgressCurrent.firstContactCount}件`
                       : '-'}
                   </p>
                 </div>
@@ -1245,13 +1674,13 @@ export default function DashboardSummaryPage() {
                           : 'text-amber-600'
                       }`}
                     >
-                      {totalProgress.interviewCount > 0 ? totalClosedRate.toFixed(1) : '-'}%
+                      {totalProgressCurrent.interviewCount > 0 ? totalClosedRate.toFixed(1) : '-'}%
                     </p>
                     <p className="text-sm text-slate-500 mb-1">実績</p>
                   </div>
                   <p className="text-lg text-slate-500 mt-1">
-                    {totalProgress.interviewCount > 0
-                      ? `${totalProgress.closedCount}件 / ${totalProgress.interviewCount}件`
+                    {totalProgressCurrent.interviewCount > 0
+                      ? `${totalProgressCurrent.closedCount}件 / ${totalProgressCurrent.interviewCount}件`
                       : '-'}
                   </p>
                 </div>
@@ -1277,20 +1706,74 @@ export default function DashboardSummaryPage() {
                           : 'text-amber-600'
                       }`}
                     >
-                      {totalProgress.closedCount > 0
+                      {totalProgressCurrent.closedCount > 0
                         ? `¥${(actualRevenuePerClosed / 10000).toFixed(0)}万`
                         : '-'}
                     </p>
                     <p className="text-sm text-slate-500 mb-1">実績</p>
                   </div>
                   <p className="text-lg text-slate-500 mt-1">
-                    {totalProgress.closedCount > 0
-                      ? `${totalProgress.closedCount}件`
+                    {totalProgressCurrent.closedCount > 0
+                      ? `${totalProgressCurrent.closedCount}件`
                       : '-'}
                   </p>
                 </div>
               </div>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* 担当者別 面接→成約サマリー */}
+        <Card className="bg-white border-slate-200 shadow-sm mb-6">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg text-slate-800 flex items-center gap-2">
+              <UserCheck className="w-5 h-5 text-violet-500" />
+              担当者別 面接・成約サマリー
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-slate-500 mb-3">
+              {getPeriodLabel()}の集計。各担当者の面接実績と成約件数を一目で確認できます。
+            </p>
+            {interviewClosedChartData.length === 0 ? (
+              <div className="text-center text-slate-500 py-8">該当データがありません</div>
+            ) : (
+              <div className="h-[280px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={interviewClosedChartData}
+                    margin={{ top: 8, right: 16, left: 0, bottom: 8 }}
+                    barCategoryGap="45%"
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="userName" />
+                    <YAxis allowDecimals={false} domain={[0, 12]} />
+                    <Tooltip
+                      formatter={(value: number, name: string) => [
+                        `${value}件`,
+                        name === 'interviewCount'
+                          ? '面接実績'
+                          : '成約',
+                      ]}
+                      labelFormatter={(label) => {
+                        const row = interviewClosedChartData.find((r) => r.userName === label)
+                        const rate = row ? `${row.closedRate.toFixed(1)}%` : '-'
+                        return `${label}（成約率: ${rate}）`
+                      }}
+                    />
+                    <Legend
+                      formatter={(value) => {
+                        if (value === 'interviewCount') return '面接実績'
+                        if (value === 'closedCount') return '成約'
+                        return value
+                      }}
+                    />
+                    <Bar dataKey="interviewCount" fill="#fb923c" radius={[4, 4, 0, 0]} barSize={12} />
+                    <Bar dataKey="closedCount" fill="#dc2626" radius={[4, 4, 0, 0]} barSize={12} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -1304,190 +1787,47 @@ export default function DashboardSummaryPage() {
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-slate-50">
-                    <TableHead className="text-slate-700 font-semibold">担当者</TableHead>
-                    <TableHead className="text-slate-700 font-semibold">担当</TableHead>
-                    <TableHead className="text-slate-700 font-semibold">初回</TableHead>
-                    <TableHead className="text-slate-700 font-semibold">面接</TableHead>
-                    <TableHead className="text-slate-700 font-semibold">成約</TableHead>
-                    <TableHead className="text-slate-700 font-semibold bg-orange-50">
-                      面談率 (担当→初回)
-                      <br />
-                      <span className="text-red-600 font-normal text-xs">
-                        目標: {(targetRates.firstContactRate * 100).toFixed(0)}%
-                      </span>
-                    </TableHead>
-                    <TableHead className="text-slate-700 font-semibold bg-cyan-50">
-                      設定率 (初回→面接)
-                      <br />
-                      <span className="text-red-600 font-normal text-xs">
-                        目標: {(targetRates.interviewRate * 100).toFixed(0)}%
-                      </span>
-                    </TableHead>
-                    <TableHead className="text-slate-700 font-semibold bg-emerald-50">
-                      成約率 (面接→成約)
-                      <br />
-                      <span className="text-red-600 font-normal text-xs">
-                        目標: {(targetRates.closedRate * 100).toFixed(0)}%
-                      </span>
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {salesProgress.map((progress) => {
-                    const firstContactRate =
-                      progress.totalCount > 0
-                        ? (progress.firstContactCount / progress.totalCount) * 100
-                        : NaN
-                    const interviewRate =
-                      progress.firstContactCount > 0
-                        ? (progress.interviewCount / progress.firstContactCount) * 100
-                        : NaN
-                    const closedRate =
-                      progress.interviewCount > 0
-                        ? (progress.closedCount / progress.interviewCount) * 100
-                        : NaN
-
-                    // デバッグ用（開発環境のみ、吉田の場合）
-                    if (process.env.NODE_ENV === 'development' && progress.userName === '吉田') {
-                      console.log('営業進捗表示（吉田）:', {
-                        userName: progress.userName,
-                        totalCount: progress.totalCount,
-                        firstContactCount: progress.firstContactCount,
-                        interviewCount: progress.interviewCount,
-                        closedCount: progress.closedCount,
-                        firstContactRate,
-                        interviewRate,
-                        closedRate,
-                        calculatedFirstContactRate: progress.totalCount > 0 ? (progress.firstContactCount / progress.totalCount) * 100 : NaN,
-                        calculatedInterviewRate: progress.firstContactCount > 0 ? (progress.interviewCount / progress.firstContactCount) * 100 : NaN,
-                        calculatedClosedRate: progress.interviewCount > 0 ? (progress.closedCount / progress.interviewCount) * 100 : NaN
-                      })
-                    }
-
-                    return (
-                      <TableRow key={progress.userId} className="hover:bg-slate-50">
-                        <TableCell className="font-medium text-slate-800">
-                          {progress.userName}
-                        </TableCell>
-                        <TableCell className="text-center">{progress.totalCount}</TableCell>
-                        <TableCell className="text-center">
-                          {progress.firstContactCount}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-auto p-1 font-normal hover:bg-cyan-50"
-                            onClick={() => handleOpenInterviewModal(progress.userId)}
-                            disabled={progress.interviewCount === 0}
-                            data-testid={`interview-count-${progress.userId}`}
-                          >
-                            <span className={progress.interviewCount > 0 ? 'text-cyan-600 underline cursor-pointer' : ''}>
-                              {progress.interviewCount}
-                            </span>
-                          </Button>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-auto p-1 font-normal hover:bg-emerald-50"
-                            onClick={() => handleOpenClosedModal(progress.userId)}
-                            disabled={progress.closedCount === 0}
-                          >
-                            <span className={progress.closedCount > 0 ? 'text-emerald-600 underline cursor-pointer' : ''}>
-                              {progress.closedCount}
-                            </span>
-                          </Button>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <div className="flex items-center justify-center gap-1">
-                            <span
-                              className={
-                                firstContactRate >= targetRates.firstContactRate * 100
-                                  ? 'text-emerald-600 font-bold'
-                                  : 'text-amber-600 font-bold'
-                              }
-                            >
-                              {formatRate(firstContactRate)}
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <div className="flex items-center justify-center gap-1">
-                            <span
-                              className={
-                                interviewRate >= targetRates.interviewRate * 100
-                                  ? 'text-emerald-600 font-bold'
-                                  : 'text-amber-600 font-bold'
-                              }
-                            >
-                              {formatRate(interviewRate)}
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <div className="flex items-center justify-center gap-1">
-                            <span
-                              className={
-                                closedRate >= targetRates.closedRate * 100
-                                  ? 'text-emerald-600 font-bold'
-                                  : 'text-amber-600 font-bold'
-                              }
-                            >
-                              {formatRate(closedRate)}
-                            </span>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
-                  {/* 合計行 */}
-                  <TableRow className="bg-slate-100 font-bold">
-                    <TableCell className="font-bold text-slate-800">合計</TableCell>
-                    <TableCell className="text-center">{totalProgress.totalCount}</TableCell>
-                    <TableCell className="text-center">{totalProgress.firstContactCount}</TableCell>
-                    <TableCell className="text-center">{totalProgress.interviewCount}</TableCell>
-                    <TableCell className="text-center">{totalProgress.closedCount}</TableCell>
-                    <TableCell className="text-center">
-                      <span
-                        className={
-                          totalFirstContactRate >= targetRates.firstContactRate * 100
-                            ? 'text-emerald-600'
-                            : 'text-amber-600'
-                        }
-                      >
-                        {formatRate(totalFirstContactRate)}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <span
-                        className={
-                          totalInterviewRate >= targetRates.interviewRate * 100
-                            ? 'text-emerald-600'
-                            : 'text-amber-600'
-                        }
-                      >
-                        {formatRate(totalInterviewRate)}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <span
-                        className={
-                          totalClosedRate >= targetRates.closedRate * 100
-                            ? 'text-emerald-600'
-                            : 'text-amber-600'
-                        }
-                      >
-                        {formatRate(totalClosedRate)}
-                      </span>
-                    </TableCell>
-                  </TableRow>
-                </TableBody>
-              </Table>
+              <SalesProgressMetricsTable
+                title="当月登録ベース"
+                description={`${getPeriodLabel()}に登録した求職者を母集団とし、面接・成約はその母集団に属する候補者のうち、選択月内に実績があった件数です。`}
+                rows={salesProgressCurrent}
+                totals={totalProgressCurrent}
+                kpiTargetRates={targetRates}
+                formatRate={formatRate}
+                cohort="current"
+                onOpenInterview={handleOpenInterviewModal}
+                onOpenClosed={handleOpenClosedModal}
+              />
+              <div className="mb-6 p-3 rounded-lg border border-slate-200 bg-slate-50 flex items-center gap-3">
+                <span className="text-sm font-medium text-slate-700">前月以前登録ベースの集計月:</span>
+                <select
+                  className="h-9 rounded-md border border-slate-300 bg-white px-2 text-sm"
+                  value={selectedPriorYearMonth}
+                  onChange={(e) => setSelectedPriorYearMonth(e.target.value)}
+                  disabled={priorRegistrationOptions.length === 0}
+                >
+                  {priorRegistrationOptions.length === 0 ? (
+                    <option value={selectedPriorYearMonth}>選択可能な過去月がありません</option>
+                  ) : (
+                    priorRegistrationOptions.map((ym) => (
+                      <option key={ym} value={ym}>
+                        {formatYearMonthLabel(ym)}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+              <SalesProgressMetricsTable
+                title="前月以前登録ベース"
+                description={`${formatYearMonthLabel(selectedPriorYearMonth)}に登録した求職者を母集団とし、面接・成約は${formatYearMonthLabel(selectedPriorYearMonth)}内に実績があった件数です。`}
+                rows={salesProgressPrior}
+                totals={totalProgressPrior}
+                kpiTargetRates={targetRates}
+                formatRate={formatRate}
+                cohort="prior"
+                onOpenInterview={handleOpenInterviewModal}
+                onOpenClosed={handleOpenClosedModal}
+              />
             </div>
           </CardContent>
         </Card>
@@ -1521,9 +1861,10 @@ export default function DashboardSummaryPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {salesProgress.map((progress) => {
+                  {dashboardConsultantOrder.map((userId) => {
                     // CRM データ（DB）から面接状況を取得（candidate.status ベースで面接一覧と統一）
-                    const cases = getStatusCases[progress.userId] || {
+                    const user = users.find((u) => u.id === userId)
+                    const cases = getStatusCases[userId] || {
                       adjusting: [],
                       scheduled: [],
                       completed: [],
@@ -1531,9 +1872,9 @@ export default function DashboardSummaryPage() {
                     }
 
                     return (
-                      <TableRow key={progress.userId} className="hover:bg-slate-50">
+                      <TableRow key={userId} className="hover:bg-slate-50">
                         <TableCell className="font-medium text-slate-800">
-                          {progress.userName}
+                          {user?.name ?? '-'}
                         </TableCell>
                         <TableCell className="text-sm text-slate-600">
                           {cases.adjusting.length > 0 ? (
@@ -1619,35 +1960,37 @@ export default function DashboardSummaryPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {salesProgress.map((progress) => {
-                      const user = users.find((u) => u.id === progress.userId)
+                  {dashboardConsultantOrder.map((userId) => {
+                      const progress = salesProgressCurrent.find((p) => p.userId === userId)
+                      const user = users.find((u) => u.id === userId)
                       // 期間内の成約金額を計算
                       const periodSales = periodContracts
                         .filter((c) => {
                           const candidate = candidates.find((ca) => ca.id === c.candidate_id)
-                          return candidate && candidate.consultant_id === progress.userId
+                          return candidate && candidate.consultant_id === userId
                         })
                         .reduce((sum, c) => sum + (c.revenue_excluding_tax || 0), 0)
                       
                       // 個人別月次目標から予算と面接設定目標を取得（DBから取得）
-                      const userTarget = userTargets[progress.userId]
+                      const userTarget = userTargets[userId]
                       const budget = userTarget?.sales_budget || 0
                       const meetingTarget = userTarget?.interview_target || 0
                       
                       // フォールバック: DBにデータがない場合はmockデータを使用
-                      const stats = mockMemberStats.find((s) => s.userId === progress.userId)
+                      const stats = mockMemberStats.find((s) => s.userId === userId)
                       const finalBudget = budget > 0 ? budget : (stats?.budget || 0)
                       const finalMeetingTarget = meetingTarget > 0 ? meetingTarget : (stats?.meetingTarget || 0)
                       
                       const budgetRate = finalBudget > 0 ? (periodSales / finalBudget) * 100 : 0
+                      const interviewCountForTarget = progress?.interviewCount ?? 0
                       const meetingRate = finalMeetingTarget > 0
-                        ? (progress.interviewCount / finalMeetingTarget) * 100
+                        ? (interviewCountForTarget / finalMeetingTarget) * 100
                         : 0
 
                       return (
-                        <TableRow key={progress.userId} className="hover:bg-slate-50">
+                        <TableRow key={userId} className="hover:bg-slate-50">
                           <TableCell className="font-medium text-slate-800">
-                            {user?.name || progress.userName || '-'}
+                            {user?.name || '-'}
                           </TableCell>
                           <TableCell className="text-right">
                             {formatAmount(finalBudget)}
@@ -1669,7 +2012,7 @@ export default function DashboardSummaryPage() {
                             </span>
                           </TableCell>
                           <TableCell className="text-center">{finalMeetingTarget}</TableCell>
-                          <TableCell className="text-center">{progress.interviewCount}</TableCell>
+                          <TableCell className="text-center">{interviewCountForTarget}</TableCell>
                           <TableCell className="text-right">
                             <span
                               className={
@@ -1724,7 +2067,7 @@ export default function DashboardSummaryPage() {
                   {users
                     .filter((u) => u.role !== 'admin' && isUserActiveInPeriod(u))
                     .map((user) => {
-                      const progress = salesProgress.find((p) => p.userId === user.id)
+                      const progress = salesProgressCurrent.find((p) => p.userId === user.id)
                       const totalCount = progress?.totalCount || 0
                       return { user, totalCount }
                     })
@@ -1819,7 +2162,7 @@ export default function DashboardSummaryPage() {
                   {users
                     .filter((u) => u.role !== 'admin' && isUserActiveInPeriod(u))
                     .map((user) => {
-                      const progress = salesProgress.find((p) => p.userId === user.id)
+                      const progress = salesProgressCurrent.find((p) => p.userId === user.id)
                       const totalCount = progress?.totalCount || 0
                       return { user, totalCount }
                     })
