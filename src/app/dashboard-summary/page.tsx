@@ -644,6 +644,7 @@ export default function DashboardSummaryPage() {
   // ※ 面接確定済・実施済のみカウント（調整中は除外）
   const buildInterviewCandidateIds = useCallback((startDate: Date, endDate: Date) => {
     const candidateIds = new Set<string>()
+    const statusBasedCandidateIdsInPeriod = new Set<string>()
     
     // 過去に面接経験がある candidate_id を集める（初回面接のみカウントするため）
     // ※ 面接確定済以降のステータスを「面接経験あり」とする（面接日程調整中のみは除外しない）
@@ -656,6 +657,18 @@ export default function DashboardSummaryPage() {
         previouslyInterviewedIds.add(h.candidate_id)
       }
     })
+
+    // 面接レコード基準でも「初回のみ」を担保するため、
+    // 期間開始前に有効な面接レコードがある candidate_id は除外対象にする
+    const projectById = new Map(projects.map((p) => [p.id, p]))
+    interviews.forEach((iv) => {
+      if (!iv.start_at || iv.is_voided) return
+      const interviewDate = new Date(iv.start_at)
+      if (interviewDate >= startDate) return
+      const project = projectById.get(iv.project_id)
+      if (!project?.candidate_id) return
+      previouslyInterviewedIds.add(project.candidate_id)
+    })
     
     // status_historyから集計: 期間内に面接確定済・実施済のステータスに変わった人
     // ※ 面接日程調整中は除外（調整段階辞退・未成立を除外）
@@ -667,6 +680,7 @@ export default function DashboardSummaryPage() {
       if (!INTERVIEW_CONFIRMED_STATUSES.includes(h.new_status as typeof INTERVIEW_CONFIRMED_STATUSES[number]) || !h.changed_at) return
       const changedDate = new Date(h.changed_at)
       if (changedDate >= startDate && changedDate <= endDate) {
+        statusBasedCandidateIdsInPeriod.add(h.candidate_id)
         if (!previouslyInterviewedIds.has(h.candidate_id)) {
           // 期間内の面接が1件以上あって、かつ全部手動無効化（is_voided）されている場合のみ除外
           // ※ 面接レコードがない（未登録）場合は status_history を根拠にカウントする
@@ -686,6 +700,19 @@ export default function DashboardSummaryPage() {
           }
         }
       }
+    })
+
+    // 面接追加レコード（interviews）もカウント対象にする
+    // ただし初回のみ: 期間開始前に面接済み扱いの候補者は除外
+    interviews.forEach((iv) => {
+      if (!iv.start_at || iv.is_voided) return
+      const interviewDate = new Date(iv.start_at)
+      if (interviewDate < startDate || interviewDate > endDate) return
+      const project = projectById.get(iv.project_id)
+      if (!project?.candidate_id) return
+      if (previouslyInterviewedIds.has(project.candidate_id)) return
+      if (statusBasedCandidateIdsInPeriod.has(project.candidate_id)) return
+      candidateIds.add(project.candidate_id)
     })
     
     // フォールバック: status_historyが空の場合のみ、candidatesテーブルで補完
@@ -727,6 +754,32 @@ export default function DashboardSummaryPage() {
     })
     return candidateIds
   }, [statusHistory, contracts])
+
+  // 期間内に成約した求職者（登録月コホート非依存の月次実績集計用）
+  const periodClosedStatusCandidateIds = useMemo(() => {
+    const candidateIds = new Set<string>()
+    const { startDate, endDate } = periodDates
+
+    statusHistory.forEach((h) => {
+      if (h.new_status !== '内定承諾（成約）' || !h.changed_at) return
+      const changedDate = new Date(h.changed_at)
+      if (changedDate >= startDate && changedDate <= endDate) {
+        candidateIds.add(h.candidate_id)
+      }
+    })
+
+    contracts.forEach((c) => {
+      if (!c.candidate_id) return
+      const dateStr = c.contracted_at || c.accepted_date || c.created_at
+      if (!dateStr) return
+      const contractDate = new Date(dateStr)
+      if (contractDate >= startDate && contractDate <= endDate) {
+        candidateIds.add(c.candidate_id)
+      }
+    })
+
+    return candidateIds
+  }, [statusHistory, contracts, periodDates])
 
   // 実際のデータから各ステータスの案件を集計（面接一覧ページと同じ candidate.status ベースで統一）
   const getStatusCases = useMemo(() => {
@@ -1079,14 +1132,104 @@ export default function DashboardSummaryPage() {
       ? periodTotalSales / totalProgressCurrent.closedCount
       : 0
 
-  // 担当者別「面接→成約」サマリー（上部の集計期間に連動）
+  // 担当者別「面接→成約」サマリー（登録月コホート非依存で、選択月の実績のみを集計）
+  const interviewClosedSummaryOrder = useMemo(
+    () => ['吉田', '小畦', '西田', '瀧澤', '鈴木', '戸部', '後藤', '石井'],
+    []
+  )
+
+  // 担当者別 面接・成約サマリー用:
+  // 1) ステータス変遷日を優先 2) 変遷がない場合のみ面接追加日で補完（いずれも初回のみ）
+  const periodInterviewPriorityCandidateIds = useMemo(() => {
+    const candidateIds = new Set<string>()
+    const previouslyInterviewedIds = new Set<string>()
+    const statusBasedCandidateIdsInPeriod = new Set<string>()
+    const { startDate, endDate } = periodDates
+
+    const projectById = new Map(projects.map((p) => [p.id, p]))
+    const INTERVIEW_SET_STATUSES = new Set<string>([
+      '面接確定済',
+      '面接実施済（結果待ち）',
+      '内定獲得（承諾確認中）',
+      '内定承諾（成約）',
+      '内定辞退',
+    ])
+    const INTERVIEW_CONFIRMED_STATUSES = new Set<string>(['面接確定済', '面接実施済（結果待ち）'])
+
+    // 期間開始前に面接フェーズ到達済み or 面接追加済みなら「初回済み」とみなす
+    statusHistory.forEach((h) => {
+      if (!h.changed_at || !INTERVIEW_SET_STATUSES.has(h.new_status)) return
+      if (new Date(h.changed_at) < startDate) {
+        previouslyInterviewedIds.add(h.candidate_id)
+      }
+    })
+    interviews.forEach((iv) => {
+      if (!iv.created_at || iv.is_voided) return
+      if (new Date(iv.created_at) >= startDate) return
+      const project = projectById.get(iv.project_id)
+      if (!project?.candidate_id) return
+      previouslyInterviewedIds.add(project.candidate_id)
+    })
+
+    // まずステータス変遷ベースでカウント（優先）
+    statusHistory.forEach((h) => {
+      if (!h.changed_at || !INTERVIEW_CONFIRMED_STATUSES.has(h.new_status)) return
+      const changedDate = new Date(h.changed_at)
+      if (changedDate < startDate || changedDate > endDate) return
+      statusBasedCandidateIdsInPeriod.add(h.candidate_id)
+      if (previouslyInterviewedIds.has(h.candidate_id)) return
+
+      const candidateProjects = projects.filter((p) => p.candidate_id === h.candidate_id)
+      const periodInterviewsForCandidate = candidateProjects.flatMap((project) =>
+        interviews.filter((i) => {
+          if (!i.start_at) return false
+          const t = new Date(i.start_at)
+          return i.project_id === project.id && t >= startDate && t <= endDate
+        })
+      )
+      const allVoided =
+        periodInterviewsForCandidate.length > 0 &&
+        periodInterviewsForCandidate.every((iv) => iv.is_voided === true)
+      if (!allVoided) {
+        candidateIds.add(h.candidate_id)
+      }
+    })
+
+    // ステータス変遷がない候補者のみ、面接追加日（created_at）で補完
+    interviews.forEach((iv) => {
+      if (!iv.created_at || iv.is_voided) return
+      const createdDate = new Date(iv.created_at)
+      if (createdDate < startDate || createdDate > endDate) return
+      const project = projectById.get(iv.project_id)
+      if (!project?.candidate_id) return
+      if (previouslyInterviewedIds.has(project.candidate_id)) return
+      if (statusBasedCandidateIdsInPeriod.has(project.candidate_id)) return
+      candidateIds.add(project.candidate_id)
+    })
+
+    return candidateIds
+  }, [periodDates, statusHistory, projects, interviews])
+
   const interviewClosedSummary = useMemo(() => {
+    const interviewCounts = new Map<string, number>()
+    for (const candidateId of periodInterviewPriorityCandidateIds) {
+      const c = candidateById.get(candidateId)
+      if (!c?.consultant_id) continue
+      interviewCounts.set(c.consultant_id, (interviewCounts.get(c.consultant_id) ?? 0) + 1)
+    }
+
+    const closedCounts = new Map<string, number>()
+    for (const candidateId of periodClosedStatusCandidateIds) {
+      const c = candidateById.get(candidateId)
+      if (!c?.consultant_id) continue
+      closedCounts.set(c.consultant_id, (closedCounts.get(c.consultant_id) ?? 0) + 1)
+    }
+
     return users
       .filter((u) => u.role !== 'admin' && isUserActiveInPeriod(u))
       .map((u) => {
-        const progress = salesProgressCurrent.find((p) => p.userId === u.id)
-        const interviewCount = progress?.interviewCount ?? 0
-        const closedCount = progress?.closedCount ?? 0
+        const interviewCount = interviewCounts.get(u.id) ?? 0
+        const closedCount = closedCounts.get(u.id) ?? 0
         return {
           userId: u.id,
           userName: u.name,
@@ -1096,10 +1239,22 @@ export default function DashboardSummaryPage() {
         }
       })
       .sort((a, b) => {
-        if (b.closedCount !== a.closedCount) return b.closedCount - a.closedCount
-        return b.interviewCount - a.interviewCount
+        const indexA = interviewClosedSummaryOrder.indexOf(a.userName)
+        const indexB = interviewClosedSummaryOrder.indexOf(b.userName)
+        const rankA = indexA === -1 ? Number.MAX_SAFE_INTEGER : indexA
+        const rankB = indexB === -1 ? Number.MAX_SAFE_INTEGER : indexB
+
+        if (rankA !== rankB) return rankA - rankB
+        return a.userName.localeCompare(b.userName, 'ja')
       })
-  }, [users, salesProgressCurrent, isUserActiveInPeriod])
+  }, [
+    users,
+    isUserActiveInPeriod,
+    periodInterviewPriorityCandidateIds,
+    periodClosedStatusCandidateIds,
+    candidateById,
+    interviewClosedSummaryOrder,
+  ])
 
   const interviewClosedChartData = useMemo(() => {
     return interviewClosedSummary.map((row) => ({
