@@ -82,6 +82,7 @@ export async function PATCH(
       'invoice_sent_date', 'calculation_basis', 'document_url', 'placement_company', 'placement_company_name',
       'placement_facility_name', 'note', 'is_cancelled', 'refund_required', 'refund_date', 'refund_amount',
       'cancellation_reason', 'contracted_at', 'project_id',
+      'cancelled_at', 'resignation_date', 'refund_rate',
     ] as const
     const updateRow: Record<string, unknown> = { updated_at: new Date().toISOString() }
     for (const key of ALLOWED_PATCH_FIELDS) {

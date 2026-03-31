@@ -4,7 +4,11 @@ import { useState, useEffect, useCallback } from 'react'
 import type { Contract, ContractWithRelations } from '@/types/database'
 
 interface UseContractsOptions {
+  /** @deprecated fromMonth/toMonth を推奨 */
   month?: string // YYYY-MM形式
+  fromMonth?: string
+  toMonth?: string
+  listMode?: 'accepted' | 'cancelled'
   consultantId?: string
 }
 
@@ -30,7 +34,15 @@ export function useContracts(options: UseContractsOptions = {}): UseContractsRes
       setError(null)
 
       const params = new URLSearchParams()
-      if (options.month) params.set('month', options.month)
+      if (options.month) {
+        params.set('month', options.month)
+      } else if (options.fromMonth && options.toMonth) {
+        params.set('from_month', options.fromMonth)
+        params.set('to_month', options.toMonth)
+      }
+      if (options.listMode && options.listMode !== 'accepted') {
+        params.set('list_mode', options.listMode)
+      }
       if (options.consultantId && options.consultantId !== 'all') params.set('consultant_id', options.consultantId)
 
       const res = await fetch(`/api/contracts?${params.toString()}`)
@@ -48,7 +60,7 @@ export function useContracts(options: UseContractsOptions = {}): UseContractsRes
     } finally {
       setIsLoading(false)
     }
-  }, [options.month, options.consultantId])
+  }, [options.month, options.fromMonth, options.toMonth, options.listMode, options.consultantId])
 
   const updateContract = useCallback(async (id: string, updates: Partial<Contract>): Promise<boolean> => {
     try {
@@ -63,10 +75,7 @@ export function useContracts(options: UseContractsOptions = {}): UseContractsRes
         throw new Error(data.error || '更新に失敗しました')
       }
 
-      // ローカル状態を更新
-      setContracts(prev => prev.map(c => 
-        c.id === id ? { ...c, ...updates } : c
-      ))
+      setContracts((prev) => prev.map((c) => (c.id === id ? { ...c, ...updates } : c)))
 
       return true
     } catch (err) {
@@ -89,7 +98,7 @@ export function useContracts(options: UseContractsOptions = {}): UseContractsRes
       }
 
       const { data: newContract } = await res.json()
-      setContracts(prev => [newContract, ...prev])
+      setContracts((prev) => [newContract, ...prev])
       return newContract
     } catch (err) {
       setError(err instanceof Error ? err.message : 'エラーが発生しました')

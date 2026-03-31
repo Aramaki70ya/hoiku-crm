@@ -206,6 +206,9 @@ export interface Contract {
   refund_date: string | null // 返金日（ISO date string）
   refund_amount: number | null // 返金額
   cancellation_reason: string | null // キャンセル備考（理由）
+  cancelled_at: string | null // キャンセル操作日時（ISO）
+  resignation_date: string | null // 退職日（ISO date）
+  refund_rate: number | null // 返金率（50, 80, 100 等のパーセント整数）
   created_at: string
   updated_at: string
 }

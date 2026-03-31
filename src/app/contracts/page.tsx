@@ -33,6 +33,8 @@ import {
   Check,
   X,
   Ban,
+  Download,
+  Undo2,
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -63,11 +65,11 @@ function formatDate(dateStr: string | null): string {
   return date.toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' })
 }
 
-// 年月の選択肢を生成
+// 年月の選択肢を生成（過去24ヶ月）
 function generateMonthOptions() {
-  const options = []
+  const options: { value: string; label: string }[] = []
   const now = new Date()
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 24; i++) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
     const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
     const label = `${d.getFullYear()}年${d.getMonth() + 1}月`
@@ -76,58 +78,108 @@ function generateMonthOptions() {
   return options
 }
 
+const REFUND_RATE_OPTIONS = [50, 80, 100] as const
+
+function escapeCsvCell(v: string | number | null | undefined): string {
+  const s = v === null || v === undefined ? '' : String(v)
+  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`
+  return s
+}
+
+function downloadCsv(filename: string, header: string[], rows: (string | number | null | undefined)[][]) {
+  const bom = '\uFEFF'
+  const lines = [header.map(escapeCsvCell).join(','), ...rows.map((r) => r.map(escapeCsvCell).join(','))]
+  const blob = new Blob([bom + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(a.href)
+}
+
 export default function ContractsPage() {
-  // 現在の年月をデフォルトに設定
   const now = new Date()
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-  const [selectedMonth, setSelectedMonth] = useState(currentMonth)
+  const [fromMonth, setFromMonth] = useState(currentMonth)
+  const [toMonth, setToMonth] = useState(currentMonth)
   const [selectedConsultant, setSelectedConsultant] = useState<string>('all')
-  
-  // API経由でデータを取得
-  const { contracts: apiContracts, isLoading, updateContract } = useContracts({
-    month: selectedMonth,
+
+  const { contracts: acceptedRaw, isLoading: loadingAccepted, refetch: refetchAccepted } = useContracts({
+    fromMonth,
+    toMonth,
     consultantId: selectedConsultant,
+    listMode: 'accepted',
   })
+  const { contracts: cancelledRaw, isLoading: loadingCancelled, refetch: refetchCancelled } = useContracts({
+    fromMonth,
+    toMonth,
+    consultantId: selectedConsultant,
+    listMode: 'cancelled',
+  })
+
+  const isLoading = loadingAccepted || loadingCancelled
   const { users, consultants: consultantUsers } = useUsers()
-  
-  // ローカル状態で編集中のデータを管理
-  const [localContracts, setLocalContracts] = useState<Contract[]>([])
-  
-  // APIから取得したデータをローカル状態にマージ
-  // 同じ求職者の重複を防ぐ（最新の1件のみ表示）
-  const contracts = useMemo(() => {
-    const contractMap = new Map<string, Contract>()
-    apiContracts.forEach(c => contractMap.set(c.id, c))
-    localContracts.forEach(c => contractMap.set(c.id, c))
-    
-    // candidate_idごとに最新の1件だけを残す
-    const candidateMap = new Map<string, Contract>()
-    Array.from(contractMap.values()).forEach(contract => {
-      const existing = candidateMap.get(contract.candidate_id)
-      if (!existing || new Date(contract.created_at) > new Date(existing.created_at)) {
-        candidateMap.set(contract.candidate_id, contract)
-      }
+
+  /** 成約担当に管理者がいるため、一般担当＋admin を一覧に出す（重複なし） */
+  const consultantFilterOptions = useMemo(() => {
+    const m = new Map<string, (typeof users)[0]>()
+    consultantUsers.forEach((u) => m.set(u.id, u))
+    users.filter((u) => u.role === 'admin').forEach((u) => {
+      if (!m.has(u.id)) m.set(u.id, u)
     })
-    
-    return Array.from(candidateMap.values())
-  }, [apiContracts, localContracts])
+    return [...m.values()].sort((a, b) => a.name.localeCompare(b.name, 'ja'))
+  }, [users, consultantUsers])
+
+  const patchContract = useCallback(
+    async (id: string, updates: Partial<Contract>) => {
+      const res = await fetch(`/api/contracts/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || '更新に失敗しました')
+      }
+      await Promise.all([refetchAccepted(), refetchCancelled()])
+      return true
+    },
+    [refetchAccepted, refetchCancelled]
+  )
+
+  // 期間内の成約はレコード単位で全件表示（求職者ごとに1件に潰すと行が消えるため）
+  const contracts = useMemo(() => {
+    return [...acceptedRaw].sort((a, b) => {
+      const da = a.accepted_date?.slice(0, 10) ?? ''
+      const db = b.accepted_date?.slice(0, 10) ?? ''
+      return db.localeCompare(da)
+    })
+  }, [acceptedRaw])
   const [editingContractId, setEditingContractId] = useState<string | null>(null)
   const [editData, setEditData] = useState<Partial<Contract>>({})
   const [cancellingContractId, setCancellingContractId] = useState<string | null>(null)
   const [cancelFormData, setCancelFormData] = useState<{
     refund_required: boolean
+    refund_rate: number | null
+    refund_date: string | null
   }>({
     refund_required: false,
+    refund_rate: null,
+    refund_date: null,
   })
   const [editingCancelId, setEditingCancelId] = useState<string | null>(null)
   const [cancelEditData, setCancelEditData] = useState<{
     refund_date: string | null
     refund_amount: number | null
     cancellation_reason: string | null
+    resignation_date: string | null
+    refund_rate: number | null
   }>({
     refund_date: null,
     refund_amount: null,
     cancellation_reason: null,
+    resignation_date: null,
+    refund_rate: null,
   })
 
   const monthOptions = generateMonthOptions()
@@ -148,26 +200,11 @@ export default function ContractsPage() {
   }
 
   const handleSaveEdit = async (contractId: string) => {
-    // API経由で更新
-    await updateContract(contractId, editData)
-    
-    // ローカル状態も更新
-    setLocalContracts(prev => {
-      const existing = prev.find(c => c.id === contractId)
-      if (existing) {
-        return prev.map(c => 
-          c.id === contractId 
-            ? { ...c, ...editData, updated_at: new Date().toISOString() }
-            : c
-        )
-      }
-      const apiContract = apiContracts.find(c => c.id === contractId)
-      if (apiContract) {
-        return [...prev, { ...apiContract, ...editData, updated_at: new Date().toISOString() }]
-      }
-      return prev
-    })
-    
+    try {
+      await patchContract(contractId, editData)
+    } catch {
+      return
+    }
     setEditingContractId(null)
     setEditData({})
   }
@@ -181,46 +218,28 @@ export default function ContractsPage() {
     setCancellingContractId(contract.id)
     setCancelFormData({
       refund_required: contract.refund_required || false,
+      refund_rate: contract.refund_rate ?? null,
+      refund_date: contract.refund_date || null,
     })
   }
 
   const handleSaveCancel = async (contractId: string) => {
-    // API経由で更新
-    await updateContract(contractId, {
-      is_cancelled: true,
-      refund_required: cancelFormData.refund_required,
-    })
-    
-    // ローカル状態も更新
-    setLocalContracts(prev => {
-      const existing = prev.find(c => c.id === contractId)
-      if (existing) {
-        return prev.map(c => 
-          c.id === contractId 
-            ? { 
-                ...c, 
-                is_cancelled: true,
-                refund_required: cancelFormData.refund_required,
-                updated_at: new Date().toISOString() 
-              }
-            : c
-        )
-      }
-      const apiContract = apiContracts.find(c => c.id === contractId)
-      if (apiContract) {
-        return [...prev, { 
-          ...apiContract, 
-          is_cancelled: true,
-          refund_required: cancelFormData.refund_required,
-          updated_at: new Date().toISOString() 
-        }]
-      }
-      return prev
-    })
-    
+    try {
+      await patchContract(contractId, {
+        is_cancelled: true,
+        refund_required: cancelFormData.refund_required,
+        cancelled_at: new Date().toISOString(),
+        refund_rate: cancelFormData.refund_rate,
+        refund_date: cancelFormData.refund_date,
+      })
+    } catch {
+      return
+    }
     setCancellingContractId(null)
     setCancelFormData({
       refund_required: false,
+      refund_rate: null,
+      refund_date: null,
     })
   }
 
@@ -228,6 +247,8 @@ export default function ContractsPage() {
     setCancellingContractId(null)
     setCancelFormData({
       refund_required: false,
+      refund_rate: null,
+      refund_date: null,
     })
   }
 
@@ -237,51 +258,30 @@ export default function ContractsPage() {
       refund_date: contract.refund_date || null,
       refund_amount: contract.refund_amount || null,
       cancellation_reason: contract.cancellation_reason || null,
+      resignation_date: contract.resignation_date || null,
+      refund_rate: contract.refund_rate ?? null,
     })
   }
 
   const handleSaveEditCancel = async (contractId: string) => {
-    // API経由で更新
-    await updateContract(contractId, {
-      refund_date: cancelEditData.refund_date,
-      refund_amount: cancelEditData.refund_amount,
-      cancellation_reason: cancelEditData.cancellation_reason,
-    })
-    
-    // ローカル状態も更新
-    setLocalContracts(prev => {
-      const existing = prev.find(c => c.id === contractId)
-      if (existing) {
-        return prev.map(c => 
-          c.id === contractId 
-            ? { 
-                ...c, 
-                refund_date: cancelEditData.refund_date,
-                refund_amount: cancelEditData.refund_amount,
-                cancellation_reason: cancelEditData.cancellation_reason,
-                updated_at: new Date().toISOString() 
-              }
-            : c
-        )
-      }
-      const apiContract = apiContracts.find(c => c.id === contractId)
-      if (apiContract) {
-        return [...prev, { 
-          ...apiContract, 
-          refund_date: cancelEditData.refund_date,
-          refund_amount: cancelEditData.refund_amount,
-          cancellation_reason: cancelEditData.cancellation_reason,
-          updated_at: new Date().toISOString() 
-        }]
-      }
-      return prev
-    })
-    
+    try {
+      await patchContract(contractId, {
+        refund_date: cancelEditData.refund_date,
+        refund_amount: cancelEditData.refund_amount,
+        cancellation_reason: cancelEditData.cancellation_reason,
+        resignation_date: cancelEditData.resignation_date,
+        refund_rate: cancelEditData.refund_rate,
+      })
+    } catch {
+      return
+    }
     setEditingCancelId(null)
     setCancelEditData({
       refund_date: null,
       refund_amount: null,
       cancellation_reason: null,
+      resignation_date: null,
+      refund_rate: null,
     })
   }
 
@@ -291,46 +291,126 @@ export default function ContractsPage() {
       refund_date: null,
       refund_amount: null,
       cancellation_reason: null,
+      resignation_date: null,
+      refund_rate: null,
     })
   }
 
-  // 選択した月の成約データをフィルター（キャンセル済みを除く）
-  const filteredContracts = useMemo(() => {
-    return contracts.filter((contract) => {
-      // キャンセル済みは除外
-      return !contract.is_cancelled
-    })
-  }, [contracts])
+  const cancelledContracts = useMemo(() => cancelledRaw, [cancelledRaw])
 
-  // キャンセル済みの成約データをフィルター
-  const cancelledContracts = useMemo(() => {
-    return contracts.filter((contract) => {
-      // キャンセル済みのみ
-      return contract.is_cancelled
-    })
-  }, [contracts])
+  const refundSummary = useMemo(() => {
+    const total = cancelledContracts.reduce((sum, c) => sum + (c.refund_amount ?? 0), 0)
+    const count = cancelledContracts.filter((c) => (c.refund_amount ?? 0) > 0).length
+    return { total, count }
+  }, [cancelledContracts])
 
-  // サマリー計算
   const summary = useMemo(() => {
-    const totalRevenue = filteredContracts.reduce(
-      (sum, c) => sum + c.revenue_excluding_tax,
-      0
-    )
-    const totalRevenueTax = filteredContracts.reduce(
-      (sum, c) => sum + c.revenue_including_tax,
-      0
-    )
-    const paidCount = filteredContracts.filter((c) => c.payment_date).length
-    const pendingCount = filteredContracts.filter((c) => !c.payment_date).length
+    const totalRevenue = contracts.reduce((sum, c) => sum + c.revenue_excluding_tax, 0)
+    const totalRevenueTax = contracts.reduce((sum, c) => sum + c.revenue_including_tax, 0)
+    const paidCount = contracts.filter((c) => c.payment_date).length
+    const pendingCount = contracts.filter((c) => !c.payment_date).length
 
     return {
-      count: filteredContracts.length,
+      count: contracts.length,
       totalRevenue,
       totalRevenueTax,
       paidCount,
       pendingCount,
     }
-  }, [filteredContracts])
+  }, [contracts])
+
+  const periodLabel = useMemo(() => {
+    if (fromMonth === toMonth) {
+      const [y, m] = fromMonth.split('-')
+      return `${y}年${Number(m)}月`
+    }
+    const [fy, fm] = fromMonth.split('-')
+    const [ty, tm] = toMonth.split('-')
+    return `${fy}年${Number(fm)}月〜${ty}年${Number(tm)}月`
+  }, [fromMonth, toMonth])
+
+  const handleExportCsv = useCallback(() => {
+    const ymd = new Date().toISOString().slice(0, 10)
+    const mainHeader = [
+      '氏名',
+      '担当',
+      '経由',
+      '承諾日',
+      '入社日',
+      '職種',
+      '雇用形態',
+      '売上税抜',
+      '売上税込',
+      '請求書発行',
+      '入金予定日',
+      '入金日',
+      '入職先',
+      'ステータス',
+    ]
+    const mainRows = contracts.map((contract) => {
+      const candidateData = (
+        contract as { candidate?: { name?: string; consultant_id?: string; source?: { name?: string } } }
+      ).candidate
+      const consultantIdRow = candidateData?.consultant_id
+      const consultant = users.find((u) => u.id === consultantIdRow)
+      const placement =
+        [contract.placement_company_name, contract.placement_facility_name].filter(Boolean).join(' / ') ||
+        contract.placement_company ||
+        ''
+      return [
+        candidateData?.name || '',
+        consultant?.name || '',
+        candidateData?.source?.name || '',
+        contract.accepted_date,
+        contract.entry_date || '',
+        contract.job_type || '',
+        contract.employment_type || '',
+        contract.revenue_excluding_tax,
+        contract.revenue_including_tax,
+        contract.invoice_sent_date ? '済' : '未',
+        contract.payment_scheduled_date || '',
+        contract.payment_date || '',
+        placement,
+        contract.is_cancelled ? 'キャンセル済' : contract.payment_date ? '入金済み' : '入金待ち',
+      ]
+    })
+    downloadCsv(`成約一覧_${periodLabel.replace(/[〜]/g, '-')}_${ymd}.csv`, mainHeader, mainRows)
+
+    if (cancelledContracts.length > 0) {
+      const cancelHeader = [
+        '氏名',
+        '担当',
+        '返金あり/なし',
+        '返金率',
+        '返金日',
+        '返金額',
+        '退職日',
+        '入職先',
+        '備考',
+      ]
+      const cancelRows = cancelledContracts.map((contract) => {
+        const candidateData = (contract as { candidate?: { name?: string; consultant_id?: string } }).candidate
+        const consultantIdRow = candidateData?.consultant_id
+        const consultant = users.find((u) => u.id === consultantIdRow)
+        const placement =
+          [contract.placement_company_name, contract.placement_facility_name].filter(Boolean).join(' / ') ||
+          contract.placement_company ||
+          ''
+        return [
+          candidateData?.name || '',
+          consultant?.name || '',
+          contract.refund_required ? '返金あり' : '返金なし',
+          contract.refund_rate != null ? `${contract.refund_rate}%` : '',
+          contract.refund_date || '',
+          contract.refund_amount ?? '',
+          contract.resignation_date || '',
+          placement,
+          contract.cancellation_reason || '',
+        ]
+      })
+      downloadCsv(`キャンセルリスト_${periodLabel.replace(/[〜]/g, '-')}_${ymd}.csv`, cancelHeader, cancelRows)
+    }
+  }, [contracts, cancelledContracts, users, periodLabel])
 
 
   // ローディング中の表示
@@ -356,12 +436,38 @@ export default function ContractsPage() {
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
-            {/* 月選択 */}
-            <Select value={selectedMonth} onValueChange={setSelectedMonth}>
-              <SelectTrigger className="w-[160px]">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <span className="text-xs text-gray-500 hidden sm:inline">期間</span>
+            <Select
+              value={fromMonth}
+              onValueChange={(v) => {
+                setFromMonth(v)
+                if (v > toMonth) setToMonth(v)
+              }}
+            >
+              <SelectTrigger className="w-[150px]">
                 <Calendar className="w-4 h-4 mr-2" />
-                <SelectValue />
+                <SelectValue placeholder="開始月" />
+              </SelectTrigger>
+              <SelectContent>
+                {monthOptions.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <span className="text-gray-400 text-sm">〜</span>
+            <Select
+              value={toMonth}
+              onValueChange={(v) => {
+                setToMonth(v)
+                if (v < fromMonth) setFromMonth(v)
+              }}
+            >
+              <SelectTrigger className="w-[150px]">
+                <Calendar className="w-4 h-4 mr-2" />
+                <SelectValue placeholder="終了月" />
               </SelectTrigger>
               <SelectContent>
                 {monthOptions.map((opt) => (
@@ -372,28 +478,31 @@ export default function ContractsPage() {
               </SelectContent>
             </Select>
 
-            {/* 担当者フィルター */}
-            <Select
-              value={selectedConsultant}
-              onValueChange={setSelectedConsultant}
-            >
+            <Select value={selectedConsultant} onValueChange={setSelectedConsultant}>
               <SelectTrigger className="w-[140px]">
                 <SelectValue placeholder="担当者" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">全員</SelectItem>
-                {consultantUsers.map((user) => (
-                    <SelectItem key={user.id} value={user.id}>
-                      {user.name}
-                    </SelectItem>
-                  ))}
+                {consultantFilterOptions.map((user) => (
+                  <SelectItem key={user.id} value={user.id}>
+                    {user.name}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
+
+            <Button type="button" variant="outline" size="sm" onClick={handleExportCsv} className="gap-1.5">
+              <Download className="w-4 h-4" />
+              CSV
+            </Button>
           </div>
         </div>
 
+        <p className="text-xs text-slate-500 -mt-2">表示期間: {periodLabel}</p>
+
         {/* サマリーカード */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center gap-3">
@@ -466,6 +575,23 @@ export default function ContractsPage() {
               </div>
             </CardContent>
           </Card>
+
+          <Card className="border-red-100 bg-red-50/40">
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-red-100">
+                  <Undo2 className="h-5 w-5 text-red-600" />
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">返金合計（期間内キャンセル）</p>
+                  <p className="text-xl font-bold text-red-700">
+                    {formatCurrency(refundSummary.total)}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-0.5">{refundSummary.count} 件に返金額あり</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         {/* 成約一覧テーブル */}
@@ -482,6 +608,9 @@ export default function ContractsPage() {
                     <TableHead>担当</TableHead>
                     <TableHead>経由</TableHead>
                     <TableHead>承諾日</TableHead>
+                    <TableHead>入社日</TableHead>
+                    <TableHead>職種</TableHead>
+                    <TableHead>雇用形態</TableHead>
                     <TableHead className="text-right">売上</TableHead>
                     <TableHead>請求書発行</TableHead>
                     <TableHead>入金予定日</TableHead>
@@ -493,17 +622,17 @@ export default function ContractsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredContracts.length === 0 ? (
+                  {contracts.length === 0 ? (
                     <TableRow>
                       <TableCell
-                        colSpan={12}
+                        colSpan={15}
                         className="text-center py-8 text-gray-500"
                       >
                         該当する成約データがありません
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filteredContracts.map((contract) => {
+                    contracts.map((contract) => {
                       // API経由で取得したデータからcandidateの情報を取得
                       const candidateData = (contract as { candidate?: { name?: string; consultant_id?: string; source?: { name?: string } } }).candidate
                       const consultantId = candidateData?.consultant_id
@@ -512,7 +641,10 @@ export default function ContractsPage() {
                       const source = candidateData?.source?.name || '-'
 
                       return (
-                        <TableRow key={contract.id}>
+                        <TableRow
+                          key={contract.id}
+                          className={contract.is_cancelled ? 'bg-red-50/60' : undefined}
+                        >
                           <TableCell className="font-medium">
                             <Link 
                               href={`/candidates/${contract.candidate_id}`}
@@ -538,6 +670,15 @@ export default function ContractsPage() {
                             ) : (
                               formatDate(contract.accepted_date)
                             )}
+                          </TableCell>
+                          <TableCell className="text-sm whitespace-nowrap">
+                            {formatDate(contract.entry_date)}
+                          </TableCell>
+                          <TableCell className="text-sm max-w-[100px] truncate" title={contract.job_type || ''}>
+                            {contract.job_type || '-'}
+                          </TableCell>
+                          <TableCell className="text-sm max-w-[100px] truncate" title={contract.employment_type || ''}>
+                            {contract.employment_type || '-'}
                           </TableCell>
                           <TableCell className="text-right font-medium">
                             {editingContractId === contract.id ? (
@@ -683,7 +824,7 @@ export default function ContractsPage() {
                           <TableCell>
                             {contract.is_cancelled ? (
                               <Badge className="bg-red-100 text-red-700 border-red-200">
-                                キャンセル済み
+                                キャンセル済
                               </Badge>
                             ) : editingContractId === contract.id ? (
                               <div className="relative">
@@ -832,8 +973,11 @@ export default function ContractsPage() {
                       <TableHead>氏名</TableHead>
                       <TableHead>担当</TableHead>
                       <TableHead>返金あり/なし</TableHead>
+                      <TableHead>返金率</TableHead>
                       <TableHead>返金日</TableHead>
                       <TableHead className="text-right">返金額</TableHead>
+                      <TableHead>退職日</TableHead>
+                      <TableHead>入職先</TableHead>
                       <TableHead>備考（理由）</TableHead>
                       <TableHead className="w-20">編集</TableHead>
                     </TableRow>
@@ -868,11 +1012,30 @@ export default function ContractsPage() {
                               </Badge>
                             )}
                           </TableCell>
+                          <TableCell className="text-sm">
+                            {contract.refund_rate != null ? `${contract.refund_rate}%` : '-'}
+                          </TableCell>
                           <TableCell>
                             {contract.refund_date ? formatDate(contract.refund_date) : '-'}
                           </TableCell>
                           <TableCell className="text-right font-medium">
                             {contract.refund_amount ? formatCurrency(contract.refund_amount) : '-'}
+                          </TableCell>
+                          <TableCell className="text-sm whitespace-nowrap">
+                            {formatDate(contract.resignation_date)}
+                          </TableCell>
+                          <TableCell className="max-w-[180px]">
+                            <div className="text-sm">
+                              {contract.placement_company_name && (
+                                <div className="font-medium truncate">{contract.placement_company_name}</div>
+                              )}
+                              {contract.placement_facility_name && (
+                                <div className="text-gray-500 truncate">{contract.placement_facility_name}</div>
+                              )}
+                              {!contract.placement_company_name && !contract.placement_facility_name && (
+                                <span className="text-gray-400">{contract.placement_company || '-'}</span>
+                              )}
+                            </div>
                           </TableCell>
                           <TableCell className="max-w-[200px]">
                             <div className="text-sm text-gray-700 truncate" title={contract.cancellation_reason || ''}>
@@ -902,34 +1065,93 @@ export default function ContractsPage() {
 
         {/* キャンセル確定ダイアログ */}
         <Dialog open={cancellingContractId !== null} onOpenChange={(open) => !open && handleCancelCancel()}>
-          <DialogContent className="sm:max-w-[400px]">
+          <DialogContent className="sm:max-w-[480px]">
             <DialogHeader>
               <DialogTitle>入社キャンセル確定</DialogTitle>
               <DialogDescription>
-                この成約をキャンセルにしますか？返金の有無を選択してください。
+                この成約をキャンセルにしますか？返金の有無・返金日・返金率を入力できます。売上合計は成約一覧に残ります。
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="refund_required"
-                    checked={cancelFormData.refund_required}
-                    onChange={(e) => {
-                      setCancelFormData(prev => ({
-                        ...prev,
-                        refund_required: e.target.checked,
-                      }))
-                    }}
-                    className="w-4 h-4 rounded border-gray-300 text-violet-600 focus:ring-violet-500"
-                  />
-                  <Label htmlFor="refund_required" className="cursor-pointer">
-                    返金あり
-                  </Label>
+              <div className="space-y-3">
+                <Label className="text-sm font-medium">返金の有無</Label>
+                <div className="flex flex-col gap-2 sm:flex-row sm:gap-6">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="refund_required_dialog"
+                      checked={!cancelFormData.refund_required}
+                      onChange={() =>
+                        setCancelFormData((prev) => ({
+                          ...prev,
+                          refund_required: false,
+                          refund_rate: null,
+                        }))
+                      }
+                      className="w-4 h-4 border-gray-300 text-violet-600 focus:ring-violet-500"
+                    />
+                    <span className="text-sm">返金なし</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="refund_required_dialog"
+                      checked={cancelFormData.refund_required}
+                      onChange={() =>
+                        setCancelFormData((prev) => ({
+                          ...prev,
+                          refund_required: true,
+                        }))
+                      }
+                      className="w-4 h-4 border-gray-300 text-violet-600 focus:ring-violet-500"
+                    />
+                    <span className="text-sm">返金あり</span>
+                  </label>
                 </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="cancel_refund_date_initial">返金日</Label>
+                  <Input
+                    id="cancel_refund_date_initial"
+                    type="date"
+                    value={cancelFormData.refund_date || ''}
+                    onChange={(e) =>
+                      setCancelFormData((prev) => ({
+                        ...prev,
+                        refund_date: e.target.value || null,
+                      }))
+                    }
+                    className="w-full"
+                  />
+                  <p className="text-xs text-gray-500">分からなければ空のままで確定し、あとからキャンセルリストで編集できます</p>
+                </div>
+                {cancelFormData.refund_required && (
+                  <div className="space-y-1.5 pt-1">
+                    <Label htmlFor="refund_rate_cancel">返金率</Label>
+                    <Select
+                      value={cancelFormData.refund_rate != null ? String(cancelFormData.refund_rate) : 'none'}
+                      onValueChange={(v) =>
+                        setCancelFormData((prev) => ({
+                          ...prev,
+                          refund_rate: v === 'none' ? null : Number(v),
+                        }))
+                      }
+                    >
+                      <SelectTrigger id="refund_rate_cancel" className="w-full">
+                        <SelectValue placeholder="選択" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">未選択</SelectItem>
+                        {REFUND_RATE_OPTIONS.map((r) => (
+                          <SelectItem key={r} value={String(r)}>
+                            {r}%
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
                 <p className="text-xs text-gray-500">
-                  返金日や返金額は後からキャンセルリストで入力できます
+                  返金額・退職日・備考はキャンセルリストから後から入力できます
                 </p>
               </div>
             </div>
@@ -949,14 +1171,38 @@ export default function ContractsPage() {
 
         {/* キャンセルリスト編集ダイアログ */}
         <Dialog open={editingCancelId !== null} onOpenChange={(open) => !open && handleCancelEditCancel()}>
-          <DialogContent className="sm:max-w-[500px]">
+          <DialogContent className="sm:max-w-[520px]">
             <DialogHeader>
               <DialogTitle>返金情報の編集</DialogTitle>
               <DialogDescription>
-                返金日、返金額、備考を入力してください
+                返金日・返金額・返金率・退職日・備考を入力してください
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="cancel_refund_rate">返金率</Label>
+                <Select
+                  value={cancelEditData.refund_rate != null ? String(cancelEditData.refund_rate) : 'none'}
+                  onValueChange={(v) =>
+                    setCancelEditData((prev) => ({
+                      ...prev,
+                      refund_rate: v === 'none' ? null : Number(v),
+                    }))
+                  }
+                >
+                  <SelectTrigger id="cancel_refund_rate">
+                    <SelectValue placeholder="選択" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">未選択</SelectItem>
+                    {REFUND_RATE_OPTIONS.map((r) => (
+                      <SelectItem key={r} value={String(r)}>
+                        {r}%
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="space-y-2">
                 <Label htmlFor="cancel_refund_date">返金日</Label>
                 <Input
@@ -971,9 +1217,18 @@ export default function ContractsPage() {
                 <Input
                   id="cancel_refund_amount"
                   type="number"
-                  value={cancelEditData.refund_amount || ''}
+                  value={cancelEditData.refund_amount ?? ''}
                   onChange={(e) => setCancelEditData(prev => ({ ...prev, refund_amount: e.target.value ? Number(e.target.value) : null }))}
                   placeholder="金額を入力"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="cancel_resignation_date">退職日</Label>
+                <Input
+                  id="cancel_resignation_date"
+                  type="date"
+                  value={cancelEditData.resignation_date || ''}
+                  onChange={(e) => setCancelEditData(prev => ({ ...prev, resignation_date: e.target.value || null }))}
                 />
               </div>
               <div className="space-y-2">

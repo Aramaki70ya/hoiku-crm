@@ -2,44 +2,100 @@ import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { isDemoMode } from '@/lib/supabase/config'
 
+/** YYYY-MM の最終日 YYYY-MM-DD（ローカル日付。toISOString だと UTC ずれで3/31が3/30になる） */
+function lastDayOfMonthYm(ym: string): string {
+  const [y, m] = ym.split('-').map(Number)
+  const d = new Date(y, m, 0)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+/** accepted_date が [fromYm, toYm] の各月内に含まれるか（日付文字列比較） */
+function acceptedDateInRange(acceptedDate: string | null | undefined, fromYm: string, toYm: string): boolean {
+  if (!acceptedDate) return false
+  const d = acceptedDate.slice(0, 10)
+  const fromStart = `${fromYm}-01`
+  const toEnd = lastDayOfMonthYm(toYm)
+  return d >= fromStart && d <= toEnd
+}
+
+/** cancelled_at が [fromYm, toYm] の範囲に入るか */
+function cancelledAtInRange(cancelledAt: string | null | undefined, fromYm: string, toYm: string): boolean {
+  if (!cancelledAt) return false
+  const fromStart = `${fromYm}-01T00:00:00.000Z`
+  const [ty, tm] = toYm.split('-').map(Number)
+  const nextMonth = new Date(ty, tm, 1)
+  const endExclusive = nextMonth.toISOString()
+  return cancelledAt >= fromStart && cancelledAt < endExclusive
+}
+
 // 成約一覧取得
 export async function GET(request: NextRequest) {
   try {
+    const { searchParams } = new URL(request.url)
+    const month = searchParams.get('month')
+    let fromMonth = searchParams.get('from_month')
+    let toMonth = searchParams.get('to_month')
+    const listMode = searchParams.get('list_mode') || 'accepted' // accepted | cancelled
+    const consultantId = searchParams.get('consultant_id') || 'all'
+    const candidateId = searchParams.get('candidate_id')
+
+    if (month && !fromMonth && !toMonth) {
+      fromMonth = month
+      toMonth = month
+    }
+    if (fromMonth && !toMonth) toMonth = fromMonth
+    if (!fromMonth && toMonth) fromMonth = toMonth
+
     if (isDemoMode()) {
       const { mockContracts, mockCandidates, mockUsers, contractConsultants, contractCandidateNames, contractSources } = await import('@/lib/mock-data')
-      
-      const enrichedContracts = mockContracts.map(contract => {
-        const candidate = mockCandidates.find(c => c.id === contract.candidate_id)
-        const consultantId = candidate?.consultant_id || contractConsultants[contract.candidate_id]
-        const consultant = mockUsers.find(u => u.id === consultantId)
-        
+
+      let base = mockContracts
+      if (fromMonth && toMonth) {
+        if (listMode === 'cancelled') {
+          base = base.filter(
+            (c) =>
+              c.is_cancelled === true &&
+              cancelledAtInRange(c.cancelled_at, fromMonth, toMonth)
+          )
+        } else {
+          base = base.filter((c) => acceptedDateInRange(c.accepted_date, fromMonth, toMonth))
+        }
+      }
+
+      const enrichedContracts = base.map((contract) => {
+        const candidate = mockCandidates.find((c) => c.id === contract.candidate_id)
+        const consultantIdRow = candidate?.consultant_id || contractConsultants[contract.candidate_id]
+        const consultant = mockUsers.find((u) => u.id === consultantIdRow)
+
         return {
           ...contract,
           candidate_name: candidate?.name || contractCandidateNames[contract.candidate_id] || '不明',
-          consultant_id: consultantId,
+          consultant_id: consultantIdRow,
           consultant_name: consultant?.name || '-',
           source_name: contractSources[contract.candidate_id] || '-',
+          candidate,
         }
       })
-      
+
+      let filteredData = enrichedContracts
+      if (consultantId && consultantId !== 'all') {
+        filteredData = filteredData.filter((row) => row.candidate?.consultant_id === consultantId)
+      }
+
       return NextResponse.json({
-        data: enrichedContracts,
-        total: enrichedContracts.length,
+        data: filteredData,
+        total: filteredData.length,
       })
     }
 
     const supabase = await createClient()
-    
+
     const { data: { user }, error: authError } = await supabase.auth.getUser()
     if (authError || !user) {
       return NextResponse.json({ error: '認証が必要です' }, { status: 401 })
     }
-    
-    const { searchParams } = new URL(request.url)
-    const month = searchParams.get('month') // YYYY-MM形式
-    const consultantId = searchParams.get('consultant_id') || 'all'
-    const candidateId = searchParams.get('candidate_id')
-    
+
     let query = supabase
       .from('contracts')
       .select(`
@@ -51,31 +107,37 @@ export async function GET(request: NextRequest) {
         )
       `, { count: 'exact' })
 
-    // 求職者IDでフィルタ（最優先）
     if (candidateId) {
       query = query.eq('candidate_id', candidateId)
     }
 
-    // 月でフィルタ
-    if (month) {
-      const startDate = `${month}-01`
-      const endDate = new Date(parseInt(month.split('-')[0]), parseInt(month.split('-')[1]), 0).toISOString().split('T')[0]
-      query = query.gte('accepted_date', startDate).lte('accepted_date', endDate)
+    if (fromMonth && toMonth) {
+      const fromStart = `${fromMonth}-01`
+      const toEnd = lastDayOfMonthYm(toMonth)
+      if (listMode === 'cancelled') {
+        query = query.eq('is_cancelled', true)
+        const [ty, tm] = toMonth.split('-').map(Number)
+        const nextMonthStart = new Date(ty, tm, 1).toISOString()
+        query = query
+          .gte('cancelled_at', `${fromStart}T00:00:00.000Z`)
+          .lt('cancelled_at', nextMonthStart)
+      } else {
+        query = query.gte('accepted_date', fromStart).lte('accepted_date', toEnd)
+      }
     }
 
-    query = query.order('accepted_date', { ascending: false })
+    query = query.order(listMode === 'cancelled' ? 'cancelled_at' : 'accepted_date', { ascending: false })
 
     const { data, error, count } = await query
     if (error) throw error
-    
-    // 担当者でフィルタ（リレーション後）
+
     let filteredData = data || []
     if (consultantId && consultantId !== 'all') {
-      filteredData = filteredData.filter((contract: { candidate?: { consultant_id?: string } }) => 
+      filteredData = filteredData.filter((contract: { candidate?: { consultant_id?: string } }) =>
         contract.candidate?.consultant_id === consultantId
       )
     }
-    
+
     return NextResponse.json({
       data: filteredData,
       total: count,

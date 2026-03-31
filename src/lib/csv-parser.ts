@@ -236,7 +236,7 @@ export function rowToCandidateForSync(row: SpreadsheetRow): Partial<Candidate> |
   if (!nameValue) return null
 
   const asCsvRow: CsvRow = {
-    担当者: row['担当者'] ?? '',
+    担当者: row['担当者'] ?? row['担当'] ?? '',
     媒体: row['媒体'] ?? '',
     日付: dateValue,
     曜日: row['曜日'] ?? '',

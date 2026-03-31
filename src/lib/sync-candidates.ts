@@ -1,5 +1,32 @@
 /**
- * スプレッドシート/API から受け取った行を新規のみ DB にインサートする共通ロジック
+ * スプレッドシート/API から受け取った行を candidates に同期する共通ロジック
+ *
+ * 【同期条件まとめ】
+ *
+ * ✅ 新規追加される行:
+ *   - 氏名あり かつ ID が DB に存在しない
+ *   - ID は連番でなくてよい（20207143 の次が 20207898 でも問題なし）
+ *   - ID が空欄でも氏名があれば新 ID を自動発行して登録
+ *
+ * 🔄 更新される行（既存レコード）:
+ *   - 氏名あり かつ ID が DB に既存
+ *   - 更新するのは以下13項目（スプシに値がある場合のみ上書き、空欄なら CRM の値を保持）:
+ *     担当 / 媒体 / 登録日 / 電話番号 / メールアドレス / 生年月日 / 年齢 / 都道府県 / 市区町村 /
+ *     保有資格 / 希望雇用形態 / 希望職種
+ *   - メモは CRM が空欄のときだけ補完（CRM 側の編集は保持）
+ *
+ * ⏭️ スキップされる行:
+ *   - 氏名が空（入力途中の行）
+ *   - ID が '125'（ダミー行）
+ *   - 電話番号と氏名が既存レコードと完全一致するが ID が違う（ID ずれ警告）
+ *
+ * 🔄 再登録:
+ *   - 氏名に「(再登録)」「（再登録）」が含まれる → 元レコードを保持したまま別 ID で新規追加
+ *   - 同じ再登録名が既に別 ID で存在する場合はスキップ（重複防止）
+ *
+ * 🚫 CRM 側で管理するため同期では触らない項目:
+ *   - ステータス / メモ（空欄のときだけ補完）
+ *   - タイムライン / 案件 / ドライブリンク / アプローチ優先度 / ランク
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -179,7 +206,7 @@ export async function syncCandidatesFromRows(
       }
       const newId = getNextAvailableId(existingIds)
       const normPhone = normalizePhone(parsed.phone ?? '')
-      const consultantName = (row['担当者'] ?? '').toString().trim()
+      const consultantName = (row['担当者'] ?? row['担当'] ?? '').toString().trim()
       const primaryConsultant = consultantName.split(/[・\s]/)[0]?.trim()
       const consultant_id = primaryConsultant ? nameToUserId.get(primaryConsultant) ?? null : null
       const sourceName = (row['媒体'] ?? '').toString().trim()
@@ -245,7 +272,7 @@ export async function syncCandidatesFromRows(
 
         const newId = getNextAvailableId(existingIds)
         const normPhone = normalizePhone(parsed.phone ?? '')
-        const consultantName = (row['担当者'] ?? '').toString().trim()
+        const consultantName = (row['担当者'] ?? row['担当'] ?? '').toString().trim()
         const primaryConsultant = consultantName.split(/[・\s]/)[0]?.trim()
         const consultant_id = primaryConsultant ? nameToUserId.get(primaryConsultant) ?? null : null
         const sourceName = (row['媒体'] ?? '').toString().trim()
@@ -289,23 +316,38 @@ export async function syncCandidatesFromRows(
 
       const existing = existingById.get(id)
       const normPhone = normalizePhone(parsed.phone ?? '')
-      // 既存者（氏名一致）: CRM に値が無い項目だけスプシから補完。CRM の既存値は絶対に上書きしない。
+
+      // 【更新対象】スプシが正とする13項目（スプシに値がある場合のみ上書き、空欄なら触らない）
+      //   担当 / 媒体 / 登録日 / 電話番号 / メール / 生年月日 / 年齢 / 都道府県 / 市区町村 /
+      //   保有資格 / 希望雇用形態 / 希望職種
+      // 【触らない】ステータス・タイムライン・案件など CRM 側で管理する項目
+      //   メモは CRM が空欄のときだけ補完
       const updates: Record<string, unknown> = {}
-      if (parsed.registered_at && !existing?.registered_at) {
-        updates.registered_at = parsed.registered_at
-      }
-      if (normPhone && !existing?.phone) updates.phone = normPhone
-      if (parsed.email && !existing?.email) updates.email = parsed.email
-      if (parsed.age != null && parsed.age > 0 && parsed.age < 120 && existing?.age == null) {
-        updates.age = parsed.age
-      }
-      if (parsed.birth_date && !existing?.birth_date) updates.birth_date = parsed.birth_date
-      if (parsed.prefecture && !existing?.prefecture) updates.prefecture = parsed.prefecture
-      if (parsed.address && !existing?.address) updates.address = parsed.address
-      if (parsed.qualification && !existing?.qualification) updates.qualification = parsed.qualification
-      if (parsed.desired_employment_type && !existing?.desired_employment_type) updates.desired_employment_type = parsed.desired_employment_type
-      if (parsed.desired_job_type && !existing?.desired_job_type) updates.desired_job_type = parsed.desired_job_type
+      if (parsed.registered_at) updates.registered_at = parsed.registered_at
+      if (normPhone) updates.phone = normPhone
+      if (parsed.email) updates.email = parsed.email
+      if (parsed.age != null && parsed.age > 0 && parsed.age < 120) updates.age = parsed.age
+      if (parsed.birth_date) updates.birth_date = parsed.birth_date
+      if (parsed.prefecture) updates.prefecture = parsed.prefecture
+      if (parsed.address) updates.address = parsed.address
+      if (parsed.qualification) updates.qualification = parsed.qualification
+      if (parsed.desired_employment_type) updates.desired_employment_type = parsed.desired_employment_type
+      if (parsed.desired_job_type) updates.desired_job_type = parsed.desired_job_type
+      // memo は CRM 側で編集されている可能性があるため空欄のときだけ補完
       if (parsed.memo && !existing?.memo) updates.memo = parsed.memo
+
+      // 担当者・媒体（スプシの値で更新）
+      const consultantName = (row['担当者'] ?? row['担当'] ?? '').toString().trim()
+      const primaryConsultant = consultantName.split(/[・\s]/)[0]?.trim()
+      if (primaryConsultant) {
+        const cid = nameToUserId.get(primaryConsultant) ?? null
+        if (cid) updates.consultant_id = cid
+      }
+      const sourceName = (row['媒体'] ?? '').toString().trim()
+      if (sourceName) {
+        const sid = nameToSourceId.get(sourceName) ?? null
+        if (sid) updates.source_id = sid
+      }
 
       if (Object.keys(updates).length > 0) {
         const { error: updateError } = await supabase
@@ -315,15 +357,12 @@ export async function syncCandidatesFromRows(
         if (updateError) {
           result.errors.push({ row: i + 1, id, message: `更新失敗: ${updateError.message}` })
         } else {
-          if (updates.registered_at) {
+          if (updates.registered_at && !existing?.registered_at) {
             result.backfilled += 1
             result.backfilledLog.push({ id, name })
           }
-          const contactOrAgeUpdated = updates.phone ?? updates.email ?? updates.age ?? updates.birth_date ?? updates.prefecture ?? updates.address
-          if (contactOrAgeUpdated) {
-            result.updated += 1
-            result.updatedLog.push({ id, name })
-          }
+          result.updated += 1
+          result.updatedLog.push({ id, name })
           if (candidateIdsWithActivity.has(id)) {
             result.updatedButHasActivityLog.push({ id, name })
           }
@@ -359,7 +398,7 @@ export async function syncCandidatesFromRows(
       }
     }
 
-    const consultantName = (row['担当者'] ?? '').toString().trim()
+    const consultantName = (row['担当者'] ?? row['担当'] ?? '').toString().trim()
     const primaryConsultant = consultantName.split(/[・\s]/)[0]?.trim()
     const consultant_id = primaryConsultant ? nameToUserId.get(primaryConsultant) ?? null : null
 

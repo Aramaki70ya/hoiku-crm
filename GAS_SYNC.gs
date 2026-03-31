@@ -100,6 +100,17 @@ function checkSettings() {
   }
 }
 
+/**
+ * 【同期条件】
+ * ✅ 追加される: 氏名あり + ID が DB に存在しない（ID は連番不要・空欄でも新ID自動発行）
+ * 🔄 更新される: 氏名あり + ID が DB に既存 →
+ *     担当 / 媒体 / 登録日 / 電話 / メール / 生年月日 / 年齢 / 都道府県 / 市区町村 /
+ *     保有資格 / 希望雇用形態 / 希望職種 を上書き（スプシが空欄なら触らない）
+ *     メモはCRMが空欄のときだけ補完
+ * ⏭️ スキップ:  氏名が空（入力途中）/ ID が '125'（ダミー行）
+ * 🔄 再登録:    氏名に「(再登録)」付き → 別ID で新規追加（元レコードは保持）
+ * 🚫 触らない:  ステータス・タイムライン・案件など CRM 側で管理する項目
+ */
 function syncNewCandidates() {
   const props = PropertiesService.getScriptProperties()
   const apiUrl = props.getProperty('API_URL')
@@ -124,7 +135,6 @@ function syncNewCandidates() {
   }
 
   const headers = data[0].map(function (h) { return String(h != null ? h : '').trim() })
-  const maxRows = 200
 
   // 日付列のヘッダー名（いずれかがシートにあれば登録日として送る）
   const dateHeaderNames = ['日付', '登録日', '登録日時', '作成日']
@@ -173,20 +183,22 @@ function syncNewCandidates() {
     }
     // 「求職者氏名」列があれば「氏名」としても持たせる（API互換）
     if (!row['氏名'] && row['求職者氏名']) row['氏名'] = row['求職者氏名']
+    // 「担当」列があれば「担当者」としても持たせる（API互換）
+    if (!row['担当者'] && row['担当']) row['担当者'] = row['担当']
     allRows.push(row)
   }
 
-  // 氏名がある行を有効とする（ID が空でも新規として API が ID を発行する）
-  // ID が「125」の行は除外。氏名列のヘッダーが「氏名」のほか「\」になっている場合がある（スプシの誤入力対策）
+  // 有効行: 氏名があること（入力途中の空行はスキップ）、ID が '125' でないこと
+  // ※ ID は連番でなくてよい。空欄でも API 側で新 ID を自動発行して登録する
   const validRows = allRows.filter(function (row) {
     const id = String(row['ID'] != null ? row['ID'] : '').trim()
     const name = (row['氏名'] || row['\\'] || '').trim()
     return name !== '' && id !== '125'
   })
 
-  // 有効な行のうち最新 maxRows 行
-  var rows = validRows.slice(-maxRows)
-  // API が「氏名」で受け取るので、「\」列の値があれば「氏名」に正規化
+  // 有効行のうち最新200行を送信（毎日の差分同期に十分な量）
+  var rows = validRows.slice(-200)
+  // 氏名列が「\」の場合は「氏名」に正規化
   rows = rows.map(function (row) {
     if (!(row['氏名'] || '').trim() && (row['\\'] || '').trim()) {
       row['氏名'] = (row['\\'] || '').trim()
@@ -248,42 +260,36 @@ function syncNewCandidates() {
           Logger.log('  行' + e.row + ': シートID ' + e.sheetId + ' → 新ID ' + e.newId + ' ' + e.name)
         })
       }
-
       if (json.backfilledLog && json.backfilledLog.length > 0) {
         Logger.log('--- 登録日を補完した人 ---')
         json.backfilledLog.forEach(function (r) {
           Logger.log('  ' + r.id + ' ' + r.name)
         })
       }
-
       if (json.updatedLog && json.updatedLog.length > 0) {
-        Logger.log('--- 連絡先・年齢などを更新した人 ---')
+        Logger.log('--- 更新した人 ---')
         json.updatedLog.forEach(function (r) {
           Logger.log('  ' + r.id + ' ' + r.name)
         })
       }
-
       if (json.skippedLog && json.skippedLog.length > 0) {
         Logger.log('--- 重複でスキップした人 ---')
         json.skippedLog.forEach(function (r) {
           Logger.log('  ' + r.id + ' ' + r.name)
         })
       }
-
       if (json.nameCorrectedLog && json.nameCorrectedLog.length > 0) {
         Logger.log('--- 名前をシートに合わせて修正した人 ---')
         json.nameCorrectedLog.forEach(function (e) {
           Logger.log('  行' + e.row + ': ' + e.id + ' 「' + e.previousName + '」→「' + e.name + '」')
         })
       }
-
       if (json.updatedButHasActivityLog && json.updatedButHasActivityLog.length > 0) {
         Logger.log('--- シートで更新したが、既にメモ・ステータス変更等の履歴がある求職者（要確認） ---')
         json.updatedButHasActivityLog.forEach(function (r) {
           Logger.log('  ' + r.id + ' ' + r.name)
         })
       }
-
       if (json.errors && json.errors.length > 0) {
         Logger.log('--- エラー ---')
         json.errors.forEach(function (e) {
@@ -372,6 +378,7 @@ function backfillRegisteredAt() {
       }
     }
     if (!row['氏名'] && row['求職者氏名']) row['氏名'] = row['求職者氏名']
+    if (!row['担当者'] && row['担当']) row['担当者'] = row['担当']
     allRows.push(row)
   }
 
@@ -501,6 +508,7 @@ function syncAllContactUpdate() {
       }
     }
     if (!row['氏名'] && row['求職者氏名']) row['氏名'] = row['求職者氏名']
+    if (!row['担当者'] && row['担当']) row['担当者'] = row['担当']
     allRows.push(row)
   }
 
