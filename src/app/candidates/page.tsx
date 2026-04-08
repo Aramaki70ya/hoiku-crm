@@ -26,6 +26,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuCheckboxItem,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu'
 import { 
   Plus, 
   Search, 
@@ -39,9 +48,9 @@ import {
   AlertTriangle,
   Clock,
   CheckCircle2,
-  ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  ChevronDown,
 } from 'lucide-react'
 import { 
   priorityColors, 
@@ -100,7 +109,8 @@ function CandidatesPageContent() {
   const router = useRouter()
   const [searchInputValue, setSearchInputValue] = useState('') // 入力欄の値（入力中）
   const [searchQuery, setSearchQuery] = useState('') // 実際に検索に使う値（Enterで適用）
-  const [statusFilter, setStatusFilter] = useState<string>('all')
+  /** 空 = すべて。1件以上 = いずれかに一致（OR） */
+  const [selectedStatusFilters, setSelectedStatusFilters] = useState<StatusType[]>([])
   const [priorityFilter, setPriorityFilter] = useState<string>('all')
   const [activeTab, setActiveTab] = useState<'all' | 'tasks'>('all')
   const [monthFilter, setMonthFilter] = useState<string>('all')
@@ -152,7 +162,7 @@ function CandidatesPageContent() {
   // フィルタ変更時にページを1にリセット
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchQuery, consultantFilter, statusFilter, monthFilter, activeTab, priorityFilter])
+  }, [searchQuery, consultantFilter, selectedStatusFilters, monthFilter, activeTab, priorityFilter])
 
   // ページ変更時に画面上部へスクロール
   const isFirstRender = useRef(true)
@@ -326,6 +336,25 @@ function CandidatesPageContent() {
     return counts
   }, [rawCandidates, localPriorities])
 
+  const toggleStatusFilter = useCallback((status: StatusType, checked: boolean) => {
+    setSelectedStatusFilters((prev) => {
+      if (checked) {
+        if (prev.includes(status)) return prev
+        return [...prev, status]
+      }
+      return prev.filter((s) => s !== status)
+    })
+  }, [])
+
+  const statusFilterLabel = useMemo(() => {
+    if (selectedStatusFilters.length === 0) return 'すべて'
+    if (selectedStatusFilters.length === 1) {
+      const s = selectedStatusFilters[0]
+      return statusLabels[s] ?? s
+    }
+    return `${selectedStatusFilters.length}件選択`
+  }, [selectedStatusFilters])
+
   // フィルタリング（ステータスは DB のみ参照）
   const filteredCandidates = useMemo(() => {
     let filtered = rawCandidates.filter((candidate) => {
@@ -335,8 +364,11 @@ function CandidatesPageContent() {
       if (activeTab === 'tasks' && !activeStatuses.includes(currentStatus)) {
         return false
       }
-      // ステータスフィルタ
-      if (statusFilter !== 'all' && currentStatus !== statusFilter) {
+      // ステータスフィルタ（複数選択時は OR）
+      if (
+        selectedStatusFilters.length > 0 &&
+        !selectedStatusFilters.includes(currentStatus)
+      ) {
         return false
       }
       // 担当者フィルタ
@@ -385,7 +417,7 @@ function CandidatesPageContent() {
     })
     
     return filtered
-  }, [rawCandidates, statusFilter, consultantFilter, priorityFilter, activeTab, sortBy, sortOrder, localConsultants, localPriorities])
+  }, [rawCandidates, selectedStatusFilters, consultantFilter, priorityFilter, activeTab, sortBy, sortOrder, localConsultants, localPriorities])
 
   const allCount = rawCandidates.length
   const taskCount = rawCandidates.filter(c => {
@@ -531,22 +563,51 @@ function CandidatesPageContent() {
           />
         </div>
 
-        {/* ステータスフィルター */}
+        {/* ステータスフィルター（複数選択可・OR） */}
         <div className="flex items-center gap-2">
           <span className="text-sm text-slate-600 font-medium">ステータス:</span>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-40 h-9 bg-white border-2 border-violet-300 text-slate-800 font-medium shadow-md rounded-md hover:border-violet-400 hover:bg-violet-50/50 focus:ring-2 focus:ring-violet-400/50">
-              <SelectValue placeholder="ステータス" />
-            </SelectTrigger>
-            <SelectContent className="bg-white border-slate-200">
-              <SelectItem value="all">すべて</SelectItem>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-44 h-9 justify-between bg-white border-2 border-violet-300 text-slate-800 font-medium shadow-md rounded-md hover:border-violet-400 hover:bg-violet-50/50 focus:ring-2 focus:ring-violet-400/50 px-3"
+              >
+                <span className="truncate text-left">{statusFilterLabel}</span>
+                <ChevronDown className="h-4 w-4 shrink-0 opacity-60" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="start"
+              className="max-h-[min(70vh,22rem)] w-80 overflow-y-auto bg-white border-slate-200"
+              onCloseAutoFocus={(e) => e.preventDefault()}
+            >
+              <DropdownMenuLabel className="text-xs text-slate-500 font-normal">
+                複数選ぶと、いずれかに一致する求職者を表示
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
               {STATUS_LIST.map((status) => (
-                <SelectItem key={status} value={status}>
+                <DropdownMenuCheckboxItem
+                  key={status}
+                  checked={selectedStatusFilters.includes(status)}
+                  onCheckedChange={(checked) =>
+                    toggleStatusFilter(status, checked === true)
+                  }
+                  onSelect={(e) => e.preventDefault()}
+                  className="text-sm"
+                >
                   {statusLabels[status]}
-                </SelectItem>
+                </DropdownMenuCheckboxItem>
               ))}
-            </SelectContent>
-          </Select>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="text-slate-600"
+                onSelect={() => setSelectedStatusFilters([])}
+              >
+                すべて表示（条件をクリア）
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         {/* 担当者フィルター（URLで保持し、詳細→戻るで復元） */}

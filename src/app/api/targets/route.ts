@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { isDemoMode } from '@/lib/supabase/config'
+import { totalBudget as defaultTotalSalesBudget } from '@/lib/mock-data'
 
 // 月次目標一覧取得
 export async function GET(request: NextRequest) {
@@ -13,7 +14,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         data: {
           year_month: yearMonth || '2026-01',
-          total_sales_budget: 29000000,
+          total_sales_budget: defaultTotalSalesBudget,
           registration_to_first_contact_rate: 0.65,
           first_contact_to_interview_rate: 0.80,
           interview_to_closed_rate: 0.60,

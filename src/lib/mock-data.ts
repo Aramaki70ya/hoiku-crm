@@ -846,8 +846,8 @@ export const mockMemberStats: MemberStats[] = [
   { userId: '9', budget: 3000000, sales: 0, meetingTarget: 8, meetingCount: 0, yomiA: 0, yomiB: 0, yomiC: 0, yomiD: 0, yomiANext: 0, yomiBNext: 0, yomiCNext: 0, yomiDNext: 0 },
 ]
 
-// 全体予算
-export const totalBudget = 29000000
+// 全体予算（ダッシュボードのデフォルト売上目標・1000万円）
+export const totalBudget = 10_000_000
 
 // 目標数値の前提条件
 export const kpiAssumptions = {
