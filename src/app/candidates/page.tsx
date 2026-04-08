@@ -152,7 +152,7 @@ function CandidatesPageContent() {
   }, [searchParams, consultants])
 
   const PAGE_SIZE = 50
-  const { candidates: rawCandidates, total: apiTotal, isLoading, createCandidate, updateCandidate, refetch } = useCandidates({
+  const { candidates: rawCandidates, total: apiTotal, isLoading, error: candidatesFetchError, createCandidate, updateCandidate, refetch } = useCandidates({
     search: searchQuery,
     consultantIds: consultantFilterIds.length > 0 ? consultantFilterIds : undefined,
     months: selectedMonthFilters.length > 0 ? selectedMonthFilters : undefined,
@@ -513,7 +513,16 @@ function CandidatesPageContent() {
   }
 
   return (
-    <AppLayout title="求職者管理" description={`${filteredCandidates.length}件の求職者`}>
+    <AppLayout title="求職者管理" description={candidatesFetchError ? '' : `${filteredCandidates.length}件の求職者`}>
+      {candidatesFetchError && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+          <p className="font-medium">データを読み込めませんでした</p>
+          <p className="mt-1 break-words">{candidatesFetchError}</p>
+          <Button type="button" variant="outline" size="sm" className="mt-3 border-red-300 bg-white" onClick={() => refetch()}>
+            再試行
+          </Button>
+        </div>
+      )}
       {/* タブ */}
       <Tabs value={activeTab} onValueChange={(v) => {
         setActiveTab(v as 'all' | 'tasks')

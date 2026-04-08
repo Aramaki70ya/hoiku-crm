@@ -5,9 +5,15 @@ import type { Candidate, CandidateWithRelations } from '@/types/database'
 
 interface UseCandidatesOptions {
   status?: string
+  /** 単一担当（後方互換）。consultantIds があるときは無視 */
   consultantId?: string
+  /** 複数担当（OR） */
+  consultantIds?: string[]
   search?: string
+  /** 単一登録月（後方互換）。months があるときは無視 */
   month?: string
+  /** 複数登録月（OR） */
+  months?: string[]
   limit?: number
   offset?: number
 }
@@ -56,11 +62,19 @@ export function useCandidates(options: UseCandidatesOptions = {}): UseCandidates
 
       const params = new URLSearchParams()
       if (options.status && options.status !== 'all') params.set('status', options.status)
-      if (options.consultantId && options.consultantId !== 'all') params.set('consultant_id', options.consultantId)
+      if (options.consultantIds && options.consultantIds.length > 0) {
+        options.consultantIds.forEach((id) => params.append('consultant_id', id))
+      } else if (options.consultantId && options.consultantId !== 'all') {
+        params.set('consultant_id', options.consultantId)
+      }
       if (options.search) params.set('search', options.search)
-      if (options.month) params.set('month', options.month)
-      if (options.limit) params.set('limit', options.limit.toString())
-      if (options.offset) params.set('offset', options.offset.toString())
+      if (options.months && options.months.length > 0) {
+        options.months.forEach((m) => params.append('month', m))
+      } else if (options.month) {
+        params.set('month', options.month)
+      }
+      if (options.limit != null) params.set('limit', options.limit.toString())
+      if (options.offset != null && options.offset > 0) params.set('offset', options.offset.toString())
       // キャッシュを完全に回避するためタイムスタンプを付与
       params.set('_t', Date.now().toString())
 
@@ -69,7 +83,12 @@ export function useCandidates(options: UseCandidatesOptions = {}): UseCandidates
       })
       if (!res.ok) {
         const data = await res.json()
-        throw new Error(data.error || 'データ取得に失敗しました')
+        const base = data.error || 'データ取得に失敗しました'
+        const detail =
+          typeof data.details === 'string' && data.details.trim()
+            ? ` (${data.details})`
+            : ''
+        throw new Error(`${base}${detail}`)
       }
 
       const { data, total: totalCount } = await res.json()
@@ -81,7 +100,16 @@ export function useCandidates(options: UseCandidatesOptions = {}): UseCandidates
     } finally {
       setIsLoading(false)
     }
-  }, [options.status, options.consultantId, options.search, options.month, options.limit, options.offset])
+  }, [
+    options.status,
+    options.consultantId,
+    options.consultantIds,
+    options.search,
+    options.month,
+    options.months,
+    options.limit,
+    options.offset,
+  ])
 
   const createCandidate = useCallback(async (data: CreateCandidateInput): Promise<CandidateWithRelations | null> => {
     try {

@@ -2,6 +2,20 @@ import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { isDemoMode } from '@/lib/supabase/config'
 
+/** 開発時のみ API レスポンスに載せる（PostgREST / Supabase のエラー形を想定） */
+function devErrorPayload(err: unknown): { details?: string; code?: string } {
+  if (process.env.NODE_ENV !== 'development') return {}
+  if (err && typeof err === 'object') {
+    const o = err as { message?: string; details?: string; hint?: string; code?: string }
+    const parts = [o.message, o.details, o.hint].filter(Boolean)
+    return {
+      ...(parts.length ? { details: parts.join(' — ') } : {}),
+      ...(o.code ? { code: o.code } : {}),
+    }
+  }
+  return { details: String(err) }
+}
+
 // Next.js サーバーレベルのキャッシュを完全に無効化
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -171,7 +185,10 @@ export async function GET(request: NextRequest) {
     return res
   } catch (error) {
     console.error('Error fetching candidates:', error)
-    return NextResponse.json({ error: 'サーバーエラー' }, { status: 500 })
+    return NextResponse.json(
+      { error: 'サーバーエラー', ...devErrorPayload(error) },
+      { status: 500 }
+    )
   }
 }
 
@@ -243,6 +260,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ data, message: '求職者を登録しました' }, { status: 201 })
   } catch (error) {
     console.error('Error creating candidate:', error)
-    return NextResponse.json({ error: 'サーバーエラー' }, { status: 500 })
+    return NextResponse.json(
+      { error: 'サーバーエラー', ...devErrorPayload(error) },
+      { status: 500 }
+    )
   }
 }
