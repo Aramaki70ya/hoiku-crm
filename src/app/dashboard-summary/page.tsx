@@ -462,13 +462,15 @@ export default function DashboardSummaryPage() {
     }
   }, [getMonthText])
 
-  // 個人別月次目標を取得
+  // 個人別月次目標を取得（画面上の選択年月に合わせる）
   const fetchUserTargets = useCallback(async () => {
     setUserTargetsLoading(true)
     try {
-      const now = new Date()
-      const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-      const response = await fetch(`/api/user-targets?year_month=${yearMonth}&_t=${Date.now()}`)
+      const qs = new URLSearchParams({
+        year_month: selectedYearMonth,
+        _t: String(Date.now()),
+      })
+      const response = await fetch(`/api/user-targets?${qs.toString()}`)
       if (!response.ok) {
         throw new Error('個人別目標の取得に失敗しました')
       }
@@ -484,12 +486,21 @@ export default function DashboardSummaryPage() {
       }
       setUserTargets(targetsMap)
     } catch (error) {
-      console.error('Error fetching user targets:', error)
+      const msg = error instanceof Error ? error.message : String(error)
+      const isNetworkFailure =
+        (error instanceof TypeError && msg.includes('fetch')) ||
+        msg === 'Failed to fetch' ||
+        (typeof navigator !== 'undefined' && !navigator.onLine)
+      if (isNetworkFailure) {
+        console.warn('個人別目標: 取得をスキップ（ネットワークまたはサーバー未応答）', msg)
+      } else {
+        console.error('Error fetching user targets:', error)
+      }
       setUserTargets({})
     } finally {
       setUserTargetsLoading(false)
     }
-  }, [])
+  }, [selectedYearMonth])
 
   // 期間変更時に月次データを再取得
   useEffect(() => {
@@ -507,28 +518,32 @@ export default function DashboardSummaryPage() {
     fetchUserTargets()
   }, [fetchData, fetchMonthlyStatusCases, fetchUserTargets])
 
-  // ページ復帰時・タブ切り替え時・ウィンドウフォーカス時に再取得
+  // ページ復帰時・bfcache 復元時に再取得（連打で fetch が失敗しやすいのでデバウンス）
   useEffect(() => {
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null
+    const scheduleRefetch = () => {
+      if (debounceTimer) clearTimeout(debounceTimer)
+      debounceTimer = setTimeout(() => {
+        debounceTimer = null
+        refetchAll()
+      }, 500)
+    }
     const onVisibility = () => {
       if (document.visibilityState === 'visible') {
-        refetchAll()
+        scheduleRefetch()
       }
     }
     const onPageShow = (e: PageTransitionEvent) => {
       if (e.persisted) {
-        refetchAll()
+        scheduleRefetch()
       }
-    }
-    const onFocus = () => {
-      refetchAll()
     }
     document.addEventListener('visibilitychange', onVisibility)
     window.addEventListener('pageshow', onPageShow)
-    window.addEventListener('focus', onFocus)
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer)
       document.removeEventListener('visibilitychange', onVisibility)
       window.removeEventListener('pageshow', onPageShow)
-      window.removeEventListener('focus', onFocus)
     }
   }, [refetchAll])
 
