@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS candidates (
   )),
   source_id UUID REFERENCES sources(id),
   registered_at DATE,
+  re_registered_at DATE, -- 再登録日（氏名に(再登録)で追加された行）
   consultant_id UUID REFERENCES users(id),
   approach_priority TEXT CHECK (approach_priority IN ('S', 'A', 'B', 'C')), -- アプローチ優先度（タスク画面用）
   rank TEXT CHECK (rank IN ('S', 'A', 'B', 'C')), -- ランク（求職者管理画面用）

@@ -23,6 +23,7 @@
  * 🔄 再登録:
  *   - 氏名に「(再登録)」「（再登録）」が含まれる → 元レコードを保持したまま別 ID で新規追加
  *   - 同じ再登録名が既に別 ID で存在する場合はスキップ（重複防止）
+ *   - 再登録行は registered_at にスプシの登録日、re_registered_at にも同じ日付を入れる（一覧は登録日順で再表示されやすい）
  *
  * 🚫 CRM 側で管理するため同期では触らない項目:
  *   - ステータス / メモ（空欄のときだけ補完）
@@ -51,6 +52,11 @@ function normalizeNameForCompare(name: string): string {
 /** 氏名に「(再登録)」「（再登録）」が含まれるか */
 function hasReRegisterSuffix(name: string): boolean {
   return /[（(]再登録[）)]/.test((name ?? '').trim())
+}
+
+/** 再登録行のみ re_registered_at をスプシの登録日で入れる */
+function reRegisteredAtForInsert(sheetName: string, registeredAt: string | null | undefined): string | null {
+  return hasReRegisterSuffix(sheetName) ? (registeredAt ?? null) : null
 }
 
 /** 既存IDの最大+1の新IDを発行（数値でないIDは無視） */
@@ -227,6 +233,7 @@ export async function syncCandidatesFromRows(
         status: parsed.status ?? '初回連絡中',
         source_id,
         registered_at: parsed.registered_at ?? null,
+        re_registered_at: reRegisteredAtForInsert(sheetName, parsed.registered_at),
         consultant_id,
         approach_priority: null,
         rank: null,
@@ -293,6 +300,7 @@ export async function syncCandidatesFromRows(
           status: parsed.status ?? '初回連絡中',
           source_id,
           registered_at: parsed.registered_at ?? null,
+          re_registered_at: isReRegister ? (parsed.registered_at ?? null) : null,
           consultant_id,
           approach_priority: null,
           rank: null,
@@ -421,6 +429,7 @@ export async function syncCandidatesFromRows(
       status: parsed.status ?? '初回連絡中',
       source_id,
       registered_at: parsed.registered_at ?? null,
+      re_registered_at: reRegisteredAtForInsert(sheetName, parsed.registered_at),
       consultant_id,
       approach_priority: null,
       rank: null,

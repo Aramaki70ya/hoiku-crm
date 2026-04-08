@@ -55,6 +55,7 @@ import {
   type StatusType,
 } from '@/lib/status-mapping'
 import type { Contract, Candidate, Project, Interview, User, Source } from '@/types/database'
+import { formatDateJp, isReRegisterName } from '@/lib/candidate-display'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -188,16 +189,23 @@ export default function CandidateDetailPage({ params }: PageProps) {
   
   const from = searchParams.get('from')
   const memberId = searchParams.get('memberId')
-  const consultantFromList = searchParams.get('consultant')
-  const listHref = consultantFromList ? `/candidates?consultant=${consultantFromList}` : '/candidates'
+
+  /** 一覧の複数担当フィルタをそのまま引き継ぐ */
+  const candidatesListHref = useMemo(() => {
+    const ids = searchParams.getAll('consultant')
+    if (ids.length === 0) return '/candidates'
+    const p = new URLSearchParams()
+    ids.forEach((id) => p.append('consultant', id))
+    return `/candidates?${p.toString()}`
+  }, [searchParams])
 
   // 戻る: 保存中なら待つ。一覧からなら必ず Link 的に新規ナビして一覧を再マウント＆再fetch
   const handleBack = () => {
     if (isSaving) return
     if (from === 'members' && memberId) {
       router.push(`/members?selected=${memberId}`)
-    } else if (consultantFromList) {
-      router.push(listHref)
+    } else if (candidatesListHref !== '/candidates') {
+      router.push(candidatesListHref)
     } else {
       router.push('/candidates')
     }
@@ -786,13 +794,11 @@ export default function CandidateDetailPage({ params }: PageProps) {
 
   // エラー時または求職者が見つからない場合
   if (error || !candidate) {
-    const c = searchParams.get('consultant')
-    const backHref = c ? `/candidates?consultant=${c}` : '/candidates'
     return (
       <AppLayout title="求職者が見つかりません">
         <div className="flex flex-col items-center justify-center h-96">
           <p className="text-slate-500 mb-4">{error || '指定された求職者は存在しません'}</p>
-          <Link href={backHref}>
+          <Link href={candidatesListHref}>
             <Button variant="outline">一覧に戻る</Button>
           </Link>
         </div>
@@ -815,8 +821,18 @@ export default function CandidateDetailPage({ params }: PageProps) {
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <h1 className="text-2xl font-bold text-slate-800">{candidate.name}</h1>
+              {(isReRegisterName(candidate.name) || candidate.re_registered_at) && (
+                <Badge variant="secondary" className="bg-amber-100 text-amber-900 border-amber-200">
+                  再登録
+                  {(candidate.re_registered_at || candidate.registered_at) && (
+                    <span className="ml-1.5 font-normal text-amber-800/90">
+                      {formatDateJp(candidate.re_registered_at ?? candidate.registered_at)}
+                    </span>
+                  )}
+                </Badge>
+              )}
               <Select
                 value={currentStatus}
                 disabled={isSaving}
@@ -1222,8 +1238,16 @@ export default function CandidateDetailPage({ params }: PageProps) {
                   <Calendar className="w-4 h-4 text-slate-600" />
                 </div>
                 <div>
-                  <p className="text-xs text-slate-500">登録日</p>
-                  <p className="text-slate-800">{candidate.registered_at}</p>
+                  <p className="text-xs text-slate-500">
+                    {isReRegisterName(candidate.name) || candidate.re_registered_at
+                      ? '登録日（再登録）'
+                      : '登録日'}
+                  </p>
+                  <p className="text-slate-800">
+                    {formatDateJp(
+                      candidate.re_registered_at ?? candidate.registered_at
+                    )}
+                  </p>
                 </div>
               </div>
 
@@ -1487,8 +1511,12 @@ export default function CandidateDetailPage({ params }: PageProps) {
                             <div className="w-3 h-3 rounded-full bg-purple-500" />
                           </div>
                           <div>
-                            <p className="text-sm text-slate-500">{candidate.registered_at}</p>
-                            <p className="text-slate-800">新規登録</p>
+                            <p className="text-sm text-slate-500">{formatDateJp(candidate.registered_at)}</p>
+                            <p className="text-slate-800">
+                              {(isReRegisterName(candidate.name) || candidate.re_registered_at)
+                                ? '再登録'
+                                : '新規登録'}
+                            </p>
                             {candidate.source_id && (
                               <p className="text-sm text-slate-600 mt-1">
                                 {sources?.find(s => s.id === candidate.source_id)?.name || '不明'}経由

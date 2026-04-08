@@ -11,14 +11,67 @@ export async function GET(request: NextRequest) {
   try {
     // デモモードの場合はモックデータを返す
     if (isDemoMode()) {
+      const { searchParams } = new URL(request.url)
       const { mockCandidates, mockUsers, mockSources } = await import('@/lib/mock-data')
+      const rawLimit = parseInt(searchParams.get('limit') || '100')
+      const offset = parseInt(searchParams.get('offset') || '0')
+      const consultantParams = searchParams.getAll('consultant_id').filter((id) => id && id !== 'all')
+      const singleConsultant = searchParams.get('consultant_id')
+      const consultantIds =
+        consultantParams.length > 0
+          ? consultantParams
+          : singleConsultant && singleConsultant !== 'all'
+            ? [singleConsultant]
+            : []
+      const monthParams = searchParams.getAll('month').filter((m) => /^\d{4}-\d{2}$/.test(m))
+      const singleMonth = searchParams.get('month')
+      const months =
+        monthParams.length > 0
+          ? monthParams
+          : singleMonth && /^\d{4}-\d{2}$/.test(singleMonth)
+            ? [singleMonth]
+            : []
+
+      let list = mockCandidates.map((candidate) => ({
+        ...candidate,
+        consultant: mockUsers.find((u) => u.id === candidate.consultant_id) || null,
+        source: mockSources.find((s) => s.id === candidate.source_id) || null,
+      }))
+
+      if (consultantIds.length === 1) {
+        list = list.filter((c) => c.consultant_id === consultantIds[0])
+      } else if (consultantIds.length > 1) {
+        list = list.filter((c) => !!c.consultant_id && consultantIds.includes(c.consultant_id))
+      }
+
+      if (months.length === 1) {
+        const [y, m] = months[0].split('-').map(Number)
+        const ym = `${y}-${String(m).padStart(2, '0')}`
+        list = list.filter((c) => (c.registered_at || '').slice(0, 7) === ym)
+      } else if (months.length > 1) {
+        const monthSet = new Set(months)
+        list = list.filter((c) => monthSet.has((c.registered_at || '').slice(0, 7)))
+      }
+
+      const search = searchParams.get('search') || ''
+      if (search) {
+        const q = search.toLowerCase()
+        list = list.filter(
+          (c) =>
+            (c.name && c.name.toLowerCase().includes(q)) ||
+            (c.id && String(c.id).toLowerCase().includes(q)) ||
+            (c.phone && c.phone.includes(search))
+        )
+      }
+
+      const total = list.length
+      const limit = Math.min(rawLimit, 500)
+      const page = list.slice(offset, offset + limit)
+
       const res = NextResponse.json({
-        data: mockCandidates.map(candidate => ({
-          ...candidate,
-          consultant: mockUsers.find(u => u.id === candidate.consultant_id) || null,
-          source: mockSources.find(s => s.id === candidate.source_id) || null,
-        })),
-        total: mockCandidates.length,
+        data: page,
+        total,
+        pagination: { total, limit, offset, hasMore: offset + limit < total },
       })
       res.headers.set('Cache-Control', 'no-store, max-age=0')
       return res
@@ -35,13 +88,19 @@ export async function GET(request: NextRequest) {
     // クエリパラメータ
     const { searchParams } = new URL(request.url)
     const status = searchParams.get('status') || 'all'
-    const consultantId = searchParams.get('consultant_id') || 'all'
+    const consultantParams = searchParams.getAll('consultant_id').filter((id) => id && id !== 'all')
+    const singleConsultant = searchParams.get('consultant_id')
+    const consultantIds =
+      consultantParams.length > 0
+        ? consultantParams
+        : singleConsultant && singleConsultant !== 'all'
+          ? [singleConsultant]
+          : []
     const search = searchParams.get('search') || ''
     const rawLimit = parseInt(searchParams.get('limit') || '100')
     // 担当フィルタ時は全件返すため 1000 まで許可（Supabase のデフォルト上限）
-    const limit = consultantId && consultantId !== 'all'
-      ? Math.min(rawLimit, 1000)
-      : Math.min(rawLimit, 500)
+    const limit =
+      consultantIds.length > 0 ? Math.min(rawLimit, 1000) : Math.min(rawLimit, 500)
     const offset = parseInt(searchParams.get('offset') || '0')
     
     // データ取得（registered_at を明示して確実に含める）
@@ -50,7 +109,7 @@ export async function GET(request: NextRequest) {
       .select(`
         id, name, kana, phone, email, birth_date, age, prefecture, address,
         qualification, desired_employment_type, desired_job_type, status,
-        source_id, registered_at, consultant_id, approach_priority, rank, memo,
+        source_id, registered_at, re_registered_at, consultant_id, approach_priority, rank, memo,
         created_at, updated_at,
         consultant:users(id, name, email, role),
         source:sources(id, name, category)
@@ -60,21 +119,38 @@ export async function GET(request: NextRequest) {
       query = query.eq('status', status)
     }
 
-    if (consultantId && consultantId !== 'all') {
-      query = query.eq('consultant_id', consultantId)
+    if (consultantIds.length === 1) {
+      query = query.eq('consultant_id', consultantIds[0])
+    } else if (consultantIds.length > 1) {
+      query = query.in('consultant_id', consultantIds)
     }
 
     if (search) {
       query = query.or(`name.ilike.%${search}%,id.ilike.%${search}%,phone.ilike.%${search}%`)
     }
 
-    // 登録月フィルタ（例: month=2025-02）
-    const month = searchParams.get('month') || ''
-    if (month && /^\d{4}-\d{2}$/.test(month)) {
-      const [y, m] = month.split('-').map(Number)
+    // 登録月フィルタ（複数 month は OR）
+    const monthParams = searchParams.getAll('month').filter((m) => /^\d{4}-\d{2}$/.test(m))
+    const singleMonth = searchParams.get('month')
+    const months =
+      monthParams.length > 0
+        ? monthParams
+        : singleMonth && /^\d{4}-\d{2}$/.test(singleMonth)
+          ? [singleMonth]
+          : []
+    if (months.length === 1) {
+      const [y, m] = months[0].split('-').map(Number)
       const startDate = `${y}-${String(m).padStart(2, '0')}-01`
       const nextMonth = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`
       query = query.gte('registered_at', startDate).lt('registered_at', nextMonth)
+    } else if (months.length > 1) {
+      const orParts = months.map((month) => {
+        const [y, m] = month.split('-').map(Number)
+        const startDate = `${y}-${String(m).padStart(2, '0')}-01`
+        const nextMonth = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`
+        return `and(registered_at.gte.${startDate},registered_at.lt.${nextMonth})`
+      })
+      query = query.or(orParts.join(','))
     }
 
     if (limit) {

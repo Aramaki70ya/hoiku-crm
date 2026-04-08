@@ -120,6 +120,7 @@ export async function PATCH(
       'desired_job_type',
       'source_id',
       'registered_at',
+      're_registered_at',
       'rank',
       'drive_link',
     ] as const

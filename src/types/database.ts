@@ -73,7 +73,9 @@ export interface Candidate {
   desired_job_type: string | null // 保育士, 栄養士等
   status: CandidateStatus
   source_id: string | null // 媒体マスタへのFK
-  registered_at: string | null // ISO date string
+  registered_at: string | null // ISO date string（一覧の並び・フィルタ用。再登録行もスプシの登録日）
+  /** 再登録した日。再登録で新規作成された行に同期で入る（未設定の既存データは氏名の(再登録)で判定可） */
+  re_registered_at: string | null
   consultant_id: string | null // 担当者へのFK
   approach_priority: 'S' | 'A' | 'B' | 'C' | null // アプローチ優先度（タスク画面用）
   rank: 'S' | 'A' | 'B' | 'C' | null // ランク（求職者管理画面用）

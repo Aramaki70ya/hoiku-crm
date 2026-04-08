@@ -66,6 +66,7 @@ import { useCandidates } from '@/hooks/useCandidates'
 import { useUsers } from '@/hooks/useUsers'
 import { useSources } from '@/hooks/useSources'
 import type { CandidateWithRelations, CandidateStatus } from '@/types/database'
+import { isReRegisterName } from '@/lib/candidate-display'
 
 // アプローチ優先度を取得する関数（タスク画面用）
 const getApproachPriority = (candidate: CandidateWithRelations) => {
@@ -113,7 +114,8 @@ function CandidatesPageContent() {
   const [selectedStatusFilters, setSelectedStatusFilters] = useState<StatusType[]>([])
   const [priorityFilter, setPriorityFilter] = useState<string>('all')
   const [activeTab, setActiveTab] = useState<'all' | 'tasks'>('all')
-  const [monthFilter, setMonthFilter] = useState<string>('all')
+  /** 空 = すべての登録月。複数 = いずれかの月に登録（OR） */
+  const [selectedMonthFilters, setSelectedMonthFilters] = useState<string[]>([])
   const [currentPage, setCurrentPage] = useState(1)
   const [sortBy, setSortBy] = useState<'registered_at' | 'priority' | 'name' | 'status'>('registered_at')
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc')
@@ -143,18 +145,17 @@ function CandidatesPageContent() {
 
   const { consultants, users } = useUsers()
 
-  const consultantFilter = useMemo(() => {
-    const q = searchParams.get('consultant') ?? 'all'
-    if (q === 'all') return 'all'
-    if (consultants.some((u) => u.id === q)) return q
-    return 'all'
+  /** URL の `consultant` 複数（空 = すべて） */
+  const consultantFilterIds = useMemo(() => {
+    const raw = searchParams.getAll('consultant')
+    return raw.filter((id) => consultants.some((u) => u.id === id))
   }, [searchParams, consultants])
 
   const PAGE_SIZE = 50
   const { candidates: rawCandidates, total: apiTotal, isLoading, createCandidate, updateCandidate, refetch } = useCandidates({
     search: searchQuery,
-    consultantId: consultantFilter,
-    month: monthFilter !== 'all' ? monthFilter : undefined,
+    consultantIds: consultantFilterIds.length > 0 ? consultantFilterIds : undefined,
+    months: selectedMonthFilters.length > 0 ? selectedMonthFilters : undefined,
     limit: PAGE_SIZE,
     offset: (currentPage - 1) * PAGE_SIZE,
   })
@@ -162,7 +163,7 @@ function CandidatesPageContent() {
   // フィルタ変更時にページを1にリセット
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchQuery, consultantFilter, selectedStatusFilters, monthFilter, activeTab, priorityFilter])
+  }, [searchQuery, consultantFilterIds, selectedStatusFilters, selectedMonthFilters, activeTab, priorityFilter])
 
   // ページ変更時に画面上部へスクロール
   const isFirstRender = useRef(true)
@@ -182,7 +183,63 @@ function CandidatesPageContent() {
   }, [rawCandidates.length, currentPage, isLoading])
 
   const { sources } = useSources()
-  const consultantLabel = consultantFilter !== 'all' ? consultants.find((u) => u.id === consultantFilter)?.name : null
+
+  const consultantQuerySuffix = useMemo(() => {
+    if (consultantFilterIds.length === 0) return ''
+    const p = new URLSearchParams()
+    consultantFilterIds.forEach((id) => p.append('consultant', id))
+    return `?${p.toString()}`
+  }, [consultantFilterIds])
+
+  const setConsultantFilterUrl = useCallback(
+    (ids: string[]) => {
+      if (ids.length === 0) {
+        router.replace('/candidates')
+        return
+      }
+      const p = new URLSearchParams()
+      ids.forEach((id) => p.append('consultant', id))
+      router.replace(`/candidates?${p.toString()}`)
+    },
+    [router]
+  )
+
+  const toggleConsultantFilter = useCallback(
+    (userId: string, checked: boolean) => {
+      const next = checked
+        ? consultantFilterIds.includes(userId)
+          ? consultantFilterIds
+          : [...consultantFilterIds, userId]
+        : consultantFilterIds.filter((id) => id !== userId)
+      setConsultantFilterUrl(next)
+    },
+    [consultantFilterIds, setConsultantFilterUrl]
+  )
+
+  const consultantFilterButtonLabel = useMemo(() => {
+    if (consultantFilterIds.length === 0) return 'すべて'
+    if (consultantFilterIds.length === 1) {
+      return consultants.find((u) => u.id === consultantFilterIds[0])?.name ?? '1名'
+    }
+    return `${consultantFilterIds.length}名選択`
+  }, [consultantFilterIds, consultants])
+
+  const monthFilterButtonLabel = useMemo(() => {
+    if (selectedMonthFilters.length === 0) return 'すべて'
+    if (selectedMonthFilters.length === 1) {
+      const [y, m] = selectedMonthFilters[0].split('-')
+      return `${y}年${parseInt(m, 10)}月`
+    }
+    return `${selectedMonthFilters.length}ヶ月選択`
+  }, [selectedMonthFilters])
+
+  const consultantBannerLabel = useMemo(() => {
+    if (consultantFilterIds.length === 0) return null
+    if (consultantFilterIds.length === 1) {
+      return consultants.find((u) => u.id === consultantFilterIds[0])?.name ?? null
+    }
+    return `${consultantFilterIds.length}名の担当`
+  }, [consultantFilterIds, consultants])
 
   // タブ復帰・bfcache 復元時に DB 最新を反映
   useEffect(() => {
@@ -355,6 +412,16 @@ function CandidatesPageContent() {
     return `${selectedStatusFilters.length}件選択`
   }, [selectedStatusFilters])
 
+  const toggleMonthFilter = useCallback((ym: string, checked: boolean) => {
+    setSelectedMonthFilters((prev) => {
+      if (checked) {
+        if (prev.includes(ym)) return prev
+        return [...prev, ym]
+      }
+      return prev.filter((m) => m !== ym)
+    })
+  }, [])
+
   // フィルタリング（ステータスは DB のみ参照）
   const filteredCandidates = useMemo(() => {
     let filtered = rawCandidates.filter((candidate) => {
@@ -371,9 +438,12 @@ function CandidatesPageContent() {
       ) {
         return false
       }
-      // 担当者フィルタ
+      // 担当者フィルタ（API でも絞っているが、ローカル変更と整合）
       const currentConsultantIdForFilter = localConsultants[candidate.id] || candidate.consultant_id
-      if (consultantFilter !== 'all' && currentConsultantIdForFilter !== consultantFilter) {
+      if (
+        consultantFilterIds.length > 0 &&
+        (!currentConsultantIdForFilter || !consultantFilterIds.includes(currentConsultantIdForFilter))
+      ) {
         return false
       }
       // 優先度フィルタ（タスクタブのみ）
@@ -417,7 +487,7 @@ function CandidatesPageContent() {
     })
     
     return filtered
-  }, [rawCandidates, selectedStatusFilters, consultantFilter, priorityFilter, activeTab, sortBy, sortOrder, localConsultants, localPriorities])
+  }, [rawCandidates, selectedStatusFilters, consultantFilterIds, priorityFilter, activeTab, sortBy, sortOrder, localConsultants, localPriorities])
 
   const allCount = rawCandidates.length
   const taskCount = rawCandidates.filter(c => {
@@ -470,26 +540,50 @@ function CandidatesPageContent() {
         </TabsList>
       </Tabs>
 
-      {/* 登録月フィルター */}
+      {/* 登録月フィルター（複数選択可・OR） */}
       <div className="flex items-center gap-2 mb-4">
         <span className="text-sm text-slate-600 font-medium">登録月:</span>
-        <Select value={monthFilter} onValueChange={setMonthFilter}>
-          <SelectTrigger className="w-44 bg-white border-slate-200 text-slate-700 shadow-sm">
-            <SelectValue placeholder="すべて" />
-          </SelectTrigger>
-          <SelectContent className="bg-white border-slate-200">
-            <SelectItem value="all">すべて</SelectItem>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-48 h-9 justify-between bg-white border-slate-200 text-slate-700 shadow-sm px-3"
+            >
+              <span className="truncate text-left">{monthFilterButtonLabel}</span>
+              <ChevronDown className="h-4 w-4 shrink-0 opacity-60" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            className="max-h-[min(70vh,22rem)] w-56 overflow-y-auto bg-white border-slate-200"
+            onCloseAutoFocus={(e) => e.preventDefault()}
+          >
+            <DropdownMenuLabel className="text-xs text-slate-500 font-normal">
+              複数選ぶと、いずれかの月に登録された求職者を表示
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
             {availableMonths.map((ym) => {
               const [y, m] = ym.split('-')
               const label = `${y}年${parseInt(m, 10)}月`
               return (
-                <SelectItem key={ym} value={ym}>
+                <DropdownMenuCheckboxItem
+                  key={ym}
+                  checked={selectedMonthFilters.includes(ym)}
+                  onCheckedChange={(checked) => toggleMonthFilter(ym, checked === true)}
+                  onSelect={(e) => e.preventDefault()}
+                  className="text-sm"
+                >
                   {label}
-                </SelectItem>
+                </DropdownMenuCheckboxItem>
               )
             })}
-          </SelectContent>
-        </Select>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem className="text-slate-600" onSelect={() => setSelectedMonthFilters([])}>
+              すべて表示（条件をクリア）
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {/* タスクタブの場合：優先度サマリーカード（コンパクト版） */}
@@ -610,28 +704,46 @@ function CandidatesPageContent() {
           </DropdownMenu>
         </div>
 
-        {/* 担当者フィルター（URLで保持し、詳細→戻るで復元） */}
+        {/* 担当者フィルター（複数選択可・OR・URL で保持） */}
         <div className="flex items-center gap-2">
           <span className="text-sm text-slate-600 font-medium">担当者:</span>
-          <Select
-            value={consultantFilter}
-            onValueChange={(v) => {
-              const path = v === 'all' ? '/candidates' : `/candidates?consultant=${v}`
-              router.replace(path)
-            }}
-          >
-            <SelectTrigger className="w-40 bg-white border-slate-200 text-slate-700 shadow-sm">
-              <SelectValue placeholder="担当者" />
-            </SelectTrigger>
-            <SelectContent className="bg-white border-slate-200">
-              <SelectItem value="all">すべて</SelectItem>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-44 h-9 justify-between bg-white border-slate-200 text-slate-700 shadow-sm px-3"
+              >
+                <span className="truncate text-left">{consultantFilterButtonLabel}</span>
+                <ChevronDown className="h-4 w-4 shrink-0 opacity-60" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="start"
+              className="max-h-[min(70vh,22rem)] w-64 overflow-y-auto bg-white border-slate-200"
+              onCloseAutoFocus={(e) => e.preventDefault()}
+            >
+              <DropdownMenuLabel className="text-xs text-slate-500 font-normal">
+                複数選ぶと、いずれかの担当の求職者を表示
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
               {consultants.map((user) => (
-                <SelectItem key={user.id} value={user.id}>
+                <DropdownMenuCheckboxItem
+                  key={user.id}
+                  checked={consultantFilterIds.includes(user.id)}
+                  onCheckedChange={(checked) => toggleConsultantFilter(user.id, checked === true)}
+                  onSelect={(e) => e.preventDefault()}
+                  className="text-sm"
+                >
                   {user.name}
-                </SelectItem>
+                </DropdownMenuCheckboxItem>
               ))}
-            </SelectContent>
-          </Select>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="text-slate-600" onSelect={() => setConsultantFilterUrl([])}>
+                すべて表示（条件をクリア）
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         {/* 並び替え */}
@@ -673,13 +785,18 @@ function CandidatesPageContent() {
       </div>
 
       {/* 担当・検索の絞り込み状況（原因調査用） */}
-      {(consultantLabel || searchQuery) && (
+      {(consultantBannerLabel || searchQuery) && (
         <div className="mb-3 px-1 text-sm text-slate-500">
-          {consultantLabel && <span>担当者「{consultantLabel}」で絞り込み中。</span>}
-          {searchQuery && <span>{consultantLabel ? ' さらに検索「' : '検索「'}{searchQuery}」を適用しています。検索欄を空にすると該当担当の全員が表示されます。</span>}
+          {consultantBannerLabel && <span>担当者「{consultantBannerLabel}」で絞り込み中。</span>}
+          {searchQuery && (
+            <span>
+              {consultantBannerLabel ? ' さらに検索「' : '検索「'}
+              {searchQuery}」を適用しています。検索欄を空にすると該当条件の全員が表示されます。
+            </span>
+          )}
         </div>
       )}
-      {consultantFilter !== 'all' && apiTotal > 1000 && (
+      {consultantFilterIds.length > 0 && apiTotal > 1000 && (
         <div className="mb-3 px-1 text-sm text-amber-600">
           該当は全{apiTotal}件あります。表示は最大1000件までです。検索で絞ると一覧しやすくなります。
         </div>
@@ -707,7 +824,7 @@ function CandidatesPageContent() {
                 const totalPages = Math.ceil(apiTotal / PAGE_SIZE)
                 const maxVisible = 5
                 let start = Math.max(1, currentPage - Math.floor(maxVisible / 2))
-                let end = Math.min(totalPages, start + maxVisible - 1)
+                const end = Math.min(totalPages, start + maxVisible - 1)
                 if (end - start + 1 < maxVisible) start = Math.max(1, end - maxVisible + 1)
                 const pages: number[] = []
                 for (let i = start; i <= end; i++) pages.push(i)
@@ -863,12 +980,19 @@ function CandidatesPageContent() {
                   </TableCell>
                   <TableCell className="max-w-40">
                     <div className="truncate">
-                      <Link 
-                        href={consultantFilter !== 'all' ? `/candidates/${candidate.id}?consultant=${consultantFilter}` : `/candidates/${candidate.id}`}
-                        className="font-medium text-slate-800 hover:text-violet-600 hover:underline transition-colors"
-                      >
-                        {candidate.name}
-                      </Link>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Link 
+                          href={`/candidates/${candidate.id}${consultantQuerySuffix}`}
+                          className="font-medium text-slate-800 hover:text-violet-600 hover:underline transition-colors truncate"
+                        >
+                          {candidate.name}
+                        </Link>
+                        {(isReRegisterName(candidate.name) || candidate.re_registered_at) && (
+                          <Badge variant="secondary" className="shrink-0 text-[10px] px-1.5 py-0 bg-amber-100 text-amber-900 border-amber-200">
+                            再登録
+                          </Badge>
+                        )}
+                      </div>
                       <div className="text-sm text-slate-500 truncate">
                         {candidate.age != null && candidate.age < 120 ? `${candidate.age}歳` : '—'}
                         {candidate.prefecture && ` / ${candidate.prefecture}`}
@@ -1005,7 +1129,7 @@ function CandidatesPageContent() {
                       : '-'}
                   </TableCell>
                   <TableCell>
-                    <Link href={consultantFilter !== 'all' ? `/candidates/${candidate.id}?consultant=${consultantFilter}` : `/candidates/${candidate.id}`}>
+                    <Link href={`/candidates/${candidate.id}${consultantQuerySuffix}`}>
                       <Button
                         variant="ghost"
                         size="icon"
