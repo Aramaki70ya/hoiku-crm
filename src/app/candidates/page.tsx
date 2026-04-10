@@ -143,13 +143,16 @@ function CandidatesPageContent() {
     memo: '',
   })
 
-  const { consultants, users } = useUsers()
+  const { consultants, users, isLoading: isUsersLoading } = useUsers()
 
   /** URL の `consultant` 複数（空 = すべて） */
   const consultantFilterIds = useMemo(() => {
     const raw = searchParams.getAll('consultant')
+    if (raw.length === 0) return []
+    // ユーザー一覧ロード前に空配列扱いすると、一瞬「全件取得 -> 絞り込み再取得」が起きて画面が不安定になる
+    if (isUsersLoading) return raw.filter(Boolean)
     return raw.filter((id) => consultants.some((u) => u.id === id))
-  }, [searchParams, consultants])
+  }, [searchParams, consultants, isUsersLoading])
 
   const PAGE_SIZE = 50
   const { candidates: rawCandidates, total: apiTotal, isLoading, error: candidatesFetchError, createCandidate, updateCandidate, refetch } = useCandidates({
@@ -502,7 +505,7 @@ function CandidatesPageContent() {
   })
 
   // ローディング中の表示
-  if (isLoading) {
+  if (isLoading && rawCandidates.length === 0 && !candidatesFetchError) {
     return (
       <AppLayout title="求職者管理" description="データを読み込み中...">
         <div className="flex items-center justify-center h-64">
@@ -521,6 +524,11 @@ function CandidatesPageContent() {
           <Button type="button" variant="outline" size="sm" className="mt-3 border-red-300 bg-white" onClick={() => refetch()}>
             再試行
           </Button>
+        </div>
+      )}
+      {isLoading && rawCandidates.length > 0 && (
+        <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+          絞り込み結果を更新中...
         </div>
       )}
       {/* タブ */}

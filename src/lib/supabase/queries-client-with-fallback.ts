@@ -3,7 +3,7 @@
  * デモモード時はmock-data.tsを使用、本番環境ではSupabaseを使用
  */
 
-import { isDemoMode } from './config'
+import { isDemoMode, hasSupabaseConfig } from './config'
 import { createClient } from './client'
 import type { Candidate, Project, Interview, User, Source, Contract, StatusHistory, Memo } from '@/types/database'
 
@@ -22,6 +22,22 @@ if (isDemoMode()) {
   mockData = require('@/lib/mock-data')
 }
 
+function loadMockBundle(): NonNullable<typeof mockData> {
+  return require('@/lib/mock-data') as NonNullable<typeof mockData>
+}
+
+/**
+ * ブラウザ・開発時に URL/キー未設定なら Supabase に一切つながない。
+ * デフォルトの demo.supabase.co へ fetch して TypeError: Failed to fetch が 6 本並び、
+ * Next のオーバーレイに issue が大量発生するのを防ぐ。
+ */
+function clientDevMockBundle(): NonNullable<typeof mockData> | null {
+  if (typeof window === 'undefined') return null
+  if (process.env.NODE_ENV !== 'development') return null
+  if (hasSupabaseConfig()) return null
+  return loadMockBundle()
+}
+
 // ========================================
 // Candidates (求職者)
 // ========================================
@@ -29,7 +45,9 @@ if (isDemoMode()) {
 function logSupabaseError(context: string, err: unknown): void {
   const msg = err && typeof err === 'object' && 'message' in err ? (err as { message?: string }).message : String(err)
   const code = err && typeof err === 'object' && 'code' in err ? (err as { code?: string }).code : undefined
-  console.error(`Error fetching ${context}:`, msg, code ? `[${code}]` : '')
+  // Next の dev overlay は console.error を「Issue」として積むため、開発時は warn に寄せる
+  const log = process.env.NODE_ENV === 'development' ? console.warn : console.error
+  log(`Error fetching ${context}:`, msg, code ? `[${code}]` : '')
 }
 
 /** PostgREST は1リクエストあたり最大 1000 行が返ることがあるため、range でページングして全件取得する */
@@ -60,6 +78,9 @@ export async function getCandidatesClient(): Promise<Candidate[]> {
   if (isDemoMode() && mockData) {
     return mockData.mockCandidates
   }
+
+  const devMock = clientDevMockBundle()
+  if (devMock) return devMock.mockCandidates
 
   try {
     const supabase = createClient()
@@ -133,6 +154,9 @@ export async function getUsersClient(): Promise<User[]> {
     return mockData.mockUsers
   }
 
+  const devMock = clientDevMockBundle()
+  if (devMock) return devMock.mockUsers
+
   try {
     const supabase = createClient()
     const { data, error } = await supabase
@@ -195,6 +219,9 @@ export async function getProjectsClient(): Promise<Project[]> {
   if (isDemoMode() && mockData) {
     return mockData.mockProjects
   }
+
+  const devMock = clientDevMockBundle()
+  if (devMock) return devMock.mockProjects
 
   try {
     const supabase = createClient()
@@ -261,6 +288,9 @@ export async function getInterviewsClient(): Promise<Interview[]> {
   if (isDemoMode() && mockData) {
     return mockData.mockInterviews
   }
+
+  const devMock = clientDevMockBundle()
+  if (devMock) return devMock.mockInterviews
 
   try {
     const supabase = createClient()
@@ -332,6 +362,9 @@ export async function getContractsClient(): Promise<Contract[]> {
   if (isDemoMode() && mockData) {
     return mockData.mockContracts
   }
+
+  const devMock = clientDevMockBundle()
+  if (devMock) return devMock.mockContracts
 
   try {
     const supabase = createClient()
@@ -462,21 +495,36 @@ export async function getSourcesClient(): Promise<Source[]> {
     return mockData.mockSources
   }
 
-  const supabase = createClient()
-  const { data, error } = await supabase
-    .from('sources')
-    .select('*')
-    .order('name')
+  const devMock = clientDevMockBundle()
+  if (devMock) return devMock.mockSources
 
-  if (error) {
-    console.error('Error fetching sources:', error)
-    if (mockData) {
-      return mockData.mockSources
+  try {
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from('sources')
+      .select('*')
+      .order('name')
+
+    if (error) {
+      logSupabaseError('sources', error)
+      if (mockData) {
+        return mockData.mockSources
+      }
+      throw new Error(`Failed to fetch sources: ${error.message}`)
     }
-    throw new Error(`Failed to fetch sources: ${error.message}`)
-  }
 
-  return data || []
+    return data || []
+  } catch (err) {
+    logSupabaseError('sources', err)
+    if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+      try {
+        return loadMockBundle().mockSources ?? []
+      } catch {
+        // ignore
+      }
+    }
+    throw err instanceof Error ? err : new Error(`Failed to fetch sources: ${String(err)}`)
+  }
 }
 
 // ========================================

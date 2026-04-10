@@ -5,13 +5,16 @@ export function createClient() {
   const url = getSupabaseUrl()
   const key = getSupabaseAnonKey()
 
-  // デバッグ: 環境変数の確認
-  if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+  // デバッグ: 実際に接続する場合のみ（未設定時は queries-client がモックに寄せる）
+  if (
+    typeof window !== 'undefined' &&
+    process.env.NODE_ENV === 'development' &&
+    hasSupabaseConfig()
+  ) {
     console.log('[DEBUG Supabase Client]', {
-      hasConfig: hasSupabaseConfig(),
+      hasConfig: true,
       url: url.substring(0, 30) + '...',
       keyLength: key.length,
-      isDemoUrl: url.includes('demo.supabase.co'),
     })
   }
 

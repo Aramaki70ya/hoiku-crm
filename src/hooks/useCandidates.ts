@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import type { Candidate, CandidateWithRelations } from '@/types/database'
 
 interface UseCandidatesOptions {
@@ -55,21 +55,38 @@ export function useCandidates(options: UseCandidatesOptions = {}): UseCandidates
   const [error, setError] = useState<string | null>(null)
   const [total, setTotal] = useState(0)
 
-  const fetchCandidates = useCallback(async () => {
+  const consultantIdsKey = useMemo(
+    () => (options.consultantIds && options.consultantIds.length > 0 ? options.consultantIds.join(',') : ''),
+    [options.consultantIds],
+  )
+  const monthKey = useMemo(
+    () => (options.months && options.months.length > 0 ? options.months.join(',') : ''),
+    [options.months],
+  )
+  const normalizedConsultantIds = useMemo(
+    () => (consultantIdsKey ? consultantIdsKey.split(',').filter(Boolean) : []),
+    [consultantIdsKey],
+  )
+  const normalizedMonths = useMemo(
+    () => (monthKey ? monthKey.split(',').filter(Boolean) : []),
+    [monthKey],
+  )
+
+  const fetchCandidates = useCallback(async (signal?: AbortSignal) => {
     try {
       setIsLoading(true)
       setError(null)
 
       const params = new URLSearchParams()
       if (options.status && options.status !== 'all') params.set('status', options.status)
-      if (options.consultantIds && options.consultantIds.length > 0) {
-        options.consultantIds.forEach((id) => params.append('consultant_id', id))
+      if (normalizedConsultantIds.length > 0) {
+        normalizedConsultantIds.forEach((id) => params.append('consultant_id', id))
       } else if (options.consultantId && options.consultantId !== 'all') {
         params.set('consultant_id', options.consultantId)
       }
       if (options.search) params.set('search', options.search)
-      if (options.months && options.months.length > 0) {
-        options.months.forEach((m) => params.append('month', m))
+      if (normalizedMonths.length > 0) {
+        normalizedMonths.forEach((m) => params.append('month', m))
       } else if (options.month) {
         params.set('month', options.month)
       }
@@ -80,6 +97,7 @@ export function useCandidates(options: UseCandidatesOptions = {}): UseCandidates
 
       const res = await fetch(`/api/candidates?${params.toString()}`, {
         cache: 'no-store',
+        signal,
       })
       if (!res.ok) {
         const data = await res.json()
@@ -92,23 +110,29 @@ export function useCandidates(options: UseCandidatesOptions = {}): UseCandidates
       }
 
       const { data, total: totalCount } = await res.json()
+      if (signal?.aborted) return
       setCandidates(data || [])
       setTotal(totalCount || 0)
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        return
+      }
       setError(err instanceof Error ? err.message : 'エラーが発生しました')
       setCandidates([])
     } finally {
-      setIsLoading(false)
+      if (!signal?.aborted) {
+        setIsLoading(false)
+      }
     }
   }, [
     options.status,
     options.consultantId,
-    options.consultantIds,
     options.search,
     options.month,
-    options.months,
     options.limit,
     options.offset,
+    normalizedConsultantIds,
+    normalizedMonths,
   ])
 
   const createCandidate = useCallback(async (data: CreateCandidateInput): Promise<CandidateWithRelations | null> => {
@@ -162,7 +186,12 @@ export function useCandidates(options: UseCandidatesOptions = {}): UseCandidates
   }, [])
 
   useEffect(() => {
-    fetchCandidates()
+    const controller = new AbortController()
+    void fetchCandidates(controller.signal)
+
+    return () => {
+      controller.abort()
+    }
   }, [fetchCandidates])
 
   return {

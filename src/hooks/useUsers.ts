@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import type { User } from '@/types/database'
 
 interface UseUsersResult {
@@ -57,9 +57,15 @@ export function useUsers(): UseUsersResult {
     fetchUsers()
   }, [fetchUsers])
 
+  // 毎レンダーで新配列を返すと、consultant 絞り込み時に consultantFilterIds → useCandidates の fetch が連鎖する
+  const consultants = useMemo(
+    () => users.filter((u: User) => u.role !== 'admin'),
+    [users],
+  )
+
   return {
     users,
-    consultants: users.filter((u: User) => u.role !== 'admin'),
+    consultants,
     isLoading,
     error,
     refetch: fetchUsers,
