@@ -560,6 +560,31 @@ export const mockCandidates: Candidate[] = [
     created_at: '2026-01-18T00:00:00Z',
     updated_at: '2026-01-18T00:00:00Z',
   },
+  {
+    id: '20206605',
+    name: '池田 美予',
+    kana: 'イケダ ミヨ',
+    phone: '09033334444',
+    email: 'miyo.ikeda@example.com',
+    birth_date: '1995-04-06',
+    age: 30,
+    prefecture: '東京都',
+    address: '世田谷区',
+    qualification: '保育士',
+    desired_employment_type: '正社員',
+    desired_job_type: '保育士',
+    status: '初回連絡中',
+    source_id: '2',
+    registered_at: '2026-04-06',
+    re_registered_at: null,
+    consultant_id: '1', // 瀧澤
+    approach_priority: 'B',
+    rank: 'B',
+    drive_link: null,
+    memo: null,
+    created_at: '2026-04-06T00:00:00Z',
+    updated_at: '2026-04-06T00:00:00Z',
+  },
 ]
 
 export const mockProjects = [
