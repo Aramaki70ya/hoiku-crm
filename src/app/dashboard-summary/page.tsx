@@ -63,6 +63,7 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
+  LabelList,
 } from 'recharts'
 
 function getCurrentYearMonth(): string {
@@ -1240,6 +1241,16 @@ export default function DashboardSummaryPage() {
       closedCounts.set(c.consultant_id, (closedCounts.get(c.consultant_id) ?? 0) + 1)
     }
 
+    const closedAmounts = new Map<string, number>()
+    for (const contract of periodContracts) {
+      const c = candidateById.get(contract.candidate_id)
+      if (!c?.consultant_id) continue
+      closedAmounts.set(
+        c.consultant_id,
+        (closedAmounts.get(c.consultant_id) ?? 0) + (contract.revenue_excluding_tax ?? 0)
+      )
+    }
+
     return users
       .filter((u) => u.role !== 'admin' && isUserActiveInPeriod(u))
       .map((u) => {
@@ -1251,6 +1262,7 @@ export default function DashboardSummaryPage() {
           interviewCount,
           closedCount,
           closedRate: interviewCount > 0 ? (closedCount / interviewCount) * 100 : 0,
+          closedAmount: closedAmounts.get(u.id) ?? 0,
         }
       })
       .sort((a, b) => {
@@ -1269,6 +1281,7 @@ export default function DashboardSummaryPage() {
     periodClosedStatusCandidateIds,
     candidateById,
     interviewClosedSummaryOrder,
+    periodContracts,
   ])
 
   const interviewClosedChartData = useMemo(() => {
@@ -1908,15 +1921,36 @@ export default function DashboardSummaryPage() {
             {interviewClosedChartData.length === 0 ? (
               <div className="text-center text-slate-500 py-8">該当データがありません</div>
             ) : (
-              <div className="h-[280px] w-full">
+              <div className="h-[320px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart
                     data={interviewClosedChartData}
-                    margin={{ top: 8, right: 16, left: 0, bottom: 8 }}
+                    margin={{ top: 20, right: 16, left: 0, bottom: 48 }}
                     barCategoryGap="45%"
                   >
                     <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="userName" />
+                    <XAxis
+                      dataKey="userName"
+                      tick={(props) => {
+                        const { x, y, payload } = props
+                        const row = interviewClosedChartData.find((r) => r.userName === payload.value)
+                        const amount = row?.closedAmount ?? 0
+                        const amountLabel = amount > 0
+                          ? `${Math.round(amount / 10000)}万円`
+                          : '0円'
+                        return (
+                          <g transform={`translate(${x},${y})`}>
+                            <text x={0} y={0} dy={14} textAnchor="middle" fill="#475569" fontSize={12}>
+                              {payload.value}
+                            </text>
+                            <text x={0} y={0} dy={30} textAnchor="middle" fill="#059669" fontSize={11} fontWeight={600}>
+                              {amountLabel}
+                            </text>
+                          </g>
+                        )
+                      }}
+                      height={56}
+                    />
                     <YAxis allowDecimals={false} domain={[0, 12]} />
                     <Tooltip
                       formatter={(value: number, name: string) => [
@@ -1928,7 +1962,9 @@ export default function DashboardSummaryPage() {
                       labelFormatter={(label) => {
                         const row = interviewClosedChartData.find((r) => r.userName === label)
                         const rate = row ? `${row.closedRate.toFixed(1)}%` : '-'
-                        return `${label}（成約率: ${rate}）`
+                        const amount = row?.closedAmount ?? 0
+                        const amountLabel = amount > 0 ? `${Math.round(amount / 10000)}万円` : '0円'
+                        return `${label}（成約率: ${rate}・${amountLabel}）`
                       }}
                     />
                     <Legend
@@ -1938,8 +1974,22 @@ export default function DashboardSummaryPage() {
                         return value
                       }}
                     />
-                    <Bar dataKey="interviewCount" fill="#fb923c" radius={[4, 4, 0, 0]} barSize={12} />
-                    <Bar dataKey="closedCount" fill="#dc2626" radius={[4, 4, 0, 0]} barSize={12} />
+                    <Bar dataKey="interviewCount" fill="#fb923c" radius={[4, 4, 0, 0]} barSize={12}>
+                      <LabelList
+                        dataKey="interviewCount"
+                        position="top"
+                        formatter={(v: number) => (v > 0 ? `${v}件` : '')}
+                        style={{ fontSize: 11, fill: '#92400e' }}
+                      />
+                    </Bar>
+                    <Bar dataKey="closedCount" fill="#dc2626" radius={[4, 4, 0, 0]} barSize={12}>
+                      <LabelList
+                        dataKey="closedCount"
+                        position="top"
+                        formatter={(v: number) => (v > 0 ? `${v}件` : '')}
+                        style={{ fontSize: 11, fill: '#991b1b' }}
+                      />
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </div>
