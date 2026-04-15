@@ -750,16 +750,9 @@ export default function DashboardSummaryPage() {
     [buildInterviewCandidateIds, periodDates]
   )
 
-  const priorPeriodInterviewStatusCandidateIds = useMemo(
-    () => buildInterviewCandidateIds(priorPeriodDates.startDate, priorPeriodDates.endDate),
-    [buildInterviewCandidateIds, priorPeriodDates]
-  )
-
-  // 成約済み求職者（登録月コホート集計用）
-  // status_history + contracts の全ソースを統合して集計（成約日ではなく、登録月コホートで振り分ける）
+  // 成約済み求職者（履歴に成約または契約レコードあり、成約日時は問わない。営業進捗の成約列・成約モーダル用）
   const closedStatusCandidateIds = useMemo(() => {
     const candidateIds = new Set<string>()
-
     statusHistory.forEach((h) => {
       if (h.new_status === '内定承諾（成約）') {
         candidateIds.add(h.candidate_id)
@@ -771,7 +764,7 @@ export default function DashboardSummaryPage() {
     return candidateIds
   }, [statusHistory, contracts])
 
-  // 期間内に成約した求職者（登録月コホート非依存の月次実績集計用）
+  // 期間内に成約した求職者（画面上部の選択月。グラフ・担当者別面接/成約サマリー等の月次表示用）
   const periodClosedStatusCandidateIds = useMemo(() => {
     const candidateIds = new Set<string>()
     const { startDate, endDate } = periodDates
@@ -959,7 +952,7 @@ export default function DashboardSummaryPage() {
   }, [statusHistory, memos, priorPeriodDates])
 
   // 営業進捗を計算（当月登録ベース / 前月以前登録ベースの二表）
-  // 面接・成約は DB 派生（status_history + contracts）のみとし、母集団（registered_at）で当月／前月以前に分割する
+  // 母集団は registered_at のみ。面接は画面上部の選択月内の実績。成約はコホート内の成約済み人数（成約となった日時は不問）
   // 【詳細】docs/DASHBOARD_面接・成約の集計ロジック.md
   const { salesProgressCurrent, salesProgressPrior } = useMemo(() => {
     if (loading) {
@@ -978,12 +971,8 @@ export default function DashboardSummaryPage() {
     ])
 
     const countInterviewByConsultant = (cohort: 'current' | 'prior') => {
-      const sourceIds =
-        cohort === 'current'
-          ? periodInterviewStatusCandidateIds
-          : priorPeriodInterviewStatusCandidateIds
       const counts = new Map<string, number>()
-      for (const candidateId of sourceIds) {
+      for (const candidateId of periodInterviewStatusCandidateIds) {
         const c = candidateById.get(candidateId)
         if (!c || !c.consultant_id) continue
         if (cohort === 'current') {
@@ -995,9 +984,8 @@ export default function DashboardSummaryPage() {
     }
 
     const countClosedByConsultant = (cohort: 'current' | 'prior') => {
-      const sourceIds = closedStatusCandidateIds
       const counts = new Map<string, number>()
-      for (const candidateId of sourceIds) {
+      for (const candidateId of closedStatusCandidateIds) {
         const c = candidateById.get(candidateId)
         if (!c || !c.consultant_id) continue
         if (cohort === 'current') {
@@ -1075,7 +1063,6 @@ export default function DashboardSummaryPage() {
     priorRegistrationCandidates,
     candidates,
     periodInterviewStatusCandidateIds,
-    priorPeriodInterviewStatusCandidateIds,
     closedStatusCandidateIds,
     candidateById,
     periodCandidateIdSet,
@@ -1438,11 +1425,8 @@ export default function DashboardSummaryPage() {
   const handleOpenInterviewModal = useCallback((userId: string, cohort: 'current' | 'prior') => {
     setSelectedUserId(userId)
 
-    const sourceIds =
-      cohort === 'current'
-        ? periodInterviewStatusCandidateIds
-        : priorPeriodInterviewStatusCandidateIds
-    const baseDates = cohort === 'current' ? periodDates : priorPeriodDates
+    const sourceIds = periodInterviewStatusCandidateIds
+    const baseDates = periodDates
 
     const inCohort = (candidateId: string) =>
       cohort === 'current'
@@ -1493,13 +1477,11 @@ export default function DashboardSummaryPage() {
     setInterviewModalOpen(true)
   }, [
     periodInterviewStatusCandidateIds,
-    priorPeriodInterviewStatusCandidateIds,
     candidateById,
     candidates,
     projects,
     interviews,
     periodDates,
-    priorPeriodDates,
     periodCandidateIdSet,
     priorRegistrationCandidateIdSet,
   ])
@@ -1508,14 +1490,12 @@ export default function DashboardSummaryPage() {
   const handleOpenClosedModal = useCallback((userId: string, cohort: 'current' | 'prior') => {
     setClosedModalUserId(userId)
 
-    const sourceIds = closedStatusCandidateIds
-
     const inCohort = (candidateId: string) =>
       cohort === 'current'
         ? periodCandidateIdSet.has(candidateId)
         : priorRegistrationCandidateIdSet.has(candidateId)
 
-    const userCandidateIds = Array.from(sourceIds).filter((candidateId) => {
+    const userCandidateIds = Array.from(closedStatusCandidateIds).filter((candidateId) => {
       const candidate = candidateById.get(candidateId)
       if (candidate?.consultant_id !== userId) return false
       return inCohort(candidateId)
@@ -2009,7 +1989,7 @@ export default function DashboardSummaryPage() {
             <div className="overflow-x-auto">
               <SalesProgressMetricsTable
                 title="当月登録ベース"
-                description={`${getPeriodLabel()}に登録した求職者を母集団とし、面接・成約はその母集団に属する候補者のうち、選択月内に実績があった件数です。`}
+                description={`${getPeriodLabel()}に登録した求職者を母集団とし、面接は${getPeriodLabel()}内に実績があった件数、成約は母集団内で成約済みの件数です（成約日は問いません）。`}
                 rows={salesProgressCurrent}
                 totals={totalProgressCurrent}
                 kpiTargetRates={targetRates}
@@ -2039,7 +2019,7 @@ export default function DashboardSummaryPage() {
               </div>
               <SalesProgressMetricsTable
                 title="前月以前登録ベース"
-                description={`${formatYearMonthLabel(selectedPriorYearMonth)}に登録した求職者を母集団とし、面接・成約は${formatYearMonthLabel(selectedPriorYearMonth)}内に実績があった件数です。`}
+                description={`${formatYearMonthLabel(selectedPriorYearMonth)}に登録した求職者を母集団とし、面接は${getPeriodLabel()}内に実績があった件数、成約は母集団内で成約済みの件数です（成約日は問いません）。`}
                 rows={salesProgressPrior}
                 totals={totalProgressPrior}
                 kpiTargetRates={targetRates}
