@@ -1958,7 +1958,10 @@ export default function DashboardSummaryPage() {
                       <LabelList
                         dataKey="interviewCount"
                         position="top"
-                        formatter={(v: number) => (v > 0 ? `${v}件` : '')}
+                        formatter={(label) => {
+                          const n = typeof label === 'number' ? label : Number(label)
+                          return Number.isFinite(n) && n > 0 ? `${n}件` : ''
+                        }}
                         style={{ fontSize: 11, fill: '#92400e' }}
                       />
                     </Bar>
@@ -1966,7 +1969,10 @@ export default function DashboardSummaryPage() {
                       <LabelList
                         dataKey="closedCount"
                         position="top"
-                        formatter={(v: number) => (v > 0 ? `${v}件` : '')}
+                        formatter={(label) => {
+                          const n = typeof label === 'number' ? label : Number(label)
+                          return Number.isFinite(n) && n > 0 ? `${n}件` : ''
+                        }}
                         style={{ fontSize: 11, fill: '#991b1b' }}
                       />
                     </Bar>
