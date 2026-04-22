@@ -102,6 +102,22 @@ type YomiModalItem = {
   probability: 'A' | 'B' | 'C'
 }
 
+// 同一求職者の案件を1件に絞る（最新更新日時を優先）
+function dedupeByCandidate(projectList: Project[]): Project[] {
+  const map = new Map<string, Project>()
+  for (const p of projectList) {
+    const existing = map.get(p.candidate_id)
+    if (!existing) {
+      map.set(p.candidate_id, p)
+      continue
+    }
+    const pTime = p.updated_at || p.created_at || ''
+    const eTime = existing.updated_at || existing.created_at || ''
+    if (pTime > eTime) map.set(p.candidate_id, p)
+  }
+  return Array.from(map.values())
+}
+
 type SalesProgressRow = {
   userId: string
   userName: string
@@ -1344,15 +1360,18 @@ export default function DashboardSummaryPage() {
           (p.probability_month === 'current' || !p.probability_month) &&
           (p.month_text === currentMonthText || !p.month_text)
         )
+
+        // 求職者ごとに最新1案件に絞る（重複計上防止）
+        const deduped = dedupeByCandidate(userProjects)
         
         stats[user.id] = {
-          yomiA: userProjects
+          yomiA: deduped
             .filter((p) => p.probability === 'A' && p.expected_amount)
             .reduce((sum, p) => sum + (p.expected_amount || 0), 0),
-          yomiB: userProjects
+          yomiB: deduped
             .filter((p) => p.probability === 'B' && p.expected_amount)
             .reduce((sum, p) => sum + (p.expected_amount || 0), 0),
-          yomiC: userProjects
+          yomiC: deduped
             .filter((p) => p.probability === 'C' && p.expected_amount)
             .reduce((sum, p) => sum + (p.expected_amount || 0), 0),
           yomiD: 0, // Dヨミは現状DBに存在しないため0
@@ -1379,15 +1398,18 @@ export default function DashboardSummaryPage() {
           p.probability_month === 'next' &&
           (p.month_text === nextMonthText || !p.month_text)
         )
+
+        // 求職者ごとに最新1案件に絞る（重複計上防止）
+        const deduped = dedupeByCandidate(userProjects)
         
         stats[user.id] = {
-          yomiA: userProjects
+          yomiA: deduped
             .filter((p) => p.probability === 'A' && p.expected_amount)
             .reduce((sum, p) => sum + (p.expected_amount || 0), 0),
-          yomiB: userProjects
+          yomiB: deduped
             .filter((p) => p.probability === 'B' && p.expected_amount)
             .reduce((sum, p) => sum + (p.expected_amount || 0), 0),
-          yomiC: userProjects
+          yomiC: deduped
             .filter((p) => p.probability === 'C' && p.expected_amount)
             .reduce((sum, p) => sum + (p.expected_amount || 0), 0),
           yomiD: 0, // Dヨミは現状DBに存在しないため0
@@ -1576,7 +1598,10 @@ export default function DashboardSummaryPage() {
         )
       })
 
-      const items: YomiModalItem[] = filtered
+      // 求職者ごとに最新1案件に絞る（重複計上防止）
+      const deduped = dedupeByCandidate(filtered)
+
+      const items: YomiModalItem[] = deduped
         .filter((p) => p.expected_amount)
         .map((p) => {
           const candidate = candidates.find((c) => c.id === p.candidate_id)
