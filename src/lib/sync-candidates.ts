@@ -32,6 +32,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
+import { computeNextNumericCandidateId } from '@/lib/candidate-next-id'
 import { rowToCandidateForSync, normalizePhone, type SpreadsheetRow } from './csv-parser'
 
 type CandidateInsert = Database['public']['Tables']['candidates']['Insert']
@@ -57,15 +58,6 @@ function hasReRegisterSuffix(name: string): boolean {
 /** 再登録行のみ re_registered_at をスプシの登録日で入れる */
 function reRegisteredAtForInsert(sheetName: string, registeredAt: string | null | undefined): string | null {
   return hasReRegisterSuffix(sheetName) ? (registeredAt ?? null) : null
-}
-
-/** 既存IDの最大+1の新IDを発行（数値でないIDは無視） */
-function getNextAvailableId(existingIds: Set<string>): string {
-  const nums = Array.from(existingIds)
-    .map((s) => parseInt(s, 10))
-    .filter((n) => !Number.isNaN(n))
-  const next = nums.length > 0 ? Math.max(...nums) + 1 : 20200001
-  return String(next)
 }
 
 function addIdToNameIndex(index: Map<string, Set<string>>, key: string, id: string): void {
@@ -210,7 +202,7 @@ export async function syncCandidatesFromRows(
         result.skippedLog.push({ id: '（新規行）', name: `${name}（同名で既に登録済み・スキップ）` })
         continue
       }
-      const newId = getNextAvailableId(existingIds)
+      const newId = computeNextNumericCandidateId(existingIds)
       const normPhone = normalizePhone(parsed.phone ?? '')
       const consultantName = (row['担当者'] ?? row['担当'] ?? '').toString().trim()
       const primaryConsultant = consultantName.split(/[・\s]/)[0]?.trim()
@@ -277,7 +269,7 @@ export async function syncCandidatesFromRows(
           continue
         }
 
-        const newId = getNextAvailableId(existingIds)
+        const newId = computeNextNumericCandidateId(existingIds)
         const normPhone = normalizePhone(parsed.phone ?? '')
         const consultantName = (row['担当者'] ?? row['担当'] ?? '').toString().trim()
         const primaryConsultant = consultantName.split(/[・\s]/)[0]?.trim()

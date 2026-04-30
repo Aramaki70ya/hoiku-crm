@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { isDemoMode } from '@/lib/supabase/config'
+import { computeNextNumericCandidateId, fetchAllCandidateIds } from '@/lib/candidate-next-id'
 
 /** 開発時のみ API レスポンスに載せる（PostgREST / Supabase のエラー形を想定） */
 function devErrorPayload(err: unknown): { details?: string; code?: string } {
@@ -214,16 +215,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '氏名は必須です' }, { status: 400 })
     }
     
-    // 新規ID生成（8桁の数字）
-    const { data: lastCandidate } = await supabase
-      .from('candidates')
-      .select('id')
-      .order('id', { ascending: false })
-      .limit(1)
-      .single()
-    
-    const lastId = lastCandidate?.id ? parseInt(lastCandidate.id) : 20200000
-    const newId = String(lastId + 1)
+    // 新規 ID は数値としての最大 + 1（TEXT の ORDER BY では桁違い ID で誤った値になり UNIQUE 違反になる）
+    const idList = await fetchAllCandidateIds(supabase)
+    const newId = computeNextNumericCandidateId(idList)
     
     const now = new Date().toISOString()
     
