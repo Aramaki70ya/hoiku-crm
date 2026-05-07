@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import Link from 'next/link'
 import { AppLayout } from '@/components/layout/app-layout'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -102,6 +102,54 @@ type YomiModalItem = {
   probability: 'A' | 'B' | 'C'
 }
 
+/** 面接状況カードの1行（氏名クリックで求職者詳細へ） */
+type InterviewStatusCaseLine = {
+  candidateId: string
+  name: string
+  yomi: string
+  amount: number
+}
+
+/** 面接状況セル：氏名のあと「Cヨミ（当月）¥40万」（金額はヨミラベルに続けて表示） */
+function InterviewStatusCaseLineView({
+  case_,
+  formatAmount,
+}: {
+  case_: InterviewStatusCaseLine
+  formatAmount: (amount: number) => string
+}) {
+  const lineTail =
+    case_.yomi && case_.amount > 0
+      ? `${case_.yomi}${formatAmount(case_.amount)}`
+      : case_.yomi
+        ? `${case_.yomi}${formatAmount(0)}`
+        : case_.amount > 0
+          ? formatAmount(case_.amount)
+          : null
+
+  return (
+    <div className="leading-snug">
+      <Link
+        href={`/candidates/${case_.candidateId}`}
+        className="text-violet-600 hover:text-violet-800 hover:underline font-medium"
+      >
+        {case_.name}
+      </Link>
+      {lineTail != null ? (
+        <> {lineTail}</>
+      ) : (
+        <span
+          className="text-slate-400"
+          title="案件にヨミ区分・金額が登録されていません。求職者詳細で確認してください。"
+        >
+          {' '}
+          —
+        </span>
+      )}
+    </div>
+  )
+}
+
 // 同一求職者の案件を1件に絞る（最新更新日時を優先）
 function dedupeByCandidate(projectList: Project[]): Project[] {
   const map = new Map<string, Project>()
@@ -116,6 +164,34 @@ function dedupeByCandidate(projectList: Project[]): Project[] {
     if (pTime > eTime) map.set(p.candidate_id, p)
   }
   return Array.from(map.values())
+}
+
+/** ヨミ見込みは「これから」の案件のみ。成約・クローズ済みは売上・別管理で見る想定 */
+const YOMI_EXCLUDED_CANDIDATE_STATUSES = new Set<string>(['内定承諾（成約）', 'クローズ（終了）'])
+
+function candidateIncludedInYomiForecast(candidateId: string, candidateById: Map<string, Candidate>): boolean {
+  const c = candidateById.get(candidateId)
+  if (!c) return true
+  return !YOMI_EXCLUDED_CANDIDATE_STATUSES.has(c.status)
+}
+
+/** 面接状況カード：「Cヨミ（当月）」／「Bヨミ（翌月）」（％表記は付けない） */
+function interviewCardYomiTierLabel(p: Project | null): string {
+  if (!p?.probability) return ''
+  const r = p.probability
+  if (r !== 'A' && r !== 'B' && r !== 'C') return ''
+  const bucket = p.probability_month === 'next' ? '翌月' : '当月'
+  return `${r}ヨミ（${bucket}）`
+}
+
+/** ヨミ数字「当月」列：翌月指定以外はすべてこちら（未設定＝当月扱い）。month_text は集計に使わない */
+function projectIsCurrentMonthYomiBucket(p: Project): boolean {
+  return p.probability_month !== 'next'
+}
+
+/** ヨミ数字「翌月」列：probability_month が翌月のものだけ */
+function projectIsNextMonthYomiBucket(p: Project): boolean {
+  return p.probability_month === 'next'
 }
 
 type SalesProgressRow = {
@@ -833,10 +909,10 @@ export default function DashboardSummaryPage() {
     const statusCases: Record<
       string,
       {
-        adjusting: Array<{ name: string; yomi: string; amount: number }>
-        scheduled: Array<{ name: string; yomi: string; amount: number }>
-        completed: Array<{ name: string; yomi: string; amount: number }>
-        offer: Array<{ name: string; yomi: string; amount: number }>
+        adjusting: InterviewStatusCaseLine[]
+        scheduled: InterviewStatusCaseLine[]
+        completed: InterviewStatusCaseLine[]
+        offer: InterviewStatusCaseLine[]
       }
     > = {}
 
@@ -857,15 +933,15 @@ export default function DashboardSummaryPage() {
         )
 
         // 同一求職者は最新のヨミ（project.updated_at）1件だけ表示するため Map で保持
-        const adjustingMap = new Map<string, { caseInfo: { name: string; yomi: string; amount: number }; updated_at: string }>()
-        const scheduledMap = new Map<string, { caseInfo: { name: string; yomi: string; amount: number }; updated_at: string }>()
-        const completedMap = new Map<string, { caseInfo: { name: string; yomi: string; amount: number }; updated_at: string }>()
-        const offerMap = new Map<string, { caseInfo: { name: string; yomi: string; amount: number }; updated_at: string }>()
+        const adjustingMap = new Map<string, { caseInfo: InterviewStatusCaseLine; updated_at: string }>()
+        const scheduledMap = new Map<string, { caseInfo: InterviewStatusCaseLine; updated_at: string }>()
+        const completedMap = new Map<string, { caseInfo: InterviewStatusCaseLine; updated_at: string }>()
+        const offerMap = new Map<string, { caseInfo: InterviewStatusCaseLine; updated_at: string }>()
 
         const setIfNewer = (
-          map: Map<string, { caseInfo: { name: string; yomi: string; amount: number }; updated_at: string }>,
+          map: Map<string, { caseInfo: InterviewStatusCaseLine; updated_at: string }>,
           candidateId: string,
-          caseInfo: { name: string; yomi: string; amount: number },
+          caseInfo: InterviewStatusCaseLine,
           updated_at: string
         ) => {
           const existing = map.get(candidateId)
@@ -877,33 +953,22 @@ export default function DashboardSummaryPage() {
         userCandidates.forEach((candidate) => {
           const candidateProjects = projects.filter((p) => p.candidate_id === candidate.id)
 
-          const sortedByUpdated = candidateProjects.length > 0
-            ? [...candidateProjects].sort((a, b) => {
-                const aTime = a.updated_at || a.created_at || ''
-                const bTime = b.updated_at || b.created_at || ''
-                return bTime.localeCompare(aTime)
-              })
-            : []
+          const sortedByUpdated =
+            candidateProjects.length > 0
+              ? [...candidateProjects].sort((a, b) => {
+                  const aTime = a.updated_at || a.created_at || ''
+                  const bTime = b.updated_at || b.created_at || ''
+                  return bTime.localeCompare(aTime)
+                })
+              : []
 
-          // ヨミ情報（probability + expected_amount）があるプロジェクトを優先
-          const yomiProject = sortedByUpdated.find(
-            (p) => p.probability && p.expected_amount
-          )
+          const yomiProject = sortedByUpdated.find((p) => p.probability && p.expected_amount)
           const latestProject = yomiProject || sortedByUpdated[0] || null
 
-          const yomiLabel = latestProject?.probability
-            ? `${latestProject.probability}ヨミ(${
-                latestProject.probability === 'A'
-                  ? '80%'
-                  : latestProject.probability === 'B'
-                  ? '50%'
-                  : latestProject.probability === 'C'
-                  ? '30%'
-                  : '10%'
-              })`
-            : ''
+          const yomiLabel = interviewCardYomiTierLabel(latestProject)
 
-          const caseInfo = {
+          const caseInfo: InterviewStatusCaseLine = {
+            candidateId: candidate.id,
             name: candidate.name,
             yomi: yomiLabel,
             amount: latestProject?.expected_amount || 0,
@@ -1335,17 +1400,10 @@ export default function DashboardSummaryPage() {
       )
   }, [])
 
-  // 選択中の翌暦月の month_text（YYYY_MM）。m は YYYY-MM の暦月 1–12 を Date の第2引数に渡すと翌月の月初になる
-  const nextMonthText = useMemo(() => {
-    const [y, m] = selectedYearMonth.split('-').map(Number)
-    const d = new Date(y, m, 1)
-    return `${d.getFullYear()}_${String(d.getMonth() + 1).padStart(2, '0')}`
-  }, [selectedYearMonth])
-
   // 実データからメンバーごとのヨミ金額を計算（当月）
   const memberYomiStats = useMemo(() => {
     const stats: Record<string, { yomiA: number; yomiB: number; yomiC: number; yomiD: number }> = {}
-    const currentMonthText = getMonthText()
+    const candidateById = new Map(candidates.map((c) => [c.id, c]))
 
     users
       .filter((u) => u.role !== 'admin' && isUserActiveInPeriod(u))
@@ -1354,11 +1412,10 @@ export default function DashboardSummaryPage() {
         const userCandidates = candidates.filter((c) => c.consultant_id === user.id)
         const userCandidateIds = new Set(userCandidates.map((c) => c.id))
         
-        // 当月のヨミのみ（probability_monthがcurrentまたは未設定、かつ month_text が当月または未設定）
         const userProjects = projects.filter((p) =>
           userCandidateIds.has(p.candidate_id) &&
-          (p.probability_month === 'current' || !p.probability_month) &&
-          (p.month_text === currentMonthText || !p.month_text)
+          candidateIncludedInYomiForecast(p.candidate_id, candidateById) &&
+          projectIsCurrentMonthYomiBucket(p)
         )
 
         // 求職者ごとに最新1案件に絞る（重複計上防止）
@@ -1379,12 +1436,13 @@ export default function DashboardSummaryPage() {
       })
     
     return stats
-  }, [users, candidates, projects, getMonthText, isUserActiveInPeriod])
+  }, [users, candidates, projects, isUserActiveInPeriod])
 
   // 実データからメンバーごとのヨミ金額を計算（翌月）
   const memberYomiStatsNext = useMemo(() => {
     const stats: Record<string, { yomiA: number; yomiB: number; yomiC: number; yomiD: number }> = {}
-    
+    const candidateById = new Map(candidates.map((c) => [c.id, c]))
+
     users
       .filter((u) => u.role !== 'admin' && isUserActiveInPeriod(u))
       .forEach((user) => {
@@ -1392,11 +1450,11 @@ export default function DashboardSummaryPage() {
         const userCandidates = candidates.filter((c) => c.consultant_id === user.id)
         const userCandidateIds = new Set(userCandidates.map((c) => c.id))
         
-        // 翌月のヨミのみ（probability_monthがnext、かつ month_text が翌月または未設定）
+        // 翌月ヨミ（probability_month === 'next'）のみ
         const userProjects = projects.filter((p) =>
           userCandidateIds.has(p.candidate_id) &&
-          p.probability_month === 'next' &&
-          (p.month_text === nextMonthText || !p.month_text)
+          candidateIncludedInYomiForecast(p.candidate_id, candidateById) &&
+          projectIsNextMonthYomiBucket(p)
         )
 
         // 求職者ごとに最新1案件に絞る（重複計上防止）
@@ -1417,7 +1475,7 @@ export default function DashboardSummaryPage() {
       })
     
     return stats
-  }, [users, candidates, projects, nextMonthText, isUserActiveInPeriod])
+  }, [users, candidates, projects, isUserActiveInPeriod])
 
   // 2課のヨミ数字（当月）- 実データ使用に変更
   const team2YomiCurrent = useMemo(() => {
@@ -1581,22 +1639,15 @@ export default function DashboardSummaryPage() {
   // 「確度で先に絞ってから dedupe」だと、別案件がより新しい A/C のとき古い B がモーダルだけ残り表と不一致になる。
   const handleOpenYomiModal = useCallback(
     (userId: string, rank: 'A' | 'B' | 'C', isCurrent: boolean) => {
-      const currentMonthText = getMonthText()
       const userCandidates = candidates.filter((c) => c.consultant_id === userId)
       const userCandidateIds = new Set(userCandidates.map((c) => c.id))
+      const candidateById = new Map(candidates.map((c) => [c.id, c]))
 
       const monthMatched = projects.filter((p) => {
         if (!userCandidateIds.has(p.candidate_id)) return false
-        if (isCurrent) {
-          return (
-            (p.probability_month === 'current' || !p.probability_month) &&
-            (p.month_text === currentMonthText || !p.month_text)
-          )
-        }
-        return (
-          p.probability_month === 'next' &&
-          (p.month_text === nextMonthText || !p.month_text)
-        )
+        if (!candidateIncludedInYomiForecast(p.candidate_id, candidateById)) return false
+        if (isCurrent) return projectIsCurrentMonthYomiBucket(p)
+        return projectIsNextMonthYomiBucket(p)
       })
 
       // テーブル集計と同じく、確度を問わず求職者ごとに最新1件だけ残してからランクで絞る
@@ -1624,7 +1675,7 @@ export default function DashboardSummaryPage() {
       setYomiModalData(items)
       setYomiModalOpen(true)
     },
-    [candidates, projects, users, getMonthText, nextMonthText]
+    [candidates, projects, users]
   )
 
   // 面接フラグを削除（面接レコードあり・なし両対応）
@@ -2090,6 +2141,10 @@ export default function DashboardSummaryPage() {
               <Calendar className="w-5 h-5 text-violet-500" />
               面接状況
             </CardTitle>
+            <CardDescription className="text-xs text-slate-600 leading-relaxed">
+              案件に<strong className="font-medium text-slate-700">登録されているランク・当月／翌月・金額</strong>
+              を表示します（例: Cヨミ（当月）¥40万）。最新更新の案件を優先し、ヨミ・金額が両方ある案件を優先します。
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
@@ -2130,10 +2185,8 @@ export default function DashboardSummaryPage() {
                         <TableCell className="text-sm text-slate-600">
                           {cases.adjusting.length > 0 ? (
                             <div className="space-y-1">
-                              {cases.adjusting.map((case_, idx) => (
-                                <div key={idx}>
-                                  {case_.name} {case_.yomi} {formatAmount(case_.amount)}
-                                </div>
+                              {cases.adjusting.map((case_) => (
+                                <InterviewStatusCaseLineView key={case_.candidateId} case_={case_} formatAmount={formatAmount} />
                               ))}
                             </div>
                           ) : (
@@ -2143,10 +2196,8 @@ export default function DashboardSummaryPage() {
                         <TableCell className="text-sm text-slate-600">
                           {cases.scheduled.length > 0 ? (
                             <div className="space-y-1">
-                              {cases.scheduled.map((case_, idx) => (
-                                <div key={idx}>
-                                  {case_.name} {case_.yomi} {formatAmount(case_.amount)}
-                                </div>
+                              {cases.scheduled.map((case_) => (
+                                <InterviewStatusCaseLineView key={case_.candidateId} case_={case_} formatAmount={formatAmount} />
                               ))}
                             </div>
                           ) : (
@@ -2156,10 +2207,8 @@ export default function DashboardSummaryPage() {
                         <TableCell className="text-sm text-slate-600">
                           {cases.completed.length > 0 ? (
                             <div className="space-y-1">
-                              {cases.completed.map((case_, idx) => (
-                                <div key={idx}>
-                                  {case_.name} {case_.yomi} {formatAmount(case_.amount)}
-                                </div>
+                              {cases.completed.map((case_) => (
+                                <InterviewStatusCaseLineView key={case_.candidateId} case_={case_} formatAmount={formatAmount} />
                               ))}
                             </div>
                           ) : (
@@ -2169,10 +2218,8 @@ export default function DashboardSummaryPage() {
                         <TableCell className="text-sm text-slate-600">
                           {cases.offer.length > 0 ? (
                             <div className="space-y-1">
-                              {cases.offer.map((case_, idx) => (
-                                <div key={idx}>
-                                  {case_.name} {case_.yomi} {formatAmount(case_.amount)}
-                                </div>
+                              {cases.offer.map((case_) => (
+                                <InterviewStatusCaseLineView key={case_.candidateId} case_={case_} formatAmount={formatAmount} />
                               ))}
                             </div>
                           ) : (
@@ -2293,6 +2340,11 @@ export default function DashboardSummaryPage() {
               <Target className="w-5 h-5 text-violet-500" />
               ヨミ数字（当月）
             </CardTitle>
+            <CardDescription className="text-xs text-slate-600 leading-relaxed">
+              <strong className="font-medium text-slate-700">成約・クローズの求職者は除外</strong>
+              。案件は<strong className="font-medium text-slate-700">翌月ヨミ以外</strong>
+              （未設定は当月扱い）を集計し、求職者ごとに最新1案件のみ。
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
@@ -2388,6 +2440,11 @@ export default function DashboardSummaryPage() {
               <Target className="w-5 h-5 text-violet-500" />
               ヨミ数字（翌月）
             </CardTitle>
+            <CardDescription className="text-xs text-slate-600 leading-relaxed">
+              当月カードと同じ除外・ dedupe で、案件の
+              <strong className="font-medium text-slate-700"> probability_month が翌月</strong>
+              のものだけを集計します。
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
