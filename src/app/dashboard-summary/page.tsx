@@ -1577,15 +1577,16 @@ export default function DashboardSummaryPage() {
   ])
 
   // ヨミ内訳モーダルを開く（当月 / 翌月 × A/B/C）
+  // memberYomiStats / memberYomiStatsNext と同じ手順にすること：
+  // 「確度で先に絞ってから dedupe」だと、別案件がより新しい A/C のとき古い B がモーダルだけ残り表と不一致になる。
   const handleOpenYomiModal = useCallback(
     (userId: string, rank: 'A' | 'B' | 'C', isCurrent: boolean) => {
       const currentMonthText = getMonthText()
       const userCandidates = candidates.filter((c) => c.consultant_id === userId)
       const userCandidateIds = new Set(userCandidates.map((c) => c.id))
 
-      const filtered = projects.filter((p) => {
+      const monthMatched = projects.filter((p) => {
         if (!userCandidateIds.has(p.candidate_id)) return false
-        if (p.probability !== rank) return false
         if (isCurrent) {
           return (
             (p.probability_month === 'current' || !p.probability_month) &&
@@ -1598,11 +1599,11 @@ export default function DashboardSummaryPage() {
         )
       })
 
-      // 求職者ごとに最新1案件に絞る（重複計上防止）
-      const deduped = dedupeByCandidate(filtered)
+      // テーブル集計と同じく、確度を問わず求職者ごとに最新1件だけ残してからランクで絞る
+      const deduped = dedupeByCandidate(monthMatched)
 
       const items: YomiModalItem[] = deduped
-        .filter((p) => p.expected_amount)
+        .filter((p) => p.probability === rank && p.expected_amount)
         .map((p) => {
           const candidate = candidates.find((c) => c.id === p.candidate_id)
           return {
