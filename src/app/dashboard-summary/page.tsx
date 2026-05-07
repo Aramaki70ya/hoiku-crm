@@ -2345,9 +2345,11 @@ export default function DashboardSummaryPage() {
               ヨミ数字（当月）
             </CardTitle>
             <CardDescription className="text-xs text-slate-600 leading-relaxed">
-              <strong className="font-medium text-slate-700">成約・クローズ・音信不通の求職者は除外</strong>
-              。案件は<strong className="font-medium text-slate-700">翌月ヨミ以外</strong>
-              （未設定は当月扱い）を集計し、求職者ごとに最新1案件のみ。
+              <strong className="font-medium text-slate-700">成約・クローズ・音信不通の求職者は含めません。</strong>
+              求職者詳細のヨミで<strong className="font-medium text-slate-700">「翌月ヨミ」になっていないもの</strong>
+              （対象月が「当月」、または未設定は当月として数える）を足しています。
+              <strong className="font-medium text-slate-700">お一人につき最新の案件1件だけ</strong>
+              カウントします。
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -2445,9 +2447,12 @@ export default function DashboardSummaryPage() {
               ヨミ数字（翌月）
             </CardTitle>
             <CardDescription className="text-xs text-slate-600 leading-relaxed">
-              当月カードと同じ除外・ dedupe で、案件の
-              <strong className="font-medium text-slate-700"> probability_month が翌月</strong>
-              のものだけを集計します。
+              左の「当月」と<strong className="font-medium text-slate-700">同じ除外ルール</strong>
+              です（成約・クローズ・音信不通の方は入りません）。
+              <strong className="font-medium text-slate-700">お一人につき、最新の案件1件だけ</strong>
+              を数えます。ここに載るのは、求職者詳細のヨミで
+              <strong className="font-medium text-slate-700">「対象月」に翌月を選んだ案件</strong>
+              だけです。
             </CardDescription>
           </CardHeader>
           <CardContent>
