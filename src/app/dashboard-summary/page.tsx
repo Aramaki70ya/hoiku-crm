@@ -166,12 +166,8 @@ function dedupeByCandidate(projectList: Project[]): Project[] {
   return Array.from(map.values())
 }
 
-/** ヨミ見込みは「これから」の案件のみ。成約・クローズ・音信不通は売上・別管理で見る想定 */
-const YOMI_EXCLUDED_CANDIDATE_STATUSES = new Set<string>([
-  '内定承諾（成約）',
-  'クローズ（終了）',
-  '音信不通',
-])
+/** ヨミ数字から除外する求職者ステータス（成約は含める。クローズ・音信不通のみ除外） */
+const YOMI_EXCLUDED_CANDIDATE_STATUSES = new Set<string>(['クローズ（終了）', '音信不通'])
 
 function candidateIncludedInYomiForecast(candidateId: string, candidateById: Map<string, Candidate>): boolean {
   const c = candidateById.get(candidateId)
@@ -2345,7 +2341,7 @@ export default function DashboardSummaryPage() {
               ヨミ数字（当月）
             </CardTitle>
             <CardDescription className="text-xs text-slate-600 leading-relaxed">
-              <strong className="font-medium text-slate-700">成約・クローズ・音信不通の求職者は除外</strong>
+              <strong className="font-medium text-slate-700">クローズ・音信不通の求職者は除外（成約は含む）</strong>
               。案件は<strong className="font-medium text-slate-700">翌月ヨミ以外</strong>
               （未設定は当月扱い）を集計し、求職者ごとに最新1案件のみ。
             </CardDescription>
