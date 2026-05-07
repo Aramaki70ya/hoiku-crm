@@ -66,7 +66,11 @@ function isNextMonthYomiBucket(p) {
 }
 
 /** ダッシュボード memberYomiStats と同じ（成約・クローズの求職者はヨミから除外） */
-const YOMI_EXCLUDED_CANDIDATE_STATUSES = new Set(['内定承諾（成約）', 'クローズ（終了）'])
+const YOMI_EXCLUDED_CANDIDATE_STATUSES = new Set([
+  '内定承諾（成約）',
+  'クローズ（終了）',
+  '音信不通',
+])
 
 function candidateIncludedInYomiForecast(candidateId, candidateById) {
   const c = candidateById.get(candidateId)
@@ -182,7 +186,7 @@ async function main() {
   console.log('=== ヨミ数字 DB 検証（ダッシュボードと同一ロジック） ===')
   console.log(`CLIの選択月 ${selectedYearMonth} は退職者フィルタ用。集計バケットは probability_month のみ（month_text は不使用）。`)
   console.log(`取得件数: users=${users.length} candidates=${candidates.length} projects=${projects.length}`)
-  console.log('（成約・クローズの求職者はヨミ集計から除外 / 求職者単位で最新1案件に dedupe）')
+  console.log('（成約・クローズ・音信不通の求職者はヨミ集計から除外 / 求職者単位で最新1案件に dedupe）')
   console.log('')
 
   const activeUsers = users
