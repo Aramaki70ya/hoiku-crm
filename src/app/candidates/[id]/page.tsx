@@ -56,6 +56,7 @@ import {
 } from '@/lib/status-mapping'
 import type { Contract, Candidate, Project, Interview, User, Source } from '@/types/database'
 import { formatDateJp, isReRegisterName } from '@/lib/candidate-display'
+import { filterUsersShownInMainCrmForCandidateDetail } from '@/lib/user-display-filter'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -141,7 +142,12 @@ export default function CandidateDetailPage({ params }: PageProps) {
 
       if (usersRes.ok) {
         const json = await usersRes.json()
-        setUsers(json.users ?? [])
+        setUsers(
+          filterUsersShownInMainCrmForCandidateDetail(
+            json.users ?? [],
+            candidateData?.consultant_id
+          )
+        )
       }
       
       let projectIds: string[] = []

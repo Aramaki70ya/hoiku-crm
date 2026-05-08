@@ -214,7 +214,7 @@ type ProgressTotals = {
   closedCount: number
 }
 
-const TEAM2_USER_IDS = ['3', '4', '7', '8', '9'] as const // 西田、鈴木、後藤、小畦、吉田
+const TEAM2_USER_IDS = ['4', '9'] as const // 鈴木、吉田（2課の現役コンサルのみ）
 
 function SalesProgressMetricsTable({
   title,
@@ -1244,7 +1244,7 @@ export default function DashboardSummaryPage() {
 
   // 担当者別「面接→成約」サマリー（登録月コホート非依存で、選択月の実績のみを集計）
   const interviewClosedSummaryOrder = useMemo(
-    () => ['吉田', '小畦', '西田', '瀧澤', '鈴木', '戸部', '後藤', '石井'],
+    () => ['吉田', '瀧澤', '鈴木', '戸部', '石井'],
     []
   )
 

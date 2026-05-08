@@ -6,6 +6,7 @@
 import { isDemoMode, hasSupabaseConfig } from './config'
 import { createClient } from './client'
 import type { Candidate, Project, Interview, User, Source, Contract, StatusHistory, Memo } from '@/types/database'
+import { filterUsersShownInMainCrm } from '@/lib/user-display-filter'
 
 // デモモード時はmock-data.tsからインポート
 let mockData: {
@@ -151,11 +152,11 @@ export async function getCandidateByIdClient(id: string): Promise<Candidate | nu
 
 export async function getUsersClient(): Promise<User[]> {
   if (isDemoMode() && mockData) {
-    return mockData.mockUsers
+    return filterUsersShownInMainCrm(mockData.mockUsers)
   }
 
   const devMock = clientDevMockBundle()
-  if (devMock) return devMock.mockUsers
+  if (devMock) return filterUsersShownInMainCrm(devMock.mockUsers)
 
   try {
     const supabase = createClient()
@@ -167,19 +168,19 @@ export async function getUsersClient(): Promise<User[]> {
     if (error) {
       logSupabaseError('users', error)
       if (mockData) {
-        return mockData.mockUsers
+        return filterUsersShownInMainCrm(mockData.mockUsers)
       }
       throw new Error(`Failed to fetch users: ${error.message}`)
     }
 
-    return data || []
+    return filterUsersShownInMainCrm(data || [])
   } catch (err) {
     logSupabaseError('users', err)
     if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
       try {
         const m = require('@/lib/mock-data')
         console.warn('Supabase接続に失敗したためモックデータで表示しています。.env.local を設定してください。')
-        return m.mockUsers ?? []
+        return filterUsersShownInMainCrm(m.mockUsers ?? [])
       } catch {
         // ignore
       }

@@ -23,7 +23,7 @@ export async function fetchAllCandidateIds(supabase: SupabaseClient<Database>): 
       .select('id')
       .range(offset, offset + PAGE_SIZE - 1)
     if (error) throw error
-    const rows = page ?? []
+    const rows = (page ?? []) as { id: string }[]
     for (const r of rows) {
       ids.push(r.id)
     }

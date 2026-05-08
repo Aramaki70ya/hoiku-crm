@@ -5,6 +5,7 @@
 
 import { createClient } from './client'
 import type { Candidate, Project, Interview, User, Source, Contract } from '@/types/database'
+import { filterUsersShownInMainCrm } from '@/lib/user-display-filter'
 
 // ========================================
 // Candidates (求職者)
@@ -57,7 +58,7 @@ export async function getUsersClient(): Promise<User[]> {
     throw new Error(`Failed to fetch users: ${error.message}`)
   }
 
-  return data || []
+  return filterUsersShownInMainCrm(data || [])
 }
 
 export async function getUserByIdClient(id: string): Promise<User | null> {

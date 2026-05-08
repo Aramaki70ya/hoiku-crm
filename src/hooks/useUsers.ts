@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import type { User } from '@/types/database'
+import { filterUsersShownInMainCrm } from '@/lib/user-display-filter'
 
 interface UseUsersResult {
   users: User[]
@@ -9,19 +10,6 @@ interface UseUsersResult {
   isLoading: boolean
   error: string | null
   refetch: () => Promise<void>
-}
-
-const hiddenUserNames = new Set(['笹嶋', '笹島'])
-
-const normalizeName = (name: string) => name.replace(/\s+/g, '')
-
-const isActiveUser = (user: User) => {
-  if (!user.retired_at) return true
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const retiredAt = new Date(user.retired_at)
-  retiredAt.setHours(0, 0, 0, 0)
-  return retiredAt >= today
 }
 
 export function useUsers(): UseUsersResult {
@@ -41,10 +29,7 @@ export function useUsers(): UseUsersResult {
       }
 
       const { users: usersData } = await res.json()
-      const activeUsers = (usersData || [])
-        .filter(isActiveUser)
-        .filter((user: User) => !hiddenUserNames.has(normalizeName(user.name)))
-      setUsers(activeUsers)
+      setUsers(filterUsersShownInMainCrm(usersData || []))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'エラーが発生しました')
       setUsers([])
