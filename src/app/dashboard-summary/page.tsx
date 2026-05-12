@@ -2120,17 +2120,6 @@ export default function DashboardSummaryPage() {
           <CardContent>
             <div className="overflow-x-auto">
               <SalesProgressMetricsTable
-                title="当月登録ベース"
-                description={`${getPeriodLabel()}に登録した求職者を母集団とし、面接・成約ともに日時を問わず母集団内の実績件数を表示します。`}
-                rows={salesProgressCurrent}
-                totals={totalProgressCurrent}
-                kpiTargetRates={targetRates}
-                formatRate={formatRate}
-                cohort="current"
-                onOpenInterview={handleOpenInterviewModal}
-                onOpenClosed={handleOpenClosedModal}
-              />
-              <SalesProgressMetricsTable
                 title="ステータス変更タイミングベース"
                 description={`担当・初回は当月登録ベースと同じです。面接・成約のみ、登録月を問わず${getPeriodLabel()}内のステータス変更・契約実績を表示します。`}
                 rows={salesProgressStatusTiming}
@@ -2138,6 +2127,17 @@ export default function DashboardSummaryPage() {
                 kpiTargetRates={targetRates}
                 formatRate={formatRate}
                 cohort="statusTiming"
+                onOpenInterview={handleOpenInterviewModal}
+                onOpenClosed={handleOpenClosedModal}
+              />
+              <SalesProgressMetricsTable
+                title="当月登録ベース"
+                description={`${getPeriodLabel()}に登録した求職者を母集団とし、面接・成約ともに日時を問わず母集団内の実績件数を表示します。`}
+                rows={salesProgressCurrent}
+                totals={totalProgressCurrent}
+                kpiTargetRates={targetRates}
+                formatRate={formatRate}
+                cohort="current"
                 onOpenInterview={handleOpenInterviewModal}
                 onOpenClosed={handleOpenClosedModal}
               />
