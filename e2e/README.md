@@ -27,7 +27,18 @@ npm run test:e2e
 - **テスト1**: ダッシュボードで吉田の「面接」の数字をクリック → モーダルが開き、一覧に「テスト 花子」が表示される
 - **テスト2**: モーダル内の「無効化」ボタンをクリック → 確認ダイアログを accept → 処理が完了する（一覧が空になるかモーダルが閉じる）
 
-## UIで手動確認する場合
+## `dashboard-summary.spec.ts`
+
+ダッシュボード（`/dashboard-summary`）が認証後に表示できる環境での回帰用です。
+
+- ブラウザに**既にログイン済み**の状態で playwright を実行すると、そのまま画面を検証します。
+- ログインページに飛ぶ場合、`E2E_LOGIN_EMAIL` と `E2E_LOGIN_PASSWORD` をセットすると自動でログインしてから検証します（CI など）。
+- **どちらも無い場合**このファイルのテストは **スキップ** されます。
+
+```bash
+E2E_LOGIN_EMAIL=your@email E2E_LOGIN_PASSWORD=secret npx playwright test e2e/dashboard-summary.spec.ts
+```
+
 
 1. `npm run dev` で起動
 2. `npm run test:seed` でテストデータ作成
