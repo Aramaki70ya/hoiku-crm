@@ -373,6 +373,7 @@ export default function CandidateDetailPage({ params }: PageProps) {
     desired_job_type: candidate?.desired_job_type || '',
     desired_employment_type: candidate?.desired_employment_type || '',
     qualification: candidate?.qualification || '',
+    registered_at: candidate?.registered_at || '',
   })
   const [isBasicInfoEditDialogOpen, setIsBasicInfoEditDialogOpen] = useState(false)
   
@@ -396,6 +397,7 @@ export default function CandidateDetailPage({ params }: PageProps) {
         desired_job_type: candidate.desired_job_type || '',
         desired_employment_type: candidate.desired_employment_type || '',
         qualification: candidate.qualification || '',
+        registered_at: candidate.registered_at || '',
       })
     }
   }, [candidate])
@@ -1139,6 +1141,15 @@ export default function CandidateDetailPage({ params }: PageProps) {
                         placeholder="例: 保育士, 幼稚園教諭"
                         value={basicInfoForm.qualification}
                         onChange={(e) => setBasicInfoForm(prev => ({ ...prev, qualification: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-registered-at">登録日</Label>
+                      <Input
+                        id="edit-registered-at"
+                        type="date"
+                        value={basicInfoForm.registered_at}
+                        onChange={(e) => setBasicInfoForm(prev => ({ ...prev, registered_at: e.target.value }))}
                       />
                     </div>
                   </div>
