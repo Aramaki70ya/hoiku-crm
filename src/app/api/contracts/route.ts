@@ -122,7 +122,10 @@ export async function GET(request: NextRequest) {
           .gte('cancelled_at', `${fromStart}T00:00:00.000Z`)
           .lt('cancelled_at', nextMonthStart)
       } else {
-        query = query.gte('accepted_date', fromStart).lte('accepted_date', toEnd)
+        query = query
+          .gte('accepted_date', fromStart)
+          .lte('accepted_date', toEnd)
+          .neq('is_cancelled', true)
       }
     }
 
