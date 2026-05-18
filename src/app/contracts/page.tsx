@@ -26,7 +26,6 @@ import type { Contract } from '@/types/database'
 import {
   buildSeiyakuNaihukuRows,
   isSeiyakuNaihukuHeader,
-  placementExportLabel,
 } from '@/lib/contracts-export'
 import {
   Trophy,
@@ -444,7 +443,7 @@ export default function ContractsPage() {
     downloadCsv(`成約内訳_${periodLabel.replace(/[〜]/g, '-')}.csv`, header, rows)
   }, [contracts, users, periodLabel])
 
-  const handleExportSalesCsv = useCallback(() => {
+  const handleExportSalesSummaryCsv = useCallback(() => {
     type CandidateWithConsultant = {
       name?: string
       consultant_id?: string
@@ -463,7 +462,6 @@ export default function ContractsPage() {
     })
     const months = [...monthsSet].sort((a, b) => a.localeCompare(b, 'ja'))
 
-    // 担当者名: APIが返す candidate.consultant を優先（退職済みで useUsers に含まれない担当も名前を出せる）
     const getConsultantName = (c: typeof contracts[number]) => {
       const candidate = (c as { candidate?: CandidateWithConsultant }).candidate
       const fromRelation = candidate?.consultant?.name?.trim()
@@ -472,12 +470,10 @@ export default function ContractsPage() {
       return users.find((u) => u.id === consultantId)?.name ?? '未担当'
     }
 
-    // 担当者一覧（五十音順）
     const consultantsSet = new Set<string>()
     contracts.forEach((c) => consultantsSet.add(getConsultantName(c)))
     const consultants = [...consultantsSet].sort((a, b) => a.localeCompare(b, 'ja'))
 
-    // ピボット集計
     const inclMap = new Map<string, number>()
     const exclMap = new Map<string, number>()
     contracts.forEach((c) => {
@@ -490,7 +486,6 @@ export default function ContractsPage() {
       exclMap.set(key, (exclMap.get(key) ?? 0) + (c.revenue_excluding_tax ?? 0))
     })
 
-    // ── サマリー CSV ──────────────────────────────────────────────
     const summaryHeader = ['担当者', ...months, '合計（税込）', '合計（税抜）']
     const summaryRows: (string | number)[][] = []
 
@@ -519,42 +514,6 @@ export default function ContractsPage() {
       `売上サマリー_${periodLabel.replace(/[〜]/g, '-')}_${ymd}.csv`,
       summaryHeader,
       summaryRows
-    )
-
-    const grandIncl = contracts.reduce((s, c) => s + (c.revenue_including_tax ?? 0), 0)
-    const grandExcl = contracts.reduce((s, c) => s + (c.revenue_excluding_tax ?? 0), 0)
-
-    // ── 入職先（成約相手）別集計 CSV ─────────────────────────────────
-    const PLACEHOLDER = '（入職先未登録）'
-    const byPlacement = new Map<string, { count: number; incl: number; excl: number }>()
-    contracts.forEach((c) => {
-      const key = placementExportLabel(c).trim() || PLACEHOLDER
-      const cur = byPlacement.get(key) ?? { count: 0, incl: 0, excl: 0 }
-      cur.count += 1
-      cur.incl += c.revenue_including_tax ?? 0
-      cur.excl += c.revenue_excluding_tax ?? 0
-      byPlacement.set(key, cur)
-    })
-    const placementRows = [...byPlacement.entries()]
-      .map(([name, v]) => ({ name, ...v }))
-      .sort((a, b) => b.incl - a.incl || a.name.localeCompare(b.name, 'ja'))
-    const placementHeader = ['入職先（成約相手）', '成約件数', '税込金額', '税抜金額']
-    const placementCsvRows: (string | number)[][] = placementRows.map((r) => [
-      r.name,
-      r.count,
-      r.incl,
-      r.excl,
-    ])
-    placementCsvRows.push([
-      `合計（${contracts.length}件）`,
-      contracts.length,
-      grandIncl,
-      grandExcl,
-    ])
-    downloadCsv(
-      `売上入職先別_${periodLabel.replace(/[〜]/g, '-')}_${ymd}.csv`,
-      placementHeader,
-      placementCsvRows
     )
   }, [contracts, users, periodLabel])
 
@@ -646,7 +605,7 @@ export default function ContractsPage() {
               size="sm"
               onClick={handleExportNaihukuCsv}
               className="gap-1.5"
-              title="スプレッドシート用: 担当・年月・求職者名・入職先・税込税抜の6列のみ。ファイル名は 成約内訳.csv です。"
+              title="担当・年月・求職者名・入職先・税込・税抜の6列。ファイル名は 成約内訳_表示期間.csv です。"
             >
               <Download className="w-4 h-4" />
               成約内訳CSV
@@ -655,9 +614,9 @@ export default function ContractsPage() {
               type="button"
               variant="outline"
               size="sm"
-              onClick={handleExportSalesCsv}
+              onClick={handleExportSalesSummaryCsv}
               className="gap-1.5"
-              title="売上サマリーと入職先別集計の2ファイルを保存します。明細は「成約内訳CSV」を使用してください。"
+              title="担当×月のピボットと合計列のみを1ファイルで保存します。ファイル名は「売上サマリー_＜表示期間＞_＜エクスポート日(YYYY-MM-DD)＞.csv」です。"
             >
               <Download className="w-4 h-4" />
               売上CSV
