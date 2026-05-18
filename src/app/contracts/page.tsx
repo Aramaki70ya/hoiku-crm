@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import Link from 'next/link'
 import { AppLayout } from '@/components/layout/app-layout'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -23,6 +23,11 @@ import {
 import { useContracts } from '@/hooks/useContracts'
 import { useUsers } from '@/hooks/useUsers'
 import type { Contract } from '@/types/database'
+import {
+  buildSeiyakuNaihukuRows,
+  isSeiyakuNaihukuHeader,
+  placementExportLabel,
+} from '@/lib/contracts-export'
 import {
   Trophy,
   Banknote,
@@ -65,17 +70,28 @@ function formatDate(dateStr: string | null): string {
   return date.toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' })
 }
 
-// 年月の選択肢を生成（過去24ヶ月）
-function generateMonthOptions() {
-  const options: { value: string; label: string }[] = []
-  const now = new Date()
-  for (let i = 0; i < 24; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-    const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-    const label = `${d.getFullYear()}年${d.getMonth() + 1}月`
-    options.push({ value, label })
-  }
-  return options
+/** YYYY-MM の月の最終日 YYYY-MM-DD（日付文字列比較用） */
+function lastDayOfMonthYmForFilter(ym: string): string {
+  const [y, m] = ym.split('-').map(Number)
+  const d = new Date(y, m, 0)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+/**
+ * ユーザーの在籍期間（created_at の日〜 retired_at の日、未退職は継続）が
+ * 選択中の表示期間 [fromYm, toYm] と重なるか
+ */
+function userActiveOverlapsPeriod(
+  u: { created_at: string; retired_at: string | null },
+  fromYm: string,
+  toYm: string
+): boolean {
+  const periodStart = `${fromYm}-01`
+  const periodEnd = lastDayOfMonthYmForFilter(toYm)
+  const userStart = u.created_at.slice(0, 10)
+  const userEnd = u.retired_at ? u.retired_at.slice(0, 10) : '9999-12-31'
+  return userStart <= periodEnd && userEnd >= periodStart
 }
 
 const REFUND_RATE_OPTIONS = [50, 80, 100] as const
@@ -93,8 +109,13 @@ function downloadCsv(filename: string, header: string[], rows: (string | number 
   const a = document.createElement('a')
   a.href = URL.createObjectURL(blob)
   a.download = filename
+  a.rel = 'noopener'
+  document.body.appendChild(a)
   a.click()
-  URL.revokeObjectURL(a.href)
+  window.setTimeout(() => {
+    document.body.removeChild(a)
+    URL.revokeObjectURL(a.href)
+  }, 100)
 }
 
 export default function ContractsPage() {
@@ -103,6 +124,8 @@ export default function ContractsPage() {
   const [fromMonth, setFromMonth] = useState(currentMonth)
   const [toMonth, setToMonth] = useState(currentMonth)
   const [selectedConsultant, setSelectedConsultant] = useState<string>('all')
+  const [monthOptions, setMonthOptions] = useState<{ value: string; label: string }[]>([])
+  const [monthsLoading, setMonthsLoading] = useState(true)
 
   const { contracts: acceptedRaw, isLoading: loadingAccepted, refetch: refetchAccepted } = useContracts({
     fromMonth,
@@ -117,18 +140,103 @@ export default function ContractsPage() {
     listMode: 'cancelled',
   })
 
-  const isLoading = loadingAccepted || loadingCancelled
-  const { users, consultants: consultantUsers } = useUsers()
+  const { users, consultants: consultantUsers, isLoading: usersLoading } = useUsers({ includeRetired: true })
 
-  /** 成約担当に管理者がいるため、一般担当＋admin を一覧に出す（重複なし） */
+  const isLoading = loadingAccepted || loadingCancelled || monthsLoading || usersLoading
+
+  /** 成約担当に管理者がいるため、一般担当＋admin を一覧に出す（重複なし）。
+   * 選択中の表示期間に在籍期間（登録〜退職）が重なる人だけ。荒巻は除外。 */
   const consultantFilterOptions = useMemo(() => {
     const m = new Map<string, (typeof users)[0]>()
     consultantUsers.forEach((u) => m.set(u.id, u))
     users.filter((u) => u.role === 'admin').forEach((u) => {
       if (!m.has(u.id)) m.set(u.id, u)
     })
-    return [...m.values()].sort((a, b) => a.name.localeCompare(b.name, 'ja'))
-  }, [users, consultantUsers])
+    return [...m.values()]
+      .filter((u) => !u.name.startsWith('荒巻'))
+      .filter((u) => userActiveOverlapsPeriod(u, fromMonth, toMonth))
+      .sort((a, b) => a.name.localeCompare(b.name, 'ja'))
+  }, [users, consultantUsers, fromMonth, toMonth])
+
+  useEffect(() => {
+    if (selectedConsultant === 'all') return
+    if (!consultantFilterOptions.some((u) => u.id === selectedConsultant)) {
+      setSelectedConsultant('all')
+    }
+  }, [consultantFilterOptions, selectedConsultant])
+
+  /** 成約担当ではないユーザーを「全員」集計・一覧から除外（名前が「荒巻」で始まるユーザー） */
+  const excludedConsultantIds = useMemo(
+    () => new Set(users.filter((u) => u.name.startsWith('荒巻')).map((u) => u.id)),
+    [users]
+  )
+
+  const acceptedFiltered = useMemo(() => {
+    if (selectedConsultant !== 'all') return acceptedRaw
+    return acceptedRaw.filter((c) => {
+      const cid = (c as { candidate?: { consultant_id?: string } }).candidate?.consultant_id
+      return !cid || !excludedConsultantIds.has(cid)
+    })
+  }, [acceptedRaw, selectedConsultant, excludedConsultantIds])
+
+  const cancelledFiltered = useMemo(() => {
+    if (selectedConsultant !== 'all') return cancelledRaw
+    return cancelledRaw.filter((c) => {
+      const cid = (c as { candidate?: { consultant_id?: string } }).candidate?.consultant_id
+      return !cid || !excludedConsultantIds.has(cid)
+    })
+  }, [cancelledRaw, selectedConsultant, excludedConsultantIds])
+
+  const loadMonthOptions = useCallback(async () => {
+    setMonthsLoading(true)
+    try {
+      const res = await fetch('/api/contracts/months-with-data')
+      if (!res.ok) throw new Error('fetch failed')
+      const json = (await res.json()) as { months?: string[] }
+      const fromApiSorted = [...(json.months ?? [])].sort()
+      const now = new Date()
+      const y = now.getFullYear()
+      const mo = now.getMonth() + 1
+      /** 暦が変わった直後でも、その月を選べるよう「今月（ユーザ端末のカレンダー）」は必ず含める */
+      const currentYm = `${y}-${String(mo).padStart(2, '0')}`
+      const months = [...new Set([...fromApiSorted, currentYm])].sort()
+      const fallbackVal = `${y}-${String(mo).padStart(2, '0')}`
+      const opts: { value: string; label: string }[] =
+        months.length > 0
+          ? months.map((ym) => {
+              const [yy, mm] = ym.split('-')
+              return { value: ym, label: `${yy}年${Number(mm)}月` }
+            })
+          : [{ value: fallbackVal, label: `${y}年${mo}月` }]
+      setMonthOptions(opts)
+    } catch {
+      const now = new Date()
+      const y = now.getFullYear()
+      const mo = now.getMonth() + 1
+      const fallbackVal = `${y}-${String(mo).padStart(2, '0')}`
+      setMonthOptions([{ value: fallbackVal, label: `${y}年${mo}月` }])
+    } finally {
+      setMonthsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadMonthOptions()
+  }, [loadMonthOptions])
+
+  useEffect(() => {
+    if (!monthOptions.length) return
+    const values = monthOptions.map((o) => o.value)
+    const last = values[values.length - 1]
+    setFromMonth((f) => (values.includes(f) ? f : last))
+    setToMonth((t) => (values.includes(t) ? t : last))
+  }, [monthOptions])
+
+  useEffect(() => {
+    if (fromMonth > toMonth) {
+      setToMonth(fromMonth)
+    }
+  }, [fromMonth, toMonth])
 
   const patchContract = useCallback(
     async (id: string, updates: Partial<Contract>) => {
@@ -141,20 +249,20 @@ export default function ContractsPage() {
         const data = await res.json()
         throw new Error(data.error || '更新に失敗しました')
       }
-      await Promise.all([refetchAccepted(), refetchCancelled()])
+      await Promise.all([refetchAccepted(), refetchCancelled(), loadMonthOptions()])
       return true
     },
-    [refetchAccepted, refetchCancelled]
+    [refetchAccepted, refetchCancelled, loadMonthOptions]
   )
 
   // 期間内の成約はレコード単位で全件表示（求職者ごとに1件に潰すと行が消えるため）
   const contracts = useMemo(() => {
-    return [...acceptedRaw].sort((a, b) => {
+    return [...acceptedFiltered].sort((a, b) => {
       const da = a.accepted_date?.slice(0, 10) ?? ''
       const db = b.accepted_date?.slice(0, 10) ?? ''
       return db.localeCompare(da)
     })
-  }, [acceptedRaw])
+  }, [acceptedFiltered])
   const [editingContractId, setEditingContractId] = useState<string | null>(null)
   const [editData, setEditData] = useState<Partial<Contract>>({})
   const [cancellingContractId, setCancellingContractId] = useState<string | null>(null)
@@ -181,8 +289,6 @@ export default function ContractsPage() {
     resignation_date: null,
     refund_rate: null,
   })
-
-  const monthOptions = generateMonthOptions()
 
   const handleStartEdit = (contract: Contract) => {
     setEditingContractId(contract.id)
@@ -296,7 +402,7 @@ export default function ContractsPage() {
     })
   }
 
-  const cancelledContracts = useMemo(() => cancelledRaw, [cancelledRaw])
+  const cancelledContracts = useMemo(() => cancelledFiltered, [cancelledFiltered])
 
   const refundSummary = useMemo(() => {
     const total = cancelledContracts.reduce((sum, c) => sum + (c.refund_amount ?? 0), 0)
@@ -329,89 +435,128 @@ export default function ContractsPage() {
     return `${fy}年${Number(fm)}月〜${ty}年${Number(tm)}月`
   }, [fromMonth, toMonth])
 
-  const handleExportCsv = useCallback(() => {
-    const ymd = new Date().toISOString().slice(0, 10)
-    const mainHeader = [
-      '氏名',
-      '担当',
-      '経由',
-      '承諾日',
-      '入社日',
-      '職種',
-      '雇用形態',
-      '売上税抜',
-      '売上税込',
-      '請求書発行',
-      '入金予定日',
-      '入金日',
-      '入職先',
-      'ステータス',
-    ]
-    const mainRows = contracts.map((contract) => {
-      const candidateData = (
-        contract as { candidate?: { name?: string; consultant_id?: string; source?: { name?: string } } }
-      ).candidate
-      const consultantIdRow = candidateData?.consultant_id
-      const consultant = users.find((u) => u.id === consultantIdRow)
-      const placement =
-        [contract.placement_company_name, contract.placement_facility_name].filter(Boolean).join(' / ') ||
-        contract.placement_company ||
-        ''
-      return [
-        candidateData?.name || '',
-        consultant?.name || '',
-        candidateData?.source?.name || '',
-        contract.accepted_date,
-        contract.entry_date || '',
-        contract.job_type || '',
-        contract.employment_type || '',
-        contract.revenue_excluding_tax,
-        contract.revenue_including_tax,
-        contract.invoice_sent_date ? '済' : '未',
-        contract.payment_scheduled_date || '',
-        contract.payment_date || '',
-        placement,
-        contract.is_cancelled ? 'キャンセル済' : contract.payment_date ? '入金済み' : '入金待ち',
-      ]
-    })
-    downloadCsv(`成約一覧_${periodLabel.replace(/[〜]/g, '-')}_${ymd}.csv`, mainHeader, mainRows)
-
-    if (cancelledContracts.length > 0) {
-      const cancelHeader = [
-        '氏名',
-        '担当',
-        '返金あり/なし',
-        '返金率',
-        '返金日',
-        '返金額',
-        '退職日',
-        '入職先',
-        '備考',
-      ]
-      const cancelRows = cancelledContracts.map((contract) => {
-        const candidateData = (contract as { candidate?: { name?: string; consultant_id?: string } }).candidate
-        const consultantIdRow = candidateData?.consultant_id
-        const consultant = users.find((u) => u.id === consultantIdRow)
-        const placement =
-          [contract.placement_company_name, contract.placement_facility_name].filter(Boolean).join(' / ') ||
-          contract.placement_company ||
-          ''
-        return [
-          candidateData?.name || '',
-          consultant?.name || '',
-          contract.refund_required ? '返金あり' : '返金なし',
-          contract.refund_rate != null ? `${contract.refund_rate}%` : '',
-          contract.refund_date || '',
-          contract.refund_amount ?? '',
-          contract.resignation_date || '',
-          placement,
-          contract.cancellation_reason || '',
-        ]
-      })
-      downloadCsv(`キャンセルリスト_${periodLabel.replace(/[〜]/g, '-')}_${ymd}.csv`, cancelHeader, cancelRows)
+  const handleExportNaihukuCsv = useCallback(() => {
+    const { header, rows } = buildSeiyakuNaihukuRows(contracts, users)
+    if (!isSeiyakuNaihukuHeader(header)) {
+      console.error('成約内訳CSV: 想定外のヘッダーです', header)
+      return
     }
-  }, [contracts, cancelledContracts, users, periodLabel])
+    downloadCsv(`成約内訳_${periodLabel.replace(/[〜]/g, '-')}.csv`, header, rows)
+  }, [contracts, users, periodLabel])
 
+  const handleExportSalesCsv = useCallback(() => {
+    type CandidateWithConsultant = {
+      name?: string
+      consultant_id?: string
+      consultant?: { name?: string } | null
+    }
+
+    const ymd = new Date().toISOString().slice(0, 10)
+
+    // 月一覧（昇順・重複なし）
+    const monthsSet = new Set<string>()
+    contracts.forEach((c) => {
+      if (c.accepted_date) {
+        const [y, m] = c.accepted_date.slice(0, 7).split('-')
+        monthsSet.add(`${y}年${Number(m)}月`)
+      }
+    })
+    const months = [...monthsSet].sort((a, b) => a.localeCompare(b, 'ja'))
+
+    // 担当者名: APIが返す candidate.consultant を優先（退職済みで useUsers に含まれない担当も名前を出せる）
+    const getConsultantName = (c: typeof contracts[number]) => {
+      const candidate = (c as { candidate?: CandidateWithConsultant }).candidate
+      const fromRelation = candidate?.consultant?.name?.trim()
+      if (fromRelation) return fromRelation
+      const consultantId = candidate?.consultant_id
+      return users.find((u) => u.id === consultantId)?.name ?? '未担当'
+    }
+
+    // 担当者一覧（五十音順）
+    const consultantsSet = new Set<string>()
+    contracts.forEach((c) => consultantsSet.add(getConsultantName(c)))
+    const consultants = [...consultantsSet].sort((a, b) => a.localeCompare(b, 'ja'))
+
+    // ピボット集計
+    const inclMap = new Map<string, number>()
+    const exclMap = new Map<string, number>()
+    contracts.forEach((c) => {
+      if (!c.accepted_date) return
+      const consultant = getConsultantName(c)
+      const [y, m] = c.accepted_date.slice(0, 7).split('-')
+      const ym = `${y}年${Number(m)}月`
+      const key = `${consultant}|${ym}`
+      inclMap.set(key, (inclMap.get(key) ?? 0) + (c.revenue_including_tax ?? 0))
+      exclMap.set(key, (exclMap.get(key) ?? 0) + (c.revenue_excluding_tax ?? 0))
+    })
+
+    // ── サマリー CSV ──────────────────────────────────────────────
+    const summaryHeader = ['担当者', ...months, '合計（税込）', '合計（税抜）']
+    const summaryRows: (string | number)[][] = []
+
+    consultants.forEach((consultant) => {
+      const inclVals = months.map((ym) => inclMap.get(`${consultant}|${ym}`) ?? 0)
+      const exclVals = months.map((ym) => exclMap.get(`${consultant}|${ym}`) ?? 0)
+      const inclTotal = inclVals.reduce((s, v) => s + v, 0)
+      const exclTotal = exclVals.reduce((s, v) => s + v, 0)
+      summaryRows.push([consultant, ...inclVals, inclTotal, exclTotal])
+    })
+
+    const colInclTotals = months.map((ym) =>
+      consultants.reduce((s, c) => s + (inclMap.get(`${c}|${ym}`) ?? 0), 0)
+    )
+    const colExclTotals = months.map((ym) =>
+      consultants.reduce((s, c) => s + (exclMap.get(`${c}|${ym}`) ?? 0), 0)
+    )
+    summaryRows.push([
+      '合計',
+      ...colInclTotals,
+      colInclTotals.reduce((s, v) => s + v, 0),
+      colExclTotals.reduce((s, v) => s + v, 0),
+    ])
+
+    downloadCsv(
+      `売上サマリー_${periodLabel.replace(/[〜]/g, '-')}_${ymd}.csv`,
+      summaryHeader,
+      summaryRows
+    )
+
+    const grandIncl = contracts.reduce((s, c) => s + (c.revenue_including_tax ?? 0), 0)
+    const grandExcl = contracts.reduce((s, c) => s + (c.revenue_excluding_tax ?? 0), 0)
+
+    // ── 入職先（成約相手）別集計 CSV ─────────────────────────────────
+    const PLACEHOLDER = '（入職先未登録）'
+    const byPlacement = new Map<string, { count: number; incl: number; excl: number }>()
+    contracts.forEach((c) => {
+      const key = placementExportLabel(c).trim() || PLACEHOLDER
+      const cur = byPlacement.get(key) ?? { count: 0, incl: 0, excl: 0 }
+      cur.count += 1
+      cur.incl += c.revenue_including_tax ?? 0
+      cur.excl += c.revenue_excluding_tax ?? 0
+      byPlacement.set(key, cur)
+    })
+    const placementRows = [...byPlacement.entries()]
+      .map(([name, v]) => ({ name, ...v }))
+      .sort((a, b) => b.incl - a.incl || a.name.localeCompare(b.name, 'ja'))
+    const placementHeader = ['入職先（成約相手）', '成約件数', '税込金額', '税抜金額']
+    const placementCsvRows: (string | number)[][] = placementRows.map((r) => [
+      r.name,
+      r.count,
+      r.incl,
+      r.excl,
+    ])
+    placementCsvRows.push([
+      `合計（${contracts.length}件）`,
+      contracts.length,
+      grandIncl,
+      grandExcl,
+    ])
+    downloadCsv(
+      `売上入職先別_${periodLabel.replace(/[〜]/g, '-')}_${ymd}.csv`,
+      placementHeader,
+      placementCsvRows
+    )
+  }, [contracts, users, periodLabel])
 
   // ローディング中の表示
   if (isLoading) {
@@ -457,7 +602,9 @@ export default function ContractsPage() {
                 ))}
               </SelectContent>
             </Select>
-            <span className="text-gray-400 text-sm">〜</span>
+            <span className="text-gray-500 text-xs shrink-0" title="表示期間の始まりと終わり">
+              から
+            </span>
             <Select
               value={toMonth}
               onValueChange={(v) => {
@@ -477,6 +624,7 @@ export default function ContractsPage() {
                 ))}
               </SelectContent>
             </Select>
+            <span className="text-gray-500 text-xs shrink-0">まで</span>
 
             <Select value={selectedConsultant} onValueChange={setSelectedConsultant}>
               <SelectTrigger className="w-[140px]">
@@ -492,9 +640,27 @@ export default function ContractsPage() {
               </SelectContent>
             </Select>
 
-            <Button type="button" variant="outline" size="sm" onClick={handleExportCsv} className="gap-1.5">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleExportNaihukuCsv}
+              className="gap-1.5"
+              title="スプレッドシート用: 担当・年月・求職者名・入職先・税込税抜の6列のみ。ファイル名は 成約内訳.csv です。"
+            >
               <Download className="w-4 h-4" />
-              CSV
+              成約内訳CSV
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleExportSalesCsv}
+              className="gap-1.5"
+              title="売上サマリーと入職先別集計の2ファイルを保存します。明細は「成約内訳CSV」を使用してください。"
+            >
+              <Download className="w-4 h-4" />
+              売上CSV
             </Button>
           </div>
         </div>
