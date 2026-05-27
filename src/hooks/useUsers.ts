@@ -2,7 +2,11 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import type { User } from '@/types/database'
-import { filterUsersShownInMainCrm, isHiddenFromCrmConsultantLists } from '@/lib/user-display-filter'
+import {
+  filterUsersShownInMainCrm,
+  isHiddenFromCrmConsultantLists,
+  isSalesConsultantUser,
+} from '@/lib/user-display-filter'
 
 export interface UseUsersOptions {
   /** true のとき退職済みユーザーも含める（成約画面など期間に応じた候補表示用） */
@@ -11,7 +15,7 @@ export interface UseUsersOptions {
 
 interface UseUsersResult {
   users: User[]
-  consultants: User[] // 管理者以外のユーザー
+  consultants: User[] // 営業メンバー
   isLoading: boolean
   error: string | null
   refetch: () => Promise<void>
@@ -54,7 +58,7 @@ export function useUsers(options: UseUsersOptions = {}): UseUsersResult {
 
   // 毎レンダーで新配列を返すと、consultant 絞り込み時に consultantFilterIds → useCandidates の fetch が連鎖する
   const consultants = useMemo(
-    () => users.filter((u: User) => u.role !== 'admin'),
+    () => users.filter(isSalesConsultantUser),
     [users],
   )
 

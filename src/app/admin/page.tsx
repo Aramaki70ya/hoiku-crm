@@ -5,7 +5,7 @@ import { AppLayout } from '@/components/layout/app-layout'
 import { AdminGuard } from '@/components/admin/AdminGuard'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Settings, Users, Database, Cog, Plus, Edit2, Trash2, KeyRound } from 'lucide-react'
+import { Settings, Users, Database, Cog, Plus, Edit2, Trash2, UserMinus, KeyRound } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -36,7 +36,7 @@ import {
 import { statusLabels } from '@/lib/status-mapping'
 import { useUsers } from '@/hooks/useUsers'
 import { useSources } from '@/hooks/useSources'
-import type { User, Source } from '@/types/database'
+import type { User, Source, UserRole } from '@/types/database'
 
 export default function AdminPage() {
   return (
@@ -304,7 +304,7 @@ function UserManagementTab() {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
-    role: 'user' as 'admin' | 'user',
+    role: 'user' as UserRole,
   })
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
 
@@ -356,7 +356,7 @@ function UserManagementTab() {
     setIsEditDialogOpen(true)
   }
 
-  const handleDeleteUser = (user: User) => {
+  const handleRetireUser = (user: User) => {
     setSelectedUser(user)
     setIsDeleteDialogOpen(true)
   }
@@ -443,18 +443,19 @@ function UserManagementTab() {
       })
 
       if (!response.ok) {
-        const message = await readErrorMessage(response, 'ユーザーの削除に失敗しました')
+        const message = await readErrorMessage(response, 'ユーザーの退職処理に失敗しました')
         setSaveMessage({ type: 'error', text: message })
         return
       }
 
-      setUsers(users.filter(u => u.id !== selectedUser.id))
+      const data = await response.json()
+      setUsers(users.map(userItem => (userItem.id === selectedUser.id ? data.user : userItem)))
       setIsDeleteDialogOpen(false)
       setSelectedUser(null)
-      setSaveMessage({ type: 'success', text: 'ユーザーを削除しました' })
+      setSaveMessage({ type: 'success', text: 'ユーザーを退職扱いにしました。過去実績は残ります' })
       setTimeout(() => setSaveMessage(null), 3000)
     } catch {
-      setSaveMessage({ type: 'error', text: 'ユーザーの削除に失敗しました' })
+      setSaveMessage({ type: 'error', text: 'ユーザーの退職処理に失敗しました' })
     }
   }
 
@@ -524,6 +525,7 @@ function UserManagementTab() {
                   <TableHead className="text-slate-600 font-semibold">氏名</TableHead>
                   <TableHead className="text-slate-600 font-semibold">メールアドレス</TableHead>
                   <TableHead className="text-slate-600 font-semibold">ロール</TableHead>
+                  <TableHead className="text-slate-600 font-semibold">状態</TableHead>
                   <TableHead className="text-slate-600 font-semibold">作成日</TableHead>
                   <TableHead className="text-slate-600 font-semibold w-32">操作</TableHead>
                 </TableRow>
@@ -537,11 +539,24 @@ function UserManagementTab() {
                       <Badge 
                         variant="outline" 
                         className={user.role === 'admin' 
-                          ? 'bg-violet-100 text-violet-700 border-violet-200' 
+                          ? 'bg-violet-100 text-violet-700 border-violet-200'
+                          : user.role === 'viewer'
+                          ? 'bg-slate-50 text-slate-500 border-slate-200'
                           : 'bg-slate-100 text-slate-700 border-slate-200'
                         }
                       >
-                        {user.role === 'admin' ? '管理者' : '一般ユーザー'}
+                        {user.role === 'admin' ? '管理者' : user.role === 'viewer' ? '閲覧のみ' : '営業メンバー'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant="outline"
+                        className={user.retired_at
+                          ? 'bg-amber-50 text-amber-700 border-amber-200'
+                          : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        }
+                      >
+                        {user.retired_at ? `退職 ${user.retired_at}` : '在籍中'}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-slate-500 text-sm">{user.created_at}</TableCell>
@@ -567,10 +582,12 @@ function UserManagementTab() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleDeleteUser(user)}
+                          onClick={() => handleRetireUser(user)}
                           className="h-8 w-8 p-0 text-slate-400 hover:text-rose-600"
+                          title="退職扱いにする"
+                          disabled={!!user.retired_at}
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <UserMinus className="w-4 h-4" />
                         </Button>
                       </div>
                     </TableCell>
@@ -613,12 +630,13 @@ function UserManagementTab() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="add-role">ロール</Label>
-              <Select value={formData.role} onValueChange={(value: 'admin' | 'user') => setFormData({ ...formData, role: value })}>
+              <Select value={formData.role} onValueChange={(value: UserRole) => setFormData({ ...formData, role: value })}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="user">一般ユーザー</SelectItem>
+                  <SelectItem value="user">営業メンバー</SelectItem>
+                  <SelectItem value="viewer">閲覧のみ</SelectItem>
                   <SelectItem value="admin">管理者</SelectItem>
                 </SelectContent>
               </Select>
@@ -677,12 +695,13 @@ function UserManagementTab() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-role">ロール</Label>
-              <Select value={formData.role} onValueChange={(value: 'admin' | 'user') => setFormData({ ...formData, role: value })}>
+              <Select value={formData.role} onValueChange={(value: UserRole) => setFormData({ ...formData, role: value })}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="user">一般ユーザー</SelectItem>
+                  <SelectItem value="user">営業メンバー</SelectItem>
+                  <SelectItem value="viewer">閲覧のみ</SelectItem>
                   <SelectItem value="admin">管理者</SelectItem>
                 </SelectContent>
               </Select>
@@ -707,13 +726,13 @@ function UserManagementTab() {
         </DialogContent>
       </Dialog>
 
-      {/* 削除確認ダイアログ */}
+      {/* 退職確認ダイアログ */}
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
-            <DialogTitle>ユーザー削除</DialogTitle>
+            <DialogTitle>ユーザーを退職扱いにする</DialogTitle>
             <DialogDescription>
-              {selectedUser?.name}を削除してもよろしいですか？この操作は取り消せません。
+              {selectedUser?.name}さんを退職扱いにします。ユーザー行は残るため、過去の担当・成約・ダッシュボード実績は消えません。
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -724,7 +743,7 @@ function UserManagementTab() {
               onClick={handleConfirmDelete}
               className="bg-rose-600 hover:bg-rose-700 text-white"
             >
-              削除
+              退職扱いにする
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1204,4 +1223,3 @@ function SystemSettingsTab() {
     </div>
   )
 }
-

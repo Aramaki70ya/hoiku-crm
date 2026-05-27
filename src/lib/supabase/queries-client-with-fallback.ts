@@ -189,6 +189,45 @@ export async function getUsersClient(): Promise<User[]> {
   }
 }
 
+export async function getUsersIncludingHiddenClient(): Promise<User[]> {
+  if (isDemoMode() && mockData) {
+    return mockData.mockUsers
+  }
+
+  const devMock = clientDevMockBundle()
+  if (devMock) return devMock.mockUsers
+
+  try {
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .order('name')
+
+    if (error) {
+      logSupabaseError('users', error)
+      if (mockData) {
+        return mockData.mockUsers
+      }
+      throw new Error(`Failed to fetch users: ${error.message}`)
+    }
+
+    return data || []
+  } catch (err) {
+    logSupabaseError('users', err)
+    if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+      try {
+        const m = loadMockBundle()
+        console.warn('Supabase接続に失敗したためモックデータで表示しています。.env.local を設定してください。')
+        return m.mockUsers ?? []
+      } catch {
+        // ignore
+      }
+    }
+    throw err instanceof Error ? err : new Error(`Failed to fetch users: ${String(err)}`)
+  }
+}
+
 export async function getUserByIdClient(id: string): Promise<User | null> {
   if (isDemoMode() && mockData) {
     return mockData.mockUsers.find(u => u.id === id) || null

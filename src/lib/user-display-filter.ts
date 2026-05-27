@@ -11,12 +11,25 @@ export const CRM_HIDDEN_DISPLAY_NAMES = new Set([
   '西田',
 ])
 
+export const CRM_VIEWER_DISPLAY_NAMES = new Set([
+  '笹嶋',
+  '笹島',
+])
+
 export function normalizeUserDisplayName(name: string): string {
   return name.replace(/\s+/g, '')
 }
 
 export function isHiddenFromCrmConsultantLists(name: string): boolean {
   return CRM_HIDDEN_DISPLAY_NAMES.has(normalizeUserDisplayName(name))
+}
+
+export function isViewerOnlyDisplayName(name: string): boolean {
+  return CRM_VIEWER_DISPLAY_NAMES.has(normalizeUserDisplayName(name))
+}
+
+export function isSalesConsultantUser(user: User): boolean {
+  return user.role === 'user' && !isViewerOnlyDisplayName(user.name)
 }
 
 export function isUserActiveForCrm(user: User): boolean {
@@ -31,6 +44,8 @@ export function isUserActiveForCrm(user: User): boolean {
 /** 一覧・ダッシュボード・担当フィルタなどで使うユーザー一覧用（/admin は API 全件のまま） */
 export function filterUsersShownInMainCrm(users: User[]): User[] {
   return users
+    .filter((u) => u.role !== 'viewer')
+    .filter((u) => !isViewerOnlyDisplayName(u.name))
     .filter(isUserActiveForCrm)
     .filter((u) => !isHiddenFromCrmConsultantLists(u.name))
 }

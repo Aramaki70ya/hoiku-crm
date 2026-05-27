@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getAuthContext, isAdminUser } from '@/lib/auth/server'
 import type { User } from '@/types/database'
+import type { UserRole } from '@/types/database'
 
 interface UserPayload {
   name?: string
   email?: string
-  role?: 'admin' | 'user'
+  role?: UserRole
 }
 
 function validateUserPayload(payload: UserPayload) {
@@ -20,7 +21,7 @@ function validateUserPayload(payload: UserPayload) {
   if (!emailValid) {
     return '有効なメールアドレスを入力してください'
   }
-  if (payload.role !== 'admin' && payload.role !== 'user') {
+  if (payload.role !== 'admin' && payload.role !== 'user' && payload.role !== 'viewer') {
     return 'ロールが不正です'
   }
   return null

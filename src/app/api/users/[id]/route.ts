@@ -1,18 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getAuthContext, isAdminUser } from '@/lib/auth/server'
+import type { UserRole } from '@/types/database'
 
 interface UpdatePayload {
   name?: string
   email?: string
-  role?: 'admin' | 'user'
+  role?: UserRole
 }
 
 function validateUpdatePayload(payload: UpdatePayload) {
   if (payload.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.email)) {
     return '有効なメールアドレスを入力してください'
   }
-  if (payload.role && payload.role !== 'admin' && payload.role !== 'user') {
+  if (payload.role && payload.role !== 'admin' && payload.role !== 'user' && payload.role !== 'viewer') {
     return 'ロールが不正です'
   }
   return null
@@ -75,12 +76,18 @@ export async function DELETE(
     return NextResponse.json({ message: '権限がありません' }, { status: 403 })
   }
 
+  const retiredAt = new Date().toISOString().slice(0, 10)
   const supabase = await createClient()
-  const { error } = await supabase.from('users').delete().eq('id', id)
+  const { data, error } = await supabase
+    .from('users')
+    .update({ retired_at: retiredAt })
+    .eq('id', id)
+    .select('*')
+    .single()
 
   if (error) {
     return NextResponse.json({ message: error.message }, { status: 500 })
   }
 
-  return new NextResponse(null, { status: 204 })
+  return NextResponse.json({ user: data, message: 'ユーザーを退職扱いにしました' })
 }

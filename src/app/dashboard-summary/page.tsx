@@ -47,12 +47,13 @@ import {
   getCandidatesClient as getCandidates,
   getProjectsClient as getProjects,
   getContractsClient as getContracts,
-  getUsersClient as getUsers,
+  getUsersIncludingHiddenClient as getUsers,
   getInterviewsClient as getInterviews,
   getStatusHistoryClient as getStatusHistory,
   getMemosClient as getMemos,
 } from '@/lib/supabase/queries-client-with-fallback'
 import { INTERVIEW_SET_STATUSES } from '@/lib/status-mapping'
+import { isHiddenFromCrmConsultantLists, isSalesConsultantUser } from '@/lib/user-display-filter'
 import type { Candidate, Project, Interview, User, Contract, StatusHistory, Memo } from '@/types/database'
 import {
   BarChart,
@@ -750,10 +751,10 @@ export default function DashboardSummaryPage() {
     })
   }, [contracts, periodDates])
 
-  // 期間内成約の売上合計（目標数値・成約単価実績用）
+  // 期間内成約の税抜売上合計（目標数値・成約単価実績用）
   const periodTotalSales = useMemo(() => {
     return periodContracts.reduce(
-      (sum, c) => sum + (c.revenue_including_tax ?? c.revenue_excluding_tax ?? 0),
+      (sum, c) => sum + (c.revenue_excluding_tax ?? 0),
       0
     )
   }, [periodContracts])
@@ -948,7 +949,7 @@ export default function DashboardSummaryPage() {
 
     // 各担当者ごとに集計
     users
-      .filter((u) => u.role !== 'admin')
+      .filter(isSalesConsultantUser)
       .forEach((user) => {
         const userCandidates = candidates.filter(
           (c) => c.consultant_id === user.id && INTERVIEW_RELEVANT_STATUSES.includes(c.status)
@@ -1035,6 +1036,41 @@ export default function DashboardSummaryPage() {
     // 選択期間の開始日より前に退職した場合は非表示（退職日が期間開始日より前なら非表示）
     return retiredDate >= periodStart
   }, [periodDates])
+
+  const dashboardVisibleUserIds = useMemo(() => {
+    const ids = new Set<string>()
+
+    const addCandidateConsultant = (candidateId: string) => {
+      const candidate = candidateById.get(candidateId)
+      if (candidate?.consultant_id) ids.add(candidate.consultant_id)
+    }
+
+    periodCandidates.forEach((candidate) => {
+      if (candidate.consultant_id) ids.add(candidate.consultant_id)
+    })
+    priorRegistrationCandidates.forEach((candidate) => {
+      if (candidate.consultant_id) ids.add(candidate.consultant_id)
+    })
+    periodContracts.forEach((contract) => addCandidateConsultant(contract.candidate_id))
+    periodClosedStatusCandidateIds.forEach(addCandidateConsultant)
+
+    users.forEach((user) => {
+      if (!isHiddenFromCrmConsultantLists(user.name)) ids.add(user.id)
+    })
+
+    return ids
+  }, [
+    candidateById,
+    periodCandidates,
+    periodClosedStatusCandidateIds,
+    periodContracts,
+    priorRegistrationCandidates,
+    users,
+  ])
+
+  const shouldShowDashboardUser = useCallback((user: User) => {
+    return dashboardVisibleUserIds.has(user.id)
+  }, [dashboardVisibleUserIds])
 
   // 期間内に活動したユーザーID（ステータス変更 or メモ作成）
   const periodActiveUserIds = useMemo(() => {
@@ -1127,7 +1163,7 @@ export default function DashboardSummaryPage() {
     const priorClosedCounts = countClosedByConsultant('prior')
 
     const base = users
-      .filter((u) => u.role !== 'admin' && isUserActiveInPeriod(u))
+      .filter((u) => isSalesConsultantUser(u) && isUserActiveInPeriod(u) && shouldShowDashboardUser(u))
       .map((user) => {
         const userPeriod = periodCandidates.filter((c) => c.consultant_id === user.id)
         const userPreRaw = priorRegistrationCandidates.filter((c) => c.consultant_id === user.id)
@@ -1193,6 +1229,7 @@ export default function DashboardSummaryPage() {
     periodCandidateIdSet,
     priorRegistrationCandidateIdSet,
     isUserActiveInPeriod,
+    shouldShowDashboardUser,
     periodActiveUserIds,
     priorPeriodActiveUserIds,
     priorPeriodDates,
@@ -1345,7 +1382,7 @@ export default function DashboardSummaryPage() {
     }
 
     return users
-      .filter((u) => u.role !== 'admin' && isUserActiveInPeriod(u))
+      .filter((u) => isSalesConsultantUser(u) && isUserActiveInPeriod(u) && shouldShowDashboardUser(u))
       .map((u) => {
         const interviewCount = interviewCounts.get(u.id) ?? 0
         const closedCount = closedCounts.get(u.id) ?? 0
@@ -1375,6 +1412,7 @@ export default function DashboardSummaryPage() {
     candidateById,
     interviewClosedSummaryOrder,
     periodContracts,
+    shouldShowDashboardUser,
   ])
 
   const salesProgressStatusTiming = useMemo(() => {
@@ -1450,7 +1488,7 @@ export default function DashboardSummaryPage() {
     const candidateById = new Map(candidates.map((c) => [c.id, c]))
 
     users
-      .filter((u) => u.role !== 'admin' && isUserActiveInPeriod(u))
+      .filter((u) => isSalesConsultantUser(u) && isUserActiveInPeriod(u) && shouldShowDashboardUser(u))
       .forEach((user) => {
         // このユーザーの担当求職者に紐づく案件からヨミ金額を集計
         const userCandidates = candidates.filter((c) => c.consultant_id === user.id)
@@ -1480,7 +1518,7 @@ export default function DashboardSummaryPage() {
       })
     
     return stats
-  }, [users, candidates, projects, isUserActiveInPeriod])
+  }, [users, candidates, projects, isUserActiveInPeriod, shouldShowDashboardUser])
 
   // 実データからメンバーごとのヨミ金額を計算（翌月）
   const memberYomiStatsNext = useMemo(() => {
@@ -1488,7 +1526,7 @@ export default function DashboardSummaryPage() {
     const candidateById = new Map(candidates.map((c) => [c.id, c]))
 
     users
-      .filter((u) => u.role !== 'admin' && isUserActiveInPeriod(u))
+      .filter((u) => isSalesConsultantUser(u) && isUserActiveInPeriod(u) && shouldShowDashboardUser(u))
       .forEach((user) => {
         // このユーザーの担当求職者に紐づく案件からヨミ金額を集計
         const userCandidates = candidates.filter((c) => c.consultant_id === user.id)
@@ -1519,7 +1557,7 @@ export default function DashboardSummaryPage() {
       })
     
     return stats
-  }, [users, candidates, projects, isUserActiveInPeriod])
+  }, [users, candidates, projects, isUserActiveInPeriod, shouldShowDashboardUser])
 
   /** 主要実績サマリー用：当月ヨミを面接フェーズ3ステータスに限定 */
   const summaryCardMemberYomiCurrent = useMemo(() => {
@@ -1527,7 +1565,7 @@ export default function DashboardSummaryPage() {
     const candidateById = new Map(candidates.map((c) => [c.id, c]))
 
     users
-      .filter((u) => u.role !== 'admin' && isUserActiveInPeriod(u))
+      .filter((u) => isSalesConsultantUser(u) && isUserActiveInPeriod(u) && shouldShowDashboardUser(u))
       .forEach((user) => {
         const userCandidates = candidates.filter((c) => c.consultant_id === user.id)
         const userCandidateIds = new Set(userCandidates.map((c) => c.id))
@@ -1556,10 +1594,10 @@ export default function DashboardSummaryPage() {
       })
 
     return stats
-  }, [users, candidates, projects, isUserActiveInPeriod])
+  }, [users, candidates, projects, isUserActiveInPeriod, shouldShowDashboardUser])
 
   const summaryCardYomiCurrent = useMemo(() => {
-    const activeUsers = users.filter((u) => u.role !== 'admin' && isUserActiveInPeriod(u))
+    const activeUsers = users.filter((u) => isSalesConsultantUser(u) && isUserActiveInPeriod(u) && shouldShowDashboardUser(u))
     return activeUsers.reduce(
       (acc, user) => {
         const userStats = summaryCardMemberYomiCurrent[user.id] || { yomiA: 0, yomiB: 0, yomiC: 0, yomiD: 0 }
@@ -1572,7 +1610,7 @@ export default function DashboardSummaryPage() {
       },
       { yomiA: 0, yomiB: 0, yomiC: 0, yomiD: 0 }
     )
-  }, [users, summaryCardMemberYomiCurrent, isUserActiveInPeriod])
+  }, [users, summaryCardMemberYomiCurrent, isUserActiveInPeriod, shouldShowDashboardUser])
 
   const summaryCardYomiCurrentTotal =
     summaryCardYomiCurrent.yomiA + summaryCardYomiCurrent.yomiB + summaryCardYomiCurrent.yomiC
@@ -1940,7 +1978,7 @@ export default function DashboardSummaryPage() {
                   <p className="text-sm font-medium text-emerald-700">売上合計</p>
                 </div>
                 <p className="text-3xl font-bold text-emerald-600 leading-tight">{formatAmount(periodTotalSales)}</p>
-                <p className="text-xs text-slate-500 mt-auto pt-3">期間内の成約売上</p>
+                <p className="text-xs text-slate-500 mt-auto pt-3">期間内の成約売上（税抜）</p>
               </div>
 
               <div className="p-4 rounded-xl bg-gradient-to-br from-violet-50 to-purple-50 border border-violet-100 flex flex-col">
@@ -2411,7 +2449,7 @@ export default function DashboardSummaryPage() {
                 </TableHeader>
                 <TableBody>
                   {users
-                    .filter((u) => u.role !== 'admin' && isUserActiveInPeriod(u))
+                    .filter((u) => isSalesConsultantUser(u) && isUserActiveInPeriod(u) && shouldShowDashboardUser(u))
                     .map((user) => {
                       const progress = salesProgressCurrent.find((p) => p.userId === user.id)
                       const totalCount = progress?.totalCount || 0
@@ -2514,7 +2552,7 @@ export default function DashboardSummaryPage() {
                 </TableHeader>
                 <TableBody>
                   {users
-                    .filter((u) => u.role !== 'admin' && isUserActiveInPeriod(u))
+                    .filter((u) => isSalesConsultantUser(u) && isUserActiveInPeriod(u) && shouldShowDashboardUser(u))
                     .map((user) => {
                       const progress = salesProgressCurrent.find((p) => p.userId === user.id)
                       const totalCount = progress?.totalCount || 0

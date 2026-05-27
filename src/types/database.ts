@@ -165,11 +165,13 @@ export type InterviewStatus =
   | '調整中'
 
 // ユーザー（コンサルタント）
+export type UserRole = 'admin' | 'user' | 'viewer'
+
 export interface User {
   id: string
   email: string
   name: string
-  role: 'admin' | 'user'
+  role: UserRole
   retired_at: string | null // 退職日（nullは現役）
   created_at: string
 }
@@ -348,4 +350,3 @@ export interface UserMonthlyTarget {
 export interface UserMonthlyTargetWithRelations extends UserMonthlyTarget {
   user?: User
 }
-

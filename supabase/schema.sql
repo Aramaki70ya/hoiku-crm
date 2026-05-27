@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   email TEXT UNIQUE NOT NULL,
   name TEXT NOT NULL,
-  role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('admin', 'user')),
+  role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('admin', 'user', 'viewer')),
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -239,4 +239,3 @@ CREATE INDEX IF NOT EXISTS idx_interviews_start ON interviews(start_at);
 CREATE INDEX IF NOT EXISTS idx_contracts_candidate ON contracts(candidate_id);
 CREATE INDEX IF NOT EXISTS idx_contracts_accepted_date ON contracts(accepted_date);
 CREATE INDEX IF NOT EXISTS idx_contracts_payment_date ON contracts(payment_date);
-

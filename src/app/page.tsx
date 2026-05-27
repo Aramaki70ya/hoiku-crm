@@ -407,9 +407,7 @@ export default function DashboardPage() {
   const periodClosedWonCount = periodContracts.length
 
   // 成約統計（期間内）
-  const periodTotalSales = periodContracts.reduce((sum, c) => sum + (c.revenue_including_tax || 0), 0)
-  // 売上表示用：税抜（税込÷1.1、消費税10%想定）
-  const periodTotalSalesExcludingTax = Math.round(periodTotalSales / 1.1)
+  const periodTotalSalesExcludingTax = periodContracts.reduce((sum, c) => sum + (c.revenue_excluding_tax || 0), 0)
 
   // 実際の転換率（期間内のデータを使用）
   const actualFirstContactRate = periodRegistrations > 0 ? (periodFirstContacts / periodRegistrations) * 100 : 0
@@ -417,7 +415,7 @@ export default function DashboardPage() {
   const actualClosedRate = periodInterviewCandidates > 0 ? (periodClosedWonCount / periodInterviewCandidates) * 100 : 0
   
   // 実績の成約単価（期間内のデータを使用）
-  const actualRevenuePerClosed = periodClosedWonCount > 0 ? periodTotalSales / periodClosedWonCount : 0
+  const actualRevenuePerClosed = periodClosedWonCount > 0 ? periodTotalSalesExcludingTax / periodClosedWonCount : 0
 
   // A/Bヨミの計算（projectsから、期間に応じたフィルタリング）
   const totalYomiA = useMemo(() => {
